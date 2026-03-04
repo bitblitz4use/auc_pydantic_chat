@@ -26,6 +26,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<HocuspocusProvider | null>(null);
   const collabServiceRef = useRef<CollabService | null>(null);
+  const collabConnectedRef = useRef<boolean>(false); // Track if we've connected
 
   // Load list of available documents
   const loadDocuments = useCallback(async () => {
@@ -82,10 +83,24 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
 
     return () => {
       console.log("🧹 Cleanup");
+      
+      // Disconnect CollabService before destroying
+      if (collabServiceRef.current && collabConnectedRef.current) {
+        try {
+          collabServiceRef.current.disconnect();
+          console.log("🔌 CollabService disconnected");
+        } catch (error) {
+          // Ignore errors during cleanup
+          console.warn("Error disconnecting CollabService:", error);
+        }
+      }
+      
       provider?.destroy();
       ydoc?.destroy();
       ydocRef.current = null;
       providerRef.current = null;
+      collabServiceRef.current = null;
+      collabConnectedRef.current = false; // Reset connected flag
       setConnectionStatus("disconnected");
     };
   }, [currentDocumentName, loadDocuments]);
@@ -128,22 +143,46 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   // Connect CollabService after editor is ready
   useEffect(() => {
     // Only try to connect if we're synced and have a CollabService
-    if (loading || connectionStatus !== "synced" || !collabServiceRef.current) return;
+    // AND we haven't already connected (prevent multiple connect() calls)
+    if (loading || connectionStatus !== "synced" || !collabServiceRef.current || collabConnectedRef.current) return;
     
     const editor = get();
     if (!editor) return;
 
     console.log("🔗 Editor ready, connecting CollabService...");
     
-    // Connect the CollabService directly from the ref
-    // We need to bind the context first
-    editor.action((ctx) => {
-      const collabService = collabServiceRef.current;
-      if (collabService) {
-        collabService.bindCtx(ctx).connect();
-        console.log("✅ CollabService connected");
+    let isCancelled = false;
+    
+    // Connect the CollabService with the editor context
+    // Use setTimeout to ensure all plugins are fully initialized
+    const timeoutId = setTimeout(() => {
+      // Don't connect if the effect was cleaned up (document switched)
+      if (isCancelled) return;
+      
+      try {
+        const currentEditor = get();
+        const collabService = collabServiceRef.current;
+        
+        // Verify editor and service are still valid
+        if (!currentEditor || !collabService) return;
+        
+        currentEditor.action((ctx) => {
+          collabService
+            .bindCtx(ctx)
+            .connect();
+          collabConnectedRef.current = true; // Mark as connected
+          
+          console.log("✅ CollabService connected");
+        });
+      } catch (error) {
+        console.error("❌ Failed to connect CollabService:", error);
       }
-    });
+    }, 0);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [loading, connectionStatus, get]);
 
   // Switch to a different document

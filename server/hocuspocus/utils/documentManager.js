@@ -26,11 +26,11 @@ export async function listDocuments() {
     const stream = minioClient.listObjects(BUCKET_NAME, 'documents/', true);
     
     for await (const obj of stream) {
-      if (obj.name && obj.name.endsWith('.ydoc')) {
+      if (obj.name && obj.name.endsWith('.bin')) {
         // Extract document name from path (e.g., "documents/my-doc.ydoc" -> "my-doc")
         const docName = obj.name
           .replace('documents/', '')
-          .replace('.ydoc', '');
+          .replace('.bin', '');
         objectsList.push({
           name: docName,
           size: obj.size,
