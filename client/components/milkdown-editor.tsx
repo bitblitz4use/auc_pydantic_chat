@@ -1,160 +1,202 @@
 "use client";
 
-import { Crepe } from "@milkdown/crepe";
+import { Editor, rootCtx } from "@milkdown/kit/core";
+import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { collab, collabServiceCtx, CollabService } from "@milkdown/plugin-collab";
+import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 
-// Document name - you can make this dynamic based on your needs
-const DOCUMENT_NAME = "shared-document";
+// API base URL
+const API_BASE = "http://127.0.0.1:3001";
 
-export function MilkdownEditor() {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const crepeRef = useRef<Crepe | null>(null);
+// Props for the editor component
+interface MilkdownEditorProps {
+  documentName?: string; // Optional: if not provided, will use default or prompt
+}
+
+function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorProps) {
+  const [connectionStatus, setConnectionStatus] = useState<"disconnected" | "connecting" | "connected" | "synced">("disconnected");
+  const [currentDocumentName, setCurrentDocumentName] = useState<string>(propDocumentName || "shared-document");
+  const [availableDocuments, setAvailableDocuments] = useState<Array<{ name: string; size: number; lastModified: Date }>>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  
+  // These refs will be passed to the editor
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<HocuspocusProvider | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<"disconnected" | "connecting" | "connected" | "synced">("disconnected");
+  const collabServiceRef = useRef<CollabService | null>(null);
 
-  // Connect to Hocuspocus server
-  const connect = useCallback(() => {
-    if (providerRef.current && isConnected) {
-      console.log("Already connected");
-      return;
-    }
-
-    if (!ydocRef.current) {
-      console.warn("Yjs document not initialized");
-      return;
-    }
-
-    if (!providerRef.current) {
-      setConnectionStatus("connecting");
-
-      // Create Hocuspocus provider
-      const provider = new HocuspocusProvider({
-        url: "ws://127.0.0.1:1234",
-        name: DOCUMENT_NAME,
-        document: ydocRef.current,
-        onConnect: () => {
-          console.log("🔮 Connected to Hocuspocus server");
-          setIsConnected(true);
-          setConnectionStatus("connected");
-        },
-        onDisconnect: ({ event }) => {
-          console.log("👋 Disconnected from Hocuspocus server", event);
-          setIsConnected(false);
-          setConnectionStatus("disconnected");
-        },
-        onSynced: ({ state }) => {
-          console.log("✅ Document synced", state);
-          setConnectionStatus("synced");
-        },
-        onStatus: ({ status }) => {
-          console.log("📊 Connection status:", status);
-        },
-      });
-
-      providerRef.current = provider;
-    } else {
-      // Reconnect if provider exists but disconnected
-      providerRef.current.connect();
-    }
-  }, [isConnected]);
-
-  // Disconnect from Hocuspocus server
-  const disconnect = useCallback(() => {
-    if (providerRef.current) {
-      providerRef.current.disconnect();
-      setIsConnected(false);
-      setConnectionStatus("disconnected");
-      console.log("🔌 Manually disconnected from server");
+  // Load list of available documents
+  const loadDocuments = useCallback(async () => {
+    setIsLoadingDocuments(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/documents`);
+      const data = await response.json();
+      setAvailableDocuments(data.documents || []);
+    } catch (error) {
+      console.error("Failed to load documents:", error);
+    } finally {
+      setIsLoadingDocuments(false);
     }
   }, []);
 
+  // Load documents list on mount
   useEffect(() => {
-    if (!editorRef.current) return;
+    loadDocuments();
+  }, [loadDocuments]);
+
+  // Initialize Yjs document and Hocuspocus provider
+  useEffect(() => {
+    console.log("🚀 Initializing for document:", currentDocumentName);
+    setConnectionStatus("connecting");
 
     // Create Yjs document
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
 
-    // Initialize Crepe editor
-    // Note: To fully integrate the collab plugin, you may need to:
-    // 1. Check if Crepe supports plugins in its configuration
-    // 2. Or access the underlying Milkdown editor instance and configure collab there
-    // 3. The collab plugin from @milkdown/plugin-collab needs to be configured with the Yjs document
-    const crepe = new Crepe({
-      root: editorRef.current,
-      defaultValue: "Hello, Milkdown!",
-      // If Crepe supports plugins, you would configure collab here:
-      // plugins: [collab({ document: ydoc })]
+    // Set up Hocuspocus provider (auto-connects by default)
+    const provider = new HocuspocusProvider({
+      url: "ws://127.0.0.1:1234",
+      name: currentDocumentName,
+      document: ydoc,
+      onConnect: () => {
+        console.log("🔮 Connected to server");
+        setConnectionStatus("connected");
+      },
+      onDisconnect: () => {
+        console.log("👋 Disconnected");
+        setConnectionStatus("disconnected");
+      },
+      onSynced: () => {
+        console.log("✅ Document synced");
+        setConnectionStatus("synced");
+        loadDocuments();
+      },
+      onStatus: ({ status }) => {
+        console.log("📊 Status:", status);
+      },
     });
 
-    crepe.create().then(() => {
-      crepeRef.current = crepe;
+    providerRef.current = provider;
 
-      // Set up Hocuspocus provider to sync the Yjs document
-      setConnectionStatus("connecting");
-
-      const provider = new HocuspocusProvider({
-        url: "ws://127.0.0.1:1234",
-        name: DOCUMENT_NAME,
-        document: ydoc,
-        onConnect: () => {
-          console.log("🔮 Connected to Hocuspocus server");
-          setIsConnected(true);
-          setConnectionStatus("connected");
-        },
-        onDisconnect: ({ event }) => {
-          console.log("👋 Disconnected from Hocuspocus server", event);
-          setIsConnected(false);
-          setConnectionStatus("disconnected");
-        },
-        onSynced: ({ state }) => {
-          console.log("✅ Document synced", state);
-          setConnectionStatus("synced");
-        },
-        onStatus: ({ status }) => {
-          console.log("📊 Connection status:", status);
-        },
-      });
-
-      providerRef.current = provider;
-
-      // TODO: Configure @milkdown/plugin-collab with the Yjs document
-      // This requires integrating the collab plugin with Crepe's editor instance
-      // You may need to:
-      // - Access crepe.editor or crepe.getEditor() if available
-      // - Use the collab plugin: collab({ document: ydoc })
-      // - Or configure it when initializing Crepe if it supports plugins
-      console.log("Yjs document and Hocuspocus provider configured. Configure collab plugin to enable collaborative editing.");
-    }).catch((error) => {
-      console.error("Failed to create Crepe editor:", error);
-    });
-
-    // Cleanup on unmount
     return () => {
-      if (providerRef.current) {
-        providerRef.current.destroy();
-        providerRef.current = null;
-      }
-      if (crepeRef.current) {
-        crepeRef.current.destroy();
-        crepeRef.current = null;
-      }
-      if (ydocRef.current) {
-        ydocRef.current.destroy();
-        ydocRef.current = null;
-      }
-      setIsConnected(false);
+      console.log("🧹 Cleanup");
+      provider?.destroy();
+      ydoc?.destroy();
+      ydocRef.current = null;
+      providerRef.current = null;
       setConnectionStatus("disconnected");
     };
+  }, [currentDocumentName, loadDocuments]);
+
+  // Create editor - this will recreate when connection status changes
+  const { get, loading } = useEditor((root) => {
+    const ydoc = ydocRef.current;
+    const provider = providerRef.current;
+    
+    // Only create collaborative editor when synced
+    if (connectionStatus !== "synced" || !ydoc || !provider?.awareness) {
+      console.log("⏳ Waiting for sync...");
+      return Editor.make()
+        .config((ctx) => {
+          ctx.set(rootCtx, root);
+        })
+        .use(commonmark);
+    }
+
+    console.log("✅ Creating collaborative editor");
+    
+    // Create and configure CollabService (but don't connect yet)
+    const collabService = new CollabService();
+    collabService
+      .bindDoc(ydoc)
+      .setAwareness(provider.awareness);
+    
+    // Store in ref so we can connect it later
+    collabServiceRef.current = collabService;
+    
+    return Editor.make()
+      .config((ctx) => {
+        ctx.set(rootCtx, root);
+        ctx.set(collabServiceCtx, collabService);
+      })
+      .use(commonmark)
+      .use(collab);
+  }, [connectionStatus]); // Recreate when connection status changes
+
+  // Connect CollabService after editor is ready
+  useEffect(() => {
+    // Only try to connect if we're synced and have a CollabService
+    if (loading || connectionStatus !== "synced" || !collabServiceRef.current) return;
+    
+    const editor = get();
+    if (!editor) return;
+
+    console.log("🔗 Editor ready, connecting CollabService...");
+    
+    // Connect the CollabService directly from the ref
+    // We need to bind the context first
+    editor.action((ctx) => {
+      const collabService = collabServiceRef.current;
+      if (collabService) {
+        collabService.bindCtx(ctx).connect();
+        console.log("✅ CollabService connected");
+      }
+    });
+  }, [loading, connectionStatus, get]);
+
+  // Switch to a different document
+  const switchDocument = useCallback((docName: string) => {
+    // Changing document name will trigger useEffect to recreate provider
+    setCurrentDocumentName(docName);
   }, []);
+
+  // Create new document
+  const createNewDocument = useCallback(() => {
+    const newName = prompt("Enter document name:");
+    if (newName && newName.trim()) {
+      switchDocument(newName.trim());
+    }
+  }, [switchDocument]);
 
   return (
     <div className="flex h-full flex-col bg-background p-4">
       <div className="mx-auto flex w-full flex-1 flex-col">
+        {/* Document Selector */}
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-card p-2">
+          <label className="text-sm text-muted-foreground">Document:</label>
+          <select
+            value={currentDocumentName}
+            onChange={(e) => switchDocument(e.target.value)}
+            className="rounded border border-border bg-background px-2 py-1 text-sm"
+            disabled={connectionStatus === "connecting"}
+          >
+            {availableDocuments.map((doc) => (
+              <option key={doc.name} value={doc.name}>
+                {doc.name}
+              </option>
+            ))}
+            {!availableDocuments.find((d) => d.name === currentDocumentName) && (
+              <option value={currentDocumentName}>{currentDocumentName} (new)</option>
+            )}
+          </select>
+          <button
+            onClick={createNewDocument}
+            className="rounded px-3 py-1 text-xs bg-secondary text-secondary-foreground hover:bg-secondary/90"
+            disabled={connectionStatus === "connecting"}
+          >
+            New
+          </button>
+          <button
+            onClick={loadDocuments}
+            className="rounded px-3 py-1 text-xs bg-secondary text-secondary-foreground hover:bg-secondary/90"
+            disabled={isLoadingDocuments}
+          >
+            {isLoadingDocuments ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+
         {/* Connection Status Bar */}
         <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-card p-2">
           <div className={`h-2 w-2 rounded-full ${
@@ -164,34 +206,27 @@ export function MilkdownEditor() {
             "bg-gray-500"
           }`} />
           <span className="text-sm text-muted-foreground">
-            {connectionStatus === "synced" ? "Synced" :
+            {connectionStatus === "synced" ? "Synced & Ready" :
              connectionStatus === "connected" ? "Connected" :
              connectionStatus === "connecting" ? "Connecting..." :
              "Disconnected"}
           </span>
-          <div className="ml-auto flex gap-2">
-            {!isConnected ? (
-              <button
-                onClick={connect}
-                className="rounded px-3 py-1 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                Connect
-              </button>
-            ) : (
-              <button
-                onClick={disconnect}
-                className="rounded px-3 py-1 text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Disconnect
-              </button>
-            )}
-          </div>
         </div>
 
         <div className="flex h-full w-full flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
-          <div ref={editorRef} className="milkdown-editor-root h-full w-full overflow-auto bg-card" />
+          <div className="milkdown-editor-root h-full w-full overflow-auto bg-card">
+            <Milkdown />
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+export function MilkdownEditor({ documentName }: MilkdownEditorProps = {}) {
+  return (
+    <MilkdownProvider>
+      <MilkdownEditorInner documentName={documentName} />
+    </MilkdownProvider>
   );
 }

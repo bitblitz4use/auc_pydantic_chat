@@ -9,7 +9,9 @@ const s3Extension = new S3({
   credentials: {
     accessKeyId: 'admin',
     secretAccessKey: 'admin123'
-  }
+  },
+  // Ensure documents are saved with proper naming
+  prefix: 'documents/', // This ensures all documents are stored under documents/ prefix
 });
 
 export const hocuspocusServer = new Server({
@@ -19,17 +21,17 @@ export const hocuspocusServer = new Server({
   maxDebounce: 10000,  // Force save every 10s regardless
   extensions: [s3Extension],
   
-  async onConnect() {
-    console.log('🔮 Client connected');
+  async onConnect(data) {
+    console.log('🔮 Client connected to document:', data.documentName);
   },
   
-  async onDisconnect() {
-    console.log('👋 Client disconnected');
+  async onDisconnect(data) {
+    console.log('👋 Client disconnected from document:', data.documentName);
   },
-  
-  async onLoadDocument(data) {
-    console.log('📄 Loading document from S3:', data.documentName);
-    return undefined; // Let S3 extension handle loading
+
+  async onChange(data) {
+    console.log('📝 Document changed:', data.documentName);
+    console.log('📝 Update size:', data.update?.length || 0, 'bytes');
   },
   
   async onCreate(data) {
@@ -40,6 +42,7 @@ export const hocuspocusServer = new Server({
   async onStoreDocument(data) {
     console.log('💾 Save triggered for document:', data.documentName);
     console.log('💾 Document size:', data.document.length, 'bytes');
+    // S3 extension handles the actual saving
   },
   
   async afterStoreDocument(data) {
