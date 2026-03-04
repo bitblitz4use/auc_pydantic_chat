@@ -1,0 +1,86 @@
+# ----------------------
+# Environment / secrets
+# ----------------------
+.env
+.env.*
+*.env
+*.local
+
+# ----------------------
+# Virtual environments
+# ----------------------
+.venv/
+venv/
+env/
+ENV/
+
+# ----------------------
+# Python
+# ----------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ----------------------
+# Node / JavaScript
+# ----------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+.next/
+.nuxt/
+.svelte-kit/
+coverage/
+
+# ----------------------
+# Logs
+# ----------------------
+*.log
+logs/
+
+# ----------------------
+# OS generated files
+# ----------------------
+.DS_Store
+Thumbs.db
+
+# ----------------------
+# IDE / Editor
+# ----------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ----------------------
+# Misc caches
+# ----------------------
+.cache/
+tmp/
+temp/
