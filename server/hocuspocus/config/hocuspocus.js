@@ -14,6 +14,9 @@ const s3Extension = new S3({
   prefix: 'documents/', // This ensures all documents are stored under documents/ prefix
 });
 
+// Store live documents for AI import access
+const liveDocuments = new Map();
+
 export const hocuspocusServer = new Server({
   name: "hocuspocus-server",
   port: 1234,
@@ -39,6 +42,13 @@ export const hocuspocusServer = new Server({
     console.log('📝 Document will be saved to S3 automatically on first change');
   },
   
+  async onLoadDocument(data) {
+    // Track live documents for AI import access
+    liveDocuments.set(data.documentName, data.document);
+    console.log('📚 Document loaded in memory:', data.documentName);
+    return data.document;
+  },
+  
   async onStoreDocument(data) {
     console.log('💾 Save triggered for document:', data.documentName);
     console.log('💾 Document size:', data.document.length, 'bytes');
@@ -48,6 +58,17 @@ export const hocuspocusServer = new Server({
   async afterStoreDocument(data) {
     console.log('✅ Document saved to S3:', data.documentName);
   },
+  
+  async onDestroy(data) {
+    // Clean up when document is destroyed
+    liveDocuments.delete(data.documentName);
+    console.log('🗑️ Document removed from memory:', data.documentName);
+  },
 });
+
+// Export function to get live document
+export function getLiveDocument(documentName) {
+  return liveDocuments.get(documentName);
+}
 
 export { s3Extension };

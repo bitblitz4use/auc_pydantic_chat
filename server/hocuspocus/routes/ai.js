@@ -3,6 +3,7 @@ import { yjsToMarkdown } from '../utils/markdownConverter.js';
 import { applyIncrementalAIChanges } from '../utils/diffApplicator.js';
 import { getDocumentKey } from '../utils/documentManager.js';
 import { minioClient, BUCKET_NAME } from '../config/minio.js';
+import { getLiveDocument } from '../config/hocuspocus.js';
 import * as Y from 'yjs';
 
 const router = express.Router();
@@ -94,59 +95,83 @@ router.post('/import/:documentName', async (req, res) => {
     
     console.log(`🤖 AI Import: ${documentName}`);
     
-    const hocuspocus = req.app.locals.hocuspocusServer;
-    
-    // Load from S3
-    const objectName = getDocumentKey(documentName);
-    const chunks = [];
-    const stream = await minioClient.getObject(BUCKET_NAME, objectName);
-    
-    for await (const chunk of stream) {
-      chunks.push(chunk);
-    }
-    
-    const yjsBinary = Buffer.concat(chunks);
-    const ydoc = new Y.Doc();
-    Y.applyUpdate(ydoc, yjsBinary);
-    
     const metadata = {
       model: req.headers['x-ai-model'],
       prompt: req.headers['x-ai-prompt'],
       changeId: req.headers['x-ai-change-id']
     };
     
-    // Apply AI changes
-    const result = applyIncrementalAIChanges(ydoc, markdown, metadata);
+    // Try to get live document first
+    const liveDoc = getLiveDocument(documentName);
     
-    ydoc.getMap('aiMeta').set('lastEdit', {
-      timestamp: Date.now(),
-      ...metadata,
-      ...result
-    });
-    
-    // Save to S3
-    const updatedBinary = Y.encodeStateAsUpdate(ydoc);
-    const buffer = Buffer.from(updatedBinary);
-    await minioClient.putObject(BUCKET_NAME, objectName, buffer);
-    
-    // Sync to live clients if document is loaded
-    try {
-      const liveDoc = await hocuspocus.getDocument(documentName);
-      const update = Y.encodeStateAsUpdate(ydoc);
-      Y.applyUpdate(liveDoc, update);
-      console.log('📡 Synced to live clients');
-    } catch {
-      console.log('💾 Saved to S3 (will sync on client reconnect)');
+    if (liveDoc) {
+      // Document is in memory - apply changes directly
+      // HocusPocus will automatically broadcast to connected clients
+      console.log('📡 Document in memory, applying changes directly...');
+      
+      const result = applyIncrementalAIChanges(liveDoc, markdown, metadata);
+      
+      liveDoc.getMap('aiMeta').set('lastEdit', {
+        timestamp: Date.now(),
+        ...metadata,
+        ...result
+      });
+      
+      // HocusPocus will automatically:
+      // 1. Broadcast changes to connected clients
+      // 2. Trigger onChange hook
+      // 3. Save to S3 via onStoreDocument hook
+      
+      console.log(`✅ Applied: ${result.changeId} (broadcasting automatically)`);
+      
+      res.json({
+        success: true,
+        documentName,
+        changeId: result.changeId,
+        changesApplied: result.changesApplied,
+        broadcast: 'automatic'
+      });
+      
+    } else {
+      // Document not in memory - load from S3, apply, save
+      // Clients will sync on reconnect
+      console.log('💾 Document not in memory, loading from S3...');
+      
+      const objectName = getDocumentKey(documentName);
+      const chunks = [];
+      const stream = await minioClient.getObject(BUCKET_NAME, objectName);
+      
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+      }
+      
+      const yjsBinary = Buffer.concat(chunks);
+      const ydoc = new Y.Doc();
+      Y.applyUpdate(ydoc, yjsBinary);
+      
+      const result = applyIncrementalAIChanges(ydoc, markdown, metadata);
+      
+      ydoc.getMap('aiMeta').set('lastEdit', {
+        timestamp: Date.now(),
+        ...metadata,
+        ...result
+      });
+      
+      // Save to S3
+      const updatedBinary = Y.encodeStateAsUpdate(ydoc);
+      const buffer = Buffer.from(updatedBinary);
+      await minioClient.putObject(BUCKET_NAME, objectName, buffer);
+      
+      console.log(`✅ Applied: ${result.changeId} (saved to S3, will sync on reconnect)`);
+      
+      res.json({
+        success: true,
+        documentName,
+        changeId: result.changeId,
+        changesApplied: result.changesApplied,
+        broadcast: 'on-reconnect'
+      });
     }
-    
-    console.log(`✅ Applied: ${result.changeId}`);
-    
-    res.json({
-      success: true,
-      documentName,
-      changeId: result.changeId,
-      changesApplied: result.changesApplied
-    });
     
   } catch (error) {
     console.error('❌ Import error:', error);
