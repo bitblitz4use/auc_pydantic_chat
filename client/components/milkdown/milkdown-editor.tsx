@@ -6,6 +6,7 @@ import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { collab, collabServiceCtx, CollabService } from "@milkdown/plugin-collab";
+import { block } from "@milkdown/kit/plugin/block";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { $prose } from "@milkdown/kit/utils";
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
@@ -17,6 +18,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 // Import new components
 import { EditorToolbar } from "./editor-toolbar";
 import { DocumentSelector } from "./document-selector";
+import { BlockView } from "./block-view";
 import { useEditorCommands } from "./hooks/use-editor-commands";
 import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
 
@@ -172,6 +174,9 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
     };
   }, [currentDocumentName, loadDocuments]);
 
+  // Use AI change tracker hook
+  const aiTracker = useAIChangeTracker(ydocRef.current);
+
   // Create editor - this will recreate when connection status changes
   const { get, loading } = useEditor((root) => {
     const ydoc = ydocRef.current;
@@ -188,6 +193,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         .use(listener)
         .use(clipboard)
         .use(history)
+        .use(block)
         .use(exitListPlugin);
     }
 
@@ -212,8 +218,9 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       .use(clipboard)
       .use(history)
       .use(collab)
+      .use(block)
       .use(exitListPlugin);
-  }, [connectionStatus]); // Recreate when connection status changes
+  }, [connectionStatus]); // Only recreate when connection status changes
 
   // Connect CollabService after editor is ready
   useEffect(() => {
@@ -259,9 +266,6 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       clearTimeout(timeoutId);
     };
   }, [loading, connectionStatus, get]);
-
-  // Use AI change tracker hook
-  const aiTracker = useAIChangeTracker(ydocRef.current);
 
   // Switch to a different document
   const switchDocument = useCallback((docName: string) => {
@@ -314,6 +318,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         <div className="editor-scrollbar h-full overflow-auto rounded-lg border border-border bg-card">
           <div className="milkdown-editor-root min-h-full bg-card p-4">
             <Milkdown />
+            <BlockView />
           </div>
         </div>
       </div>

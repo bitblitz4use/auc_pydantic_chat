@@ -98,12 +98,6 @@ router.post('/import/:documentName', async (req, res) => {
       
       const result = applyIncrementalAIChanges(liveDoc, markdown, metadata);
       
-      liveDoc.getMap('aiMeta').set('lastEdit', {
-        timestamp: Date.now(),
-        ...metadata,
-        ...result
-      });
-      
       // HocusPocus will automatically:
       // 1. Broadcast changes to connected clients
       // 2. Trigger onChange hook
@@ -128,12 +122,6 @@ router.post('/import/:documentName', async (req, res) => {
       Y.applyUpdate(ydoc, yjsBinary);
       
       const result = applyIncrementalAIChanges(ydoc, markdown, metadata);
-      
-      ydoc.getMap('aiMeta').set('lastEdit', {
-        timestamp: Date.now(),
-        ...metadata,
-        ...result
-      });
       
       // Save to S3
       const updatedBinary = Y.encodeStateAsUpdate(ydoc);
