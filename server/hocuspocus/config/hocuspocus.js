@@ -1,5 +1,6 @@
 import { Server } from "@hocuspocus/server";
 import { S3 } from "@hocuspocus/extension-s3";
+import * as Y from 'yjs';
 
 const s3Extension = new S3({
   endpoint: 'http://localhost:9102',
@@ -16,6 +17,9 @@ const s3Extension = new S3({
 
 // Store live documents for AI import access
 const liveDocuments = new Map();
+
+// Store undo managers for each document (for AI change rejection)
+const undoManagers = new Map();
 
 export const hocuspocusServer = new Server({
   name: "hocuspocus-server",
@@ -45,7 +49,17 @@ export const hocuspocusServer = new Server({
   async onLoadDocument(data) {
     // Track live documents for AI import access
     liveDocuments.set(data.documentName, data.document);
+    
+    // Create and store undo manager for AI changes
+    const fragment = data.document.getXmlFragment('prosemirror');
+    const undoManager = new Y.UndoManager(fragment, {
+      trackedOrigins: new Set(['ai'])
+    });
+    undoManagers.set(data.documentName, undoManager);
+    
     console.log('📚 Document loaded in memory:', data.documentName);
+    console.log('↩️  UndoManager created for AI changes');
+    
     return data.document;
   },
   
@@ -62,6 +76,7 @@ export const hocuspocusServer = new Server({
   async onDestroy(data) {
     // Clean up when document is destroyed
     liveDocuments.delete(data.documentName);
+    undoManagers.delete(data.documentName);
     console.log('🗑️ Document removed from memory:', data.documentName);
   },
 });
@@ -69,6 +84,11 @@ export const hocuspocusServer = new Server({
 // Export function to get live document
 export function getLiveDocument(documentName) {
   return liveDocuments.get(documentName);
+}
+
+// Export function to get undo manager
+export function getUndoManager(documentName) {
+  return undoManagers.get(documentName);
 }
 
 export { s3Extension };

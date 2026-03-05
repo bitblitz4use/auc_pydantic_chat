@@ -12,9 +12,9 @@ export interface AIChange {
 
 /**
  * Hook to track AI changes with proper undo/redo
- * Production-ready: Works with Yjs relative positions
+ * Production-ready: Server-side undo for proper broadcasting
  */
-export function useAIChangeTracker(ydoc: Y.Doc | null) {
+export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
   const [changes, setChanges] = useState<AIChange[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -198,66 +198,61 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
   }, [ydoc, changes]);
   
   /**
-   * Accept AI change - marks it as accepted and removes from pending
+   * Accept AI change - calls server API to mark as accepted
    */
-  const acceptAIChange = useCallback((changeId: string) => {
-    if (!ydoc) {
-      console.warn('⚠️ Y.Doc not available');
-      return;
-    }
-    
-    const changeHistory = ydoc.getMap('aiChangeHistory');
-    const change = changeHistory.get(changeId);
-    
-    if (!change) {
-      console.warn('⚠️ Change not found:', changeId);
+  const acceptAIChange = useCallback(async (changeId: string) => {
+    if (!documentName) {
+      console.warn('⚠️ Document name not available');
       return;
     }
     
     console.log('✅ Accepting AI change:', changeId);
     
-    const updated = {
-      ...change,
-      status: 'accepted',
-      acceptedAt: Date.now()
-    };
-    
-    changeHistory.set(changeId, updated);
-  }, [ydoc]);
+    try {
+      const response = await fetch(`http://127.0.0.1:3001/api/ai/accept/${documentName}/${changeId}`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ Change accepted on server');
+      } else {
+        console.error('❌ Accept failed:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Accept request failed:', error);
+    }
+  }, [documentName]);
   
   /**
-   * Reject AI change - undoes it and marks as rejected
+   * Reject AI change - calls server API to undo and mark as rejected
    */
-  const rejectAIChange = useCallback((changeId: string) => {
-    if (!ydoc || !undoManagerRef.current) {
-      console.warn('⚠️ UndoManager not available');
-      return;
-    }
-    
-    const change = changes.find(c => c.id === changeId);
-    if (!change) {
-      console.warn('⚠️ Change not found:', changeId);
+  const rejectAIChange = useCallback(async (changeId: string) => {
+    if (!documentName) {
+      console.warn('⚠️ Document name not available');
       return;
     }
     
     console.log('❌ Rejecting AI change:', changeId);
     
-    // Undo the change
-    if (change.undoable && undoManagerRef.current.canUndo()) {
-      undoManagerRef.current.undo();
+    try {
+      const response = await fetch(`http://127.0.0.1:3001/api/ai/reject/${documentName}/${changeId}`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ Change rejected and undone on server');
+        console.log('📡 Undo broadcasted to all clients');
+      } else {
+        console.error('❌ Reject failed:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Reject request failed:', error);
     }
-    
-    // Mark as rejected
-    const changeHistory = ydoc.getMap('aiChangeHistory');
-    const updated = {
-      ...change,
-      status: 'rejected',
-      rejectedAt: Date.now(),
-      undoable: false
-    };
-    
-    changeHistory.set(changeId, updated);
-  }, [ydoc, changes]);
+  }, [documentName]);
   
   return {
     changes,

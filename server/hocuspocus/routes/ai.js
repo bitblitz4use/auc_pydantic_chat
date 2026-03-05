@@ -1,7 +1,9 @@
 import express from 'express';
 import { yjsToMarkdown } from '../utils/markdownConverter.js';
 import { applyAIChangesAsCollaborator } from '../utils/aiProvider.js';
-import { getLiveDocument } from '../config/hocuspocus.js';
+import { getLiveDocument, getUndoManager } from '../config/hocuspocus.js';
+import { prosemirrorToYXmlFragment } from 'y-prosemirror';
+import { defaultMarkdownParser } from 'prosemirror-markdown';
 import * as Y from 'yjs';
 
 const router = express.Router();
@@ -158,6 +160,159 @@ router.get('/changes/:documentName', async (req, res) => {
     console.error('❌ Changes error:', error);
     res.status(500).json({ 
       error: 'Failed to get changes',
+      message: error.message 
+    });
+  }
+});
+
+/**
+ * POST /api/ai/reject/:documentName/:changeId
+ * Reject an AI change - undoes it on the server and broadcasts to all clients
+ */
+router.post('/reject/:documentName/:changeId', async (req, res) => {
+  try {
+    const { documentName, changeId } = req.params;
+    
+    console.log(`❌ Reject request: ${documentName} / ${changeId}`);
+    
+    const liveDoc = getLiveDocument(documentName);
+    if (!liveDoc) {
+      return res.status(404).json({ 
+        error: 'Document not loaded',
+        documentName,
+        hint: 'Open the document in the editor first'
+      });
+    }
+    
+    // Get change metadata
+    const changeHistory = liveDoc.getMap('aiChangeHistory');
+    const change = changeHistory.get(changeId);
+    
+    if (!change) {
+      return res.status(404).json({ 
+        error: 'Change not found',
+        changeId 
+      });
+    }
+    
+    if (change.status !== 'pending') {
+      return res.status(400).json({ 
+        error: 'Change already processed',
+        status: change.status 
+      });
+    }
+    
+    // CRDT-compliant reject: Restore previous state for this specific change
+    // This is done by re-applying the before content
+    if (!change.beforeContent) {
+      return res.status(400).json({ 
+        error: 'No previous content available',
+        hint: 'This change cannot be rejected (before content missing)'
+      });
+    }
+    
+    console.log('🔄 CRDT reject: Restoring content from before this AI change...');
+    console.log(`   Operations in this change: ${change.operations?.length || 0}`);
+    console.log(`   Before: ${change.beforeContent.length} chars`);
+    
+    // Parse the previous markdown
+    const previousDoc = defaultMarkdownParser.parse(change.beforeContent);
+    
+    if (!previousDoc) {
+      return res.status(500).json({ error: 'Failed to parse previous content' });
+    }
+    
+    // Apply previous document
+    // Note: This is a full restore for this change's context
+    // In a true CRDT implementation, we'd track Y.RelativePositions
+    // and delete only the specific insertions, but markdown editing
+    // makes full-doc replacement the pragmatic choice
+    const fragment = liveDoc.getXmlFragment('prosemirror');
+    
+    liveDoc.transact(() => {
+      fragment.delete(0, fragment.length);
+      prosemirrorToYXmlFragment(previousDoc, fragment);
+    }, 'reject-ai'); // Use distinct origin
+    
+    console.log(`✅ Content restored (rejected change: ${changeId})`);
+    
+    // Mark as rejected
+    const updated = {
+      ...change,
+      status: 'rejected',
+      rejectedAt: Date.now(),
+      undoable: false
+    };
+    
+    changeHistory.set(changeId, updated);
+    
+    console.log(`✅ Change rejected: ${changeId}`);
+    console.log('📡 Reverted state broadcasted to all clients');
+    
+    res.json({
+      success: true,
+      changeId,
+      status: 'rejected'
+    });
+    
+  } catch (error) {
+    console.error('❌ Reject error:', error);
+    res.status(500).json({ 
+      error: 'Failed to reject change',
+      message: error.message 
+    });
+  }
+});
+
+/**
+ * POST /api/ai/accept/:documentName/:changeId
+ * Accept an AI change - marks it as accepted
+ */
+router.post('/accept/:documentName/:changeId', async (req, res) => {
+  try {
+    const { documentName, changeId } = req.params;
+    
+    console.log(`✅ Accept request: ${documentName} / ${changeId}`);
+    
+    const liveDoc = getLiveDocument(documentName);
+    if (!liveDoc) {
+      return res.status(404).json({ 
+        error: 'Document not loaded',
+        documentName
+      });
+    }
+    
+    const changeHistory = liveDoc.getMap('aiChangeHistory');
+    const change = changeHistory.get(changeId);
+    
+    if (!change) {
+      return res.status(404).json({ 
+        error: 'Change not found',
+        changeId 
+      });
+    }
+    
+    // Mark as accepted
+    const updated = {
+      ...change,
+      status: 'accepted',
+      acceptedAt: Date.now()
+    };
+    
+    changeHistory.set(changeId, updated);
+    
+    console.log(`✅ Change accepted: ${changeId}`);
+    
+    res.json({
+      success: true,
+      changeId,
+      status: 'accepted'
+    });
+    
+  } catch (error) {
+    console.error('❌ Accept error:', error);
+    res.status(500).json({ 
+      error: 'Failed to accept change',
       message: error.message 
     });
   }

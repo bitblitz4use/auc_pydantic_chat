@@ -177,7 +177,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   }, [currentDocumentName, loadDocuments]);
 
   // Use AI change tracker hook
-  const aiTracker = useAIChangeTracker(ydocRef.current);
+  const aiTracker = useAIChangeTracker(ydocRef.current, currentDocumentName);
 
   // Create editor - this will recreate when connection status changes
   const { get, loading } = useEditor((root) => {

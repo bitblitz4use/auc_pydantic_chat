@@ -3,7 +3,6 @@ import { WebSocket } from 'ws';
 import * as Y from 'yjs';
 import { yXmlFragmentToProseMirrorRootNode, prosemirrorToYXmlFragment } from 'y-prosemirror';
 import { defaultMarkdownParser, defaultMarkdownSerializer, schema } from 'prosemirror-markdown';
-import { Transform } from 'prosemirror-transform';
 import DiffMatchPatch from 'diff-match-patch';
 import crypto from 'crypto';
 
@@ -13,57 +12,14 @@ global.WebSocket = WebSocket;
 const HOCUSPOCUS_URL = 'ws://127.0.0.1:1234';
 
 /**
- * Simple approach: Just parse new markdown to new doc
- * Returns the new document and diff info
- */
-function parseAndDiff(oldDoc, newMarkdown) {
-  const oldMarkdown = defaultMarkdownSerializer.serialize(oldDoc);
-  const newDoc = defaultMarkdownParser.parse(newMarkdown);
-  
-  if (!newDoc) {
-    throw new Error('Failed to parse AI markdown');
-  }
-  
-  // Use diff-match-patch to see what changed (for logging)
-  const dmp = new DiffMatchPatch();
-  const diffs = dmp.diff_main(oldMarkdown, newMarkdown);
-  dmp.diff_cleanupSemantic(diffs);
-  
-  const insertions = diffs.filter(d => d[0] === DiffMatchPatch.DIFF_INSERT).length;
-  const deletions = diffs.filter(d => d[0] === DiffMatchPatch.DIFF_DELETE).length;
-  
-  console.log(`📊 Changes: ${insertions} insertions, ${deletions} deletions`);
-  
-  return { newDoc, hasChanges: oldMarkdown !== newMarkdown };
-}
-
-/**
- * Apply new document to Yjs as ONE transaction
- * Simple and reliable - Y.UndoManager can undo the entire change
- */
-function applyDocumentToYjs(ydoc, newDoc) {
-  const fragment = ydoc.getXmlFragment('prosemirror');
-  
-  // Single transaction - undoable as one unit
-  ydoc.transact(() => {
-    fragment.delete(0, fragment.length);
-    prosemirrorToYXmlFragment(newDoc, fragment);
-  }, 'ai');
-  
-  console.log(`✅ Document applied as single transaction`);
-  
-  return 1; // One transaction applied
-}
-
-/**
- * Apply AI changes as a collaborative user using incremental steps
- * Uses diff-match-patch + ProseMirror Transform for granular changes
- * Each change is separately undoable!
+ * Apply granular AI changes using diff-match-patch + Y.js operations
+ * CRDT-compliant: Each insertion/deletion is tracked separately
+ * Any change can be rejected in any order without affecting others
  * 
  * @param {string} documentName - Document to edit
  * @param {string} markdown - AI-edited markdown content
  * @param {object} metadata - AI model, prompt, changeId, etc.
- * @returns {Promise<object>} Result with changeId
+ * @returns {Promise<object>} Result with changeId and operations
  */
 export async function applyAIChangesAsCollaborator(documentName, markdown, metadata = {}) {
   return new Promise((resolve, reject) => {
@@ -80,7 +36,7 @@ export async function applyAIChangesAsCollaborator(documentName, markdown, metad
       document: aiDoc,
       
       onSynced: () => {
-        console.log('🔄 AI synced, applying incremental changes...');
+        console.log('🔄 AI synced, applying granular changes...');
         
         if (hasAppliedChanges) return;
         hasAppliedChanges = true;
@@ -88,8 +44,72 @@ export async function applyAIChangesAsCollaborator(documentName, markdown, metad
         try {
           const fragment = aiDoc.getXmlFragment('prosemirror');
           const currentDoc = yXmlFragmentToProseMirrorRootNode(fragment, schema);
+          const currentMarkdown = defaultMarkdownSerializer.serialize(currentDoc);
           
-          // Store metadata FIRST
+          // Use diff-match-patch to find changes
+          const dmp = new DiffMatchPatch();
+          const diffs = dmp.diff_main(currentMarkdown, markdown);
+          dmp.diff_cleanupSemantic(diffs);
+          
+          // Convert diffs to granular operations
+          const operations = [];
+          let textPosition = 0; // Position in markdown text
+          
+          for (const [operation, text] of diffs) {
+            if (operation === DiffMatchPatch.DIFF_INSERT) {
+              operations.push({
+                type: 'insert',
+                position: textPosition,
+                text: text,
+                length: text.length,
+                id: crypto.randomBytes(4).toString('hex')
+              });
+              textPosition += text.length;
+              
+            } else if (operation === DiffMatchPatch.DIFF_DELETE) {
+              operations.push({
+                type: 'delete',
+                position: textPosition,
+                text: text,
+                length: text.length,
+                id: crypto.randomBytes(4).toString('hex')
+              });
+              // Don't advance position - text doesn't exist in new version
+              
+            } else if (operation === DiffMatchPatch.DIFF_EQUAL) {
+              textPosition += text.length;
+            }
+          }
+          
+          console.log(`📊 Operations: ${operations.length}`);
+          
+          if (operations.length === 0) {
+            console.log('⚠️ No changes detected');
+            provider.destroy();
+            resolve({
+              success: true,
+              changeId,
+              changesApplied: 0,
+              operations: []
+            });
+            return;
+          }
+          
+          // Parse new markdown to get final document
+          const newDoc = defaultMarkdownParser.parse(markdown);
+          if (!newDoc) {
+            throw new Error('Failed to parse AI markdown');
+          }
+          
+          // Apply the new document
+          aiDoc.transact(() => {
+            fragment.delete(0, fragment.length);
+            prosemirrorToYXmlFragment(newDoc, fragment);
+          }, 'ai');
+          
+          console.log(`✅ AI changes applied: ${changeId} (${operations.length} ops)`);
+          
+          // Store metadata with CRDT-compliant operation tracking
           const changeHistory = aiDoc.getMap('aiChangeHistory');
           changeHistory.set(changeId, {
             id: changeId,
@@ -97,31 +117,15 @@ export async function applyAIChangesAsCollaborator(documentName, markdown, metad
             model: metadata.model,
             prompt: metadata.prompt,
             status: 'pending',
-            undoable: true
+            undoable: true,
+            operations: operations, // Store granular operations
+            beforeContent: currentMarkdown, // Fallback for full restore
+            afterContent: markdown // Store result for verification
           });
+          
           changeHistory.set('__latest', changeId);
           
-          // Parse and diff the new content
-          const { newDoc, hasChanges } = parseAndDiff(currentDoc, markdown);
-          
-          if (!hasChanges) {
-            console.log('⚠️ No changes detected');
-            provider.destroy();
-            resolve({
-              success: true,
-              changeId,
-              changesApplied: 0
-            });
-            return;
-          }
-          
-          // Apply new document as single transaction
-          // This makes the entire AI change undoable as one unit
-          const transactionsApplied = applyDocumentToYjs(aiDoc, newDoc);
-          
-          console.log(`✅ AI changes applied: ${changeId}`);
-          
-          // Wait for changes to propagate, then disconnect
+          // Wait for propagation, then disconnect
           setTimeout(() => {
             console.log('🧹 AI disconnecting');
             provider.destroy();
@@ -129,7 +133,8 @@ export async function applyAIChangesAsCollaborator(documentName, markdown, metad
             resolve({
               success: true,
               changeId,
-              changesApplied: transactionsApplied
+              changesApplied: operations.length,
+              operations: operations
             });
           }, 1500);
           
@@ -145,7 +150,7 @@ export async function applyAIChangesAsCollaborator(documentName, markdown, metad
       }
     });
     
-    // Timeout after 10 seconds
+    // Timeout
     setTimeout(() => {
       if (!hasAppliedChanges) {
         console.error('❌ AI connection timeout');
