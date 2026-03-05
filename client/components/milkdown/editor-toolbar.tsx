@@ -24,13 +24,15 @@ import { AIChange } from './hooks/use-ai-change-tracker';
 interface EditorToolbarProps {
   commands: EditorCommands;
   disabled?: boolean;
-  // New AI tracker props
+  // AI tracker props
   aiChanges?: AIChange[];
   canUndoAI?: boolean;
   canRedoAI?: boolean;
   onUndoLastAI?: () => void;
   onUndoAllAI?: () => void;
   onRedoAI?: () => void;
+  onAcceptAI?: (changeId: string) => void;
+  onRejectAI?: (changeId: string) => void;
 }
 
 interface ToolbarButtonProps {
@@ -72,7 +74,9 @@ export const EditorToolbar = memo(({
   canRedoAI = false,
   onUndoLastAI,
   onUndoAllAI,
-  onRedoAI
+  onRedoAI,
+  onAcceptAI,
+  onRejectAI
 }: EditorToolbarProps) => {
   return (
     <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 shadow-sm">
@@ -185,6 +189,8 @@ export const EditorToolbar = memo(({
             onUndoLast={onUndoLastAI || (() => {})}
             onUndoAll={onUndoAllAI || (() => {})}
             onRedo={onRedoAI || (() => {})}
+            onAccept={onAcceptAI || (() => {})}
+            onReject={onRejectAI || (() => {})}
           />
         </>
       )}

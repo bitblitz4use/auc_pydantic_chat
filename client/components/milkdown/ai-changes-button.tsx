@@ -12,6 +12,8 @@ interface AIChangesButtonProps {
   onUndoLast: () => void;
   onUndoAll: () => void;
   onRedo: () => void;
+  onAccept: (changeId: string) => void;
+  onReject: (changeId: string) => void;
 }
 
 export const AIChangesButton = memo(({
@@ -20,10 +22,13 @@ export const AIChangesButton = memo(({
   canRedo,
   onUndoLast,
   onUndoAll,
-  onRedo
+  onRedo,
+  onAccept,
+  onReject
 }: AIChangesButtonProps) => {
   const [showTooltip, setShowTooltip] = useState(false);
-  const activeCount = changes.filter(c => c.undoable).length;
+  const pendingChanges = changes.filter(c => c.status === 'pending');
+  const activeCount = pendingChanges.length;
   
   return (
     <div className="relative">
@@ -57,6 +62,8 @@ export const AIChangesButton = memo(({
             onUndoLast={onUndoLast}
             onUndoAll={onUndoAll}
             onRedo={onRedo}
+            onAccept={onAccept}
+            onReject={onReject}
           />
         </div>
       )}

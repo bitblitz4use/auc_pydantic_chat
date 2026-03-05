@@ -1,8 +1,6 @@
 import express from 'express';
 import { yjsToMarkdown } from '../utils/markdownConverter.js';
-import { applyIncrementalAIChanges } from '../utils/diffApplicator.js';
-import { getDocumentKey, loadDocumentFromS3 } from '../utils/documentManager.js';
-import { minioClient, BUCKET_NAME } from '../config/minio.js';
+import { applyAIChangesAsCollaborator } from '../utils/aiProvider.js';
 import { getLiveDocument } from '../config/hocuspocus.js';
 import * as Y from 'yjs';
 
@@ -68,6 +66,11 @@ router.get('/export/:documentName', async (req, res) => {
  * POST /api/ai/import/:documentName
  * Body: Raw markdown (Content-Type: text/markdown or text/plain)
  * Headers: X-AI-Model, X-AI-Prompt, X-AI-Change-Id (optional)
+ * 
+ * Production-ready implementation:
+ * - Uses Yjs relative positions for stable change tracking
+ * - Ensures Hocuspocus hooks fire for proper broadcasting
+ * - Handles both connected and disconnected document states
  */
 router.post('/import/:documentName', async (req, res) => {
   try {
@@ -88,56 +91,21 @@ router.post('/import/:documentName', async (req, res) => {
       changeId: req.headers['x-ai-change-id']
     };
     
-    // Try to get live document first
-    const liveDoc = getLiveDocument(documentName);
+    // Use AI provider approach - AI connects as a collaborator
+    // This triggers all Hocuspocus hooks and awareness propagation
+    console.log('🤖 AI connecting as collaborator...');
     
-    if (liveDoc) {
-      // Document is in memory - apply changes directly
-      // HocusPocus will automatically broadcast to connected clients
-      console.log('📡 Document in memory, applying changes directly...');
-      
-      const result = applyIncrementalAIChanges(liveDoc, markdown, metadata);
-      
-      // HocusPocus will automatically:
-      // 1. Broadcast changes to connected clients
-      // 2. Trigger onChange hook
-      // 3. Save to S3 via onStoreDocument hook
-      
-      console.log(`✅ Applied: ${result.changeId} (broadcasting automatically)`);
-      
-      res.json({
-        success: true,
-        documentName,
-        changeId: result.changeId,
-        changesApplied: result.changesApplied,
-        broadcast: 'automatic'
-      });
-      
-    } else {
-      // Document not in memory - load from S3, apply, save
-      console.log('💾 Document not in memory, loading from S3...');
-      
-      const yjsBinary = await loadDocumentFromS3(documentName);
-      const ydoc = new Y.Doc();
-      Y.applyUpdate(ydoc, yjsBinary);
-      
-      const result = applyIncrementalAIChanges(ydoc, markdown, metadata);
-      
-      // Save to S3
-      const updatedBinary = Y.encodeStateAsUpdate(ydoc);
-      const buffer = Buffer.from(updatedBinary);
-      await minioClient.putObject(BUCKET_NAME, getDocumentKey(documentName), buffer);
-      
-      console.log(`✅ Applied: ${result.changeId} (saved to S3, will sync on reconnect)`);
-      
-      res.json({
-        success: true,
-        documentName,
-        changeId: result.changeId,
-        changesApplied: result.changesApplied,
-        broadcast: 'on-reconnect'
-      });
-    }
+    const result = await applyAIChangesAsCollaborator(documentName, markdown, metadata);
+    
+    console.log(`✅ Applied: ${result.changeId} (AI disconnected)`);
+    
+    res.json({
+      success: true,
+      documentName,
+      changeId: result.changeId,
+      changesApplied: result.changesApplied,
+      broadcast: 'as-collaborator'
+    });
     
   } catch (error) {
     console.error('❌ Import error:', error);
@@ -150,10 +118,10 @@ router.post('/import/:documentName', async (req, res) => {
 });
 
 /**
- * GET /api/ai/metadata/:documentName
- * Get AI edit metadata for a document
+ * GET /api/ai/changes/:documentName
+ * Get all active AI changes for a document
  */
-router.get('/metadata/:documentName', async (req, res) => {
+router.get('/changes/:documentName', async (req, res) => {
   try {
     const { documentName } = req.params;
     
@@ -161,22 +129,35 @@ router.get('/metadata/:documentName', async (req, res) => {
     if (!liveDoc) {
       return res.status(404).json({ 
         error: 'Document not loaded',
-        documentName
+        documentName,
+        hint: 'Open the document in the editor first'
       });
     }
     
-    const metaMap = liveDoc.getMap('aiMeta');
-    const lastEdit = metaMap.get('lastEdit');
+    const changeHistory = liveDoc.getMap('aiChangeHistory');
+    const changes = [];
+    
+    changeHistory.forEach((value, key) => {
+      if (key.startsWith('__')) return;
+      if (value.undoable) {
+        changes.push({
+          id: key,
+          timestamp: value.timestamp,
+          model: value.model
+        });
+      }
+    });
     
     res.json({
       documentName,
-      lastEdit: lastEdit || null,
+      changes,
+      count: changes.length
     });
     
   } catch (error) {
-    console.error('❌ Metadata error:', error);
+    console.error('❌ Changes error:', error);
     res.status(500).json({ 
-      error: 'Failed to get metadata',
+      error: 'Failed to get changes',
       message: error.message 
     });
   }

@@ -4,19 +4,23 @@ import * as Y from 'yjs';
 export interface AIChange {
   id: string;
   timestamp: number;
-  changesCount: number;
   model?: string;
   prompt?: string;
+  status: 'pending' | 'accepted' | 'rejected';
   undoable: boolean;
 }
 
+/**
+ * Hook to track AI changes with proper undo/redo
+ * Production-ready: Works with Yjs relative positions
+ */
 export function useAIChangeTracker(ydoc: Y.Doc | null) {
   const [changes, setChanges] = useState<AIChange[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
   
-  // Create UndoManager once and track it
+  // Create UndoManager for AI changes
   useEffect(() => {
     if (!ydoc) {
       undoManagerRef.current = null;
@@ -29,15 +33,14 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
     });
     
     undoManagerRef.current = undoManager;
-    
-    console.log('✅ UndoManager created for AI changes');
+    console.log('✅ UndoManager initialized');
     
     return () => {
       undoManagerRef.current = null;
     };
   }, [ydoc]);
   
-  // Subscribe to AI change history
+  // Track AI change history
   useEffect(() => {
     if (!ydoc) {
       setChanges([]);
@@ -47,36 +50,43 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
     }
     
     const changeHistory = ydoc.getMap('aiChangeHistory');
-    let isMounted = true;
     
     const updateChanges = () => {
-      // Only update if component is still mounted
-      if (!isMounted) return;
-      
       const changeEntries: AIChange[] = [];
+      
       changeHistory.forEach((value: any, key: string) => {
-        changeEntries.push({ ...value, id: key });
+        // Skip metadata keys
+        if (key.startsWith('__')) return;
+        
+        changeEntries.push({
+          id: key,
+          timestamp: value.timestamp,
+          model: value.model,
+          prompt: value.prompt,
+          status: value.status || 'pending',
+          undoable: value.undoable
+        });
       });
       
       // Sort by timestamp (newest first)
       changeEntries.sort((a, b) => b.timestamp - a.timestamp);
       setChanges(changeEntries);
       
-      // Update undo/redo state
-      const undoableChanges = changeEntries.filter(c => c.undoable);
-      const redoableChanges = changeEntries.filter(c => !c.undoable);
-      setCanUndo(undoableChanges.length > 0);
-      setCanRedo(redoableChanges.length > 0);
+      // Update undo/redo state - only pending changes can be undone
+      const pendingChanges = changeEntries.filter(c => c.status === 'pending' && c.undoable);
+      const undoableCount = pendingChanges.length;
+      const redoableCount = changeEntries.filter(c => !c.undoable).length;
+      
+      setCanUndo(undoableCount > 0);
+      setCanRedo(redoableCount > 0);
       
       // Also check UndoManager state
       if (undoManagerRef.current) {
-        const canUndoFromManager = undoManagerRef.current.undoStack.length > 0;
-        const canRedoFromManager = undoManagerRef.current.redoStack.length > 0;
-        console.log('📊 UndoManager state:', {
+        console.log('📊 UndoManager:', {
+          canUndo: undoManagerRef.current.canUndo(),
+          canRedo: undoManagerRef.current.canRedo(),
           undoStack: undoManagerRef.current.undoStack.length,
-          redoStack: undoManagerRef.current.redoStack.length,
-          canUndo: canUndoFromManager,
-          canRedo: canRedoFromManager
+          redoStack: undoManagerRef.current.redoStack.length
         });
       }
     };
@@ -88,15 +98,16 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
     changeHistory.observe(updateChanges);
     
     return () => {
-      isMounted = false;
       changeHistory.unobserve(updateChanges);
     };
   }, [ydoc]);
   
-  // Undo last AI change
+  /**
+   * Undo last AI change
+   */
   const undoLastAIChange = useCallback(() => {
     if (!ydoc || !undoManagerRef.current) {
-      console.warn('⚠️ UndoManager not initialized');
+      console.warn('⚠️ UndoManager not available');
       return;
     }
     
@@ -107,46 +118,43 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
       return;
     }
     
-    console.log('🔄 Undoing last AI change...');
+    console.log('🔄 Undoing last AI change');
     undoManager.undo();
-    console.log('✅ Undone last AI change');
     
-    // Update change history to mark as undone
+    // Mark change as undone
     const changeHistory = ydoc.getMap('aiChangeHistory');
     const latestUndoable = changes.find(c => c.undoable);
+    
     if (latestUndoable) {
       ydoc.transact(() => {
         const updated = { ...latestUndoable, undoable: false };
         changeHistory.set(latestUndoable.id, updated);
-      }, { origin: 'user' }); // Use different origin to avoid tracking
-    } else {
-      console.warn('⚠️ No undoable change found in history');
+      }, 'user');
     }
+    
+    console.log('✅ Undone AI change');
   }, [ydoc, changes]);
   
-  // Undo all AI changes
+  /**
+   * Undo all AI changes
+   */
   const undoAllAIChanges = useCallback(() => {
     if (!ydoc || !undoManagerRef.current) {
-      console.warn('⚠️ UndoManager not initialized');
+      console.warn('⚠️ UndoManager not available');
       return;
     }
     
     const undoManager = undoManagerRef.current;
-    
-    if (!undoManager.canUndo()) {
-      console.warn('⚠️ No AI changes to undo');
-      return;
-    }
-    
     let count = 0;
+    
     while (undoManager.canUndo()) {
       undoManager.undo();
       count++;
     }
     
-    console.log(`✅ Undone ${count} AI change(s)`);
+    console.log(`✅ Undone ${count} AI changes`);
     
-    // Mark all as undone in a single transaction
+    // Mark all as undone
     ydoc.transact(() => {
       const changeHistory = ydoc.getMap('aiChangeHistory');
       changes.forEach(change => {
@@ -155,13 +163,15 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
           changeHistory.set(change.id, updated);
         }
       });
-    }, { origin: 'user' }); // Use different origin to avoid tracking
+    }, 'user');
   }, [ydoc, changes]);
   
-  // Redo last AI change
+  /**
+   * Redo last AI change
+   */
   const redoAIChange = useCallback(() => {
     if (!ydoc || !undoManagerRef.current) {
-      console.warn('⚠️ UndoManager not initialized');
+      console.warn('⚠️ UndoManager not available');
       return;
     }
     
@@ -172,21 +182,81 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
       return;
     }
     
-    console.log('🔄 Redoing last AI change...');
+    console.log('🔄 Redoing AI change');
     undoManager.redo();
-    console.log('✅ Redone AI change');
     
-    // Update change history to mark as redone
+    // Mark change as redone
     const changeHistory = ydoc.getMap('aiChangeHistory');
     const latestRedoable = changes.find(c => !c.undoable);
+    
     if (latestRedoable) {
-      ydoc.transact(() => {
-        const updated = { ...latestRedoable, undoable: true };
-        changeHistory.set(latestRedoable.id, updated);
-      }, { origin: 'user' }); // Use different origin to avoid tracking
-    } else {
-      console.warn('⚠️ No redoable change found in history');
+      const updated = { ...latestRedoable, undoable: true, status: 'pending' };
+      changeHistory.set(latestRedoable.id, updated);
     }
+    
+    console.log('✅ Redone AI change');
+  }, [ydoc, changes]);
+  
+  /**
+   * Accept AI change - marks it as accepted and removes from pending
+   */
+  const acceptAIChange = useCallback((changeId: string) => {
+    if (!ydoc) {
+      console.warn('⚠️ Y.Doc not available');
+      return;
+    }
+    
+    const changeHistory = ydoc.getMap('aiChangeHistory');
+    const change = changeHistory.get(changeId);
+    
+    if (!change) {
+      console.warn('⚠️ Change not found:', changeId);
+      return;
+    }
+    
+    console.log('✅ Accepting AI change:', changeId);
+    
+    const updated = {
+      ...change,
+      status: 'accepted',
+      acceptedAt: Date.now()
+    };
+    
+    changeHistory.set(changeId, updated);
+  }, [ydoc]);
+  
+  /**
+   * Reject AI change - undoes it and marks as rejected
+   */
+  const rejectAIChange = useCallback((changeId: string) => {
+    if (!ydoc || !undoManagerRef.current) {
+      console.warn('⚠️ UndoManager not available');
+      return;
+    }
+    
+    const change = changes.find(c => c.id === changeId);
+    if (!change) {
+      console.warn('⚠️ Change not found:', changeId);
+      return;
+    }
+    
+    console.log('❌ Rejecting AI change:', changeId);
+    
+    // Undo the change
+    if (change.undoable && undoManagerRef.current.canUndo()) {
+      undoManagerRef.current.undo();
+    }
+    
+    // Mark as rejected
+    const changeHistory = ydoc.getMap('aiChangeHistory');
+    const updated = {
+      ...change,
+      status: 'rejected',
+      rejectedAt: Date.now(),
+      undoable: false
+    };
+    
+    changeHistory.set(changeId, updated);
   }, [ydoc, changes]);
   
   return {
@@ -195,6 +265,8 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
     canRedo,
     undoLastAIChange,
     undoAllAIChanges,
-    redoAIChange
+    redoAIChange,
+    acceptAIChange,
+    rejectAIChange
   };
 }
