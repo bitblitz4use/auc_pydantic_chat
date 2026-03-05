@@ -15,6 +15,8 @@ import {
   FileCode,
   Minus,
   Type,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 
 interface EditorToolbarProps {
@@ -67,6 +69,22 @@ export const EditorToolbar = memo(({
 }: EditorToolbarProps) => {
   return (
     <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 shadow-sm">
+      {/* Undo/Redo */}
+      <ToolbarButton
+        onClick={() => commands.undo()}
+        disabled={disabled || !commands.canUndo}
+        title="Undo (Ctrl+Z)"
+        icon={<Undo2 size={16} />}
+      />
+      <ToolbarButton
+        onClick={() => commands.redo()}
+        disabled={disabled || !commands.canRedo}
+        title="Redo (Ctrl+Y)"
+        icon={<Redo2 size={16} />}
+      />
+
+      <ToolbarDivider />
+
       {/* Headings */}
       <ToolbarButton
         onClick={() => commands.setHeading(1)}

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { Editor, editorViewCtx } from '@milkdown/kit/core';
 import { 
   wrapInHeadingCommand,
@@ -12,6 +12,7 @@ import {
   createCodeBlockCommand,
 } from '@milkdown/kit/preset/commonmark';
 import { callCommand } from '@milkdown/kit/utils';
+import { undo, redo, undoDepth, redoDepth } from 'prosemirror-history';
 
 export interface EditorCommands {
   // Headings
@@ -29,9 +30,48 @@ export interface EditorCommands {
   toggleOrderedList: () => void;
   insertCodeBlock: () => void;
   insertHorizontalRule: () => void;
+  
+  // History
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export function useEditorCommands(getEditor: () => Editor | undefined): EditorCommands {
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  // Poll undo/redo state using prosemirror-history depth functions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const editor = getEditor();
+      if (!editor) {
+        setCanUndo(false);
+        setCanRedo(false);
+        return;
+      }
+
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { state } = view;
+          
+          // Use prosemirror-history's depth functions
+          // These reliably report available undo/redo stacks
+          setCanUndo(undoDepth(state) > 0);
+          setCanRedo(redoDepth(state) > 0);
+        });
+      } catch (error) {
+        console.error('Error checking undo/redo state:', error);
+        setCanUndo(false);
+        setCanRedo(false);
+      }
+    }, 200); // Check every 200ms
+
+    return () => clearInterval(interval);
+  }, [getEditor]);
+
   const executeCommand = useCallback((commandKey: string, payload?: any) => {
     const editor = getEditor();
     if (!editor) {
@@ -217,5 +257,45 @@ export function useEditorCommands(getEditor: () => Editor | undefined): EditorCo
     insertHorizontalRule: useCallback(() => {
       executeCommand(insertHrCommand.key);
     }, [executeCommand]),
+
+    // History commands
+    undo: useCallback(() => {
+      const editor = getEditor();
+      if (!editor) {
+        console.warn('Editor not ready');
+        return;
+      }
+      
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { state, dispatch } = view;
+          undo(state, dispatch);
+        });
+      } catch (error) {
+        console.error('Undo failed:', error);
+      }
+    }, [getEditor]),
+
+    redo: useCallback(() => {
+      const editor = getEditor();
+      if (!editor) {
+        console.warn('Editor not ready');
+        return;
+      }
+      
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { state, dispatch } = view;
+          redo(state, dispatch);
+        });
+      } catch (error) {
+        console.error('Redo failed:', error);
+      }
+    }, [getEditor]),
+
+    canUndo,
+    canRedo,
   };
 }
