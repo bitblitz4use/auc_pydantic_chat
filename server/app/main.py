@@ -7,6 +7,7 @@ from pydantic_ai.providers.ollama import OllamaProvider
 
 from pydantic_ai import Agent
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 app = FastAPI(title="Pydantic AI Chat API")
 
@@ -20,14 +21,17 @@ app.add_middleware(
 )
 
 # Create a Pydantic AI agent with Ollama
-# Make sure Ollama is running and you have a model pulled (e.g., ollama pull llama3.2)
-
 ollama_model = OpenAIChatModel(
     model_name='gpt-oss:20b',
     provider=OllamaProvider(base_url='http://192.168.178.83:11434/v1'),  
 )
 
-agent = Agent(ollama_model, system_prompt='You are a helpful assistant.')
+# Create agent with built-in DuckDuckGo search tool
+agent = Agent(
+    ollama_model,
+    tools=[duckduckgo_search_tool()],
+    system_prompt='You are a helpful assistant with web search capabilities. Use the DuckDuckGo search tool when users ask about current events, real-time information, websites, or any topics you need to look up.',
+)
 
 
 @app.get("/")
