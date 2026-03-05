@@ -60,13 +60,10 @@ router.get('/export/:documentName', async (req, res) => {
     
     console.log(`✅ Exported ${markdown.length} chars from ${source}`);
     
-    res.json({
-      documentName,
-      markdown,
-      source,
-      length: markdown.length,
-      exportedAt: new Date().toISOString(),
-    });
+    // Return raw markdown with proper MIME type
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `inline; filename="${documentName}.md"`);
+    res.send(markdown);
     
   } catch (error) {
     console.error('❌ Export error:', error);
