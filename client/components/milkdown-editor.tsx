@@ -27,6 +27,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   const providerRef = useRef<HocuspocusProvider | null>(null);
   const collabServiceRef = useRef<CollabService | null>(null);
   const collabConnectedRef = useRef<boolean>(false); // Track if we've connected
+  const undoManagerRef = useRef<Y.UndoManager | null>(null); // For AI undo
 
   // Load list of available documents
   const loadDocuments = useCallback(async () => {
@@ -101,6 +102,8 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       providerRef.current = null;
       collabServiceRef.current = null;
       collabConnectedRef.current = false; // Reset connected flag
+      undoManagerRef.current?.destroy();
+      undoManagerRef.current = null;
       setConnectionStatus("disconnected");
     };
   }, [currentDocumentName, loadDocuments]);
@@ -185,6 +188,77 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
     };
   }, [loading, connectionStatus, get]);
 
+  // Initialize AI undo manager when document syncs
+  useEffect(() => {
+    if (connectionStatus !== "synced" || !ydocRef.current) return;
+    
+    const ydoc = ydocRef.current;
+    const fragment = ydoc.getXmlFragment('prosemirror');
+    
+    // Create undo manager ONLY for AI changes (tracked by 'ai' origin)
+    const undoManager = new Y.UndoManager(fragment, {
+      trackedOrigins: new Set(['ai']), // Only track 'ai' origin transactions
+    });
+    
+    undoManagerRef.current = undoManager;
+    
+    console.log('✅ AI undo manager initialized');
+    
+    return () => {
+      undoManager?.destroy();
+      undoManagerRef.current = null;
+    };
+  }, [connectionStatus]);
+
+  // Undo AI changes function
+  const undoAIChanges = useCallback(() => {
+    const manager = undoManagerRef.current;
+    if (!manager || !manager.canUndo()) {
+      console.log('⚠️ No AI changes to undo');
+      return;
+    }
+    
+    let undoneCount = 0;
+    // Undo all AI transactions
+    while (manager.canUndo()) {
+      manager.undo();
+      undoneCount++;
+    }
+    
+    console.log(`✅ Undone ${undoneCount} AI change(s)`);
+  }, []);
+
+  // Redo AI changes function
+  const redoAIChanges = useCallback(() => {
+    const manager = undoManagerRef.current;
+    if (!manager || !manager.canRedo()) {
+      console.log('⚠️ No AI changes to redo');
+      return;
+    }
+    
+    manager.redo();
+    console.log('✅ Redone AI change');
+  }, []);
+
+  // Check if can undo/redo (using state for reactivity)
+  const [canUndoAI, setCanUndoAI] = useState(false);
+  const [canRedoAI, setCanRedoAI] = useState(false);
+
+  // Poll undo/redo state (since UndoManager doesn't emit events)
+  useEffect(() => {
+    if (connectionStatus !== "synced") return;
+
+    const interval = setInterval(() => {
+      const manager = undoManagerRef.current;
+      if (manager) {
+        setCanUndoAI(manager.canUndo());
+        setCanRedoAI(manager.canRedo());
+      }
+    }, 500); // Check every 500ms
+
+    return () => clearInterval(interval);
+  }, [connectionStatus]);
+
   // Switch to a different document
   const switchDocument = useCallback((docName: string) => {
     // Changing document name will trigger useEffect to recreate provider
@@ -250,6 +324,26 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
              connectionStatus === "connecting" ? "Connecting..." :
              "Disconnected"}
           </span>
+          
+          {/* AI Undo/Redo Controls */}
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={undoAIChanges}
+              disabled={!canUndoAI}
+              className="rounded px-3 py-1 text-xs bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              title="Undo all AI changes"
+            >
+              ⎌ Undo AI
+            </button>
+            <button
+              onClick={redoAIChanges}
+              disabled={!canRedoAI}
+              className="rounded px-3 py-1 text-xs bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              title="Redo AI changes"
+            >
+              ⟲ Redo AI
+            </button>
+          </div>
         </div>
 
         <div className="flex h-full w-full flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">

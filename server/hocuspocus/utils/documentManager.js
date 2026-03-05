@@ -51,8 +51,8 @@ export async function listDocuments() {
  * Hocuspocus S3 extension uses this format
  */
 export function getDocumentKey(documentName) {
-  // Hocuspocus S3 extension typically stores as: documents/{name}.ydoc
-  return `documents/${documentName}.ydoc`;
+  // Hocuspocus S3 extension stores as: documents/{name}.bin
+  return `documents/${documentName}.bin`;
 }
 
 /**
