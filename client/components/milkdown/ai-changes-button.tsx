@@ -33,8 +33,8 @@ export const AIChangesButton = memo(({
           flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium
           transition-all duration-200
           ${activeCount > 0 
-            ? 'bg-purple-100 text-purple-700 hover:bg-purple-200' 
-            : 'bg-gray-100 text-gray-500 cursor-default'
+            ? 'bg-accent text-accent-foreground hover:bg-accent/80' 
+            : 'bg-muted text-muted-foreground cursor-default'
           }
         `}
         disabled={activeCount === 0}
@@ -42,7 +42,7 @@ export const AIChangesButton = memo(({
         <Sparkles className="h-4 w-4" />
         AI Changes
         {activeCount > 0 && (
-          <span className="ml-1 px-1.5 py-0.5 bg-purple-500 text-white rounded-full text-xs">
+          <span className="ml-1 px-1.5 py-0.5 bg-primary text-primary-foreground rounded-full text-xs font-medium">
             {activeCount}
           </span>
         )}

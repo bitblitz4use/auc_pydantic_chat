@@ -1,7 +1,7 @@
 import express from 'express';
 import { yjsToMarkdown } from '../utils/markdownConverter.js';
 import { applyIncrementalAIChanges } from '../utils/diffApplicator.js';
-import { getDocumentKey } from '../utils/documentManager.js';
+import { getDocumentKey, loadDocumentFromS3 } from '../utils/documentManager.js';
 import { minioClient, BUCKET_NAME } from '../config/minio.js';
 import { getLiveDocument } from '../config/hocuspocus.js';
 import * as Y from 'yjs';
@@ -15,33 +15,22 @@ const router = express.Router();
 router.get('/export/:documentName', async (req, res) => {
   try {
     const { documentName } = req.params;
-    
     console.log(`🤖 AI Export requested for: ${documentName}`);
     
-    // Try to get live document first (fastest)
-    const hocuspocus = req.app.locals.hocuspocusServer;
+    // Try live document first, fallback to S3
     let ydoc;
     let source = 'memory';
     
-    // Check if document is loaded in memory
-    try {
-      // Use getDocument() which returns the document if loaded
-      ydoc = await hocuspocus.getDocument(documentName);
-      console.log(`✅ Document loaded from memory`);
-    } catch (err) {
-      console.log(`📦 Document not in memory, loading from S3...`);
+    const liveDoc = getLiveDocument(documentName);
+    if (liveDoc) {
+      ydoc = liveDoc;
+      console.log('✅ Document loaded from memory');
+    } else {
       source = 's3';
+      console.log('📦 Document not in memory, loading from S3...');
       
       try {
-        const objectName = getDocumentKey(documentName);
-        const chunks = [];
-        const stream = await minioClient.getObject(BUCKET_NAME, objectName);
-        
-        for await (const chunk of stream) {
-          chunks.push(chunk);
-        }
-        
-        const yjsBinary = Buffer.concat(chunks);
+        const yjsBinary = await loadDocumentFromS3(documentName);
         ydoc = new Y.Doc();
         Y.applyUpdate(ydoc, yjsBinary);
       } catch (s3Error) {
@@ -56,13 +45,11 @@ router.get('/export/:documentName', async (req, res) => {
       }
     }
     
-    // Convert to Markdown
     const yjsBinary = Y.encodeStateAsUpdate(ydoc);
     const markdown = yjsToMarkdown(yjsBinary);
     
     console.log(`✅ Exported ${markdown.length} chars from ${source}`);
     
-    // Return raw markdown with proper MIME type
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', `inline; filename="${documentName}.md"`);
     res.send(markdown);
@@ -134,18 +121,9 @@ router.post('/import/:documentName', async (req, res) => {
       
     } else {
       // Document not in memory - load from S3, apply, save
-      // Clients will sync on reconnect
       console.log('💾 Document not in memory, loading from S3...');
       
-      const objectName = getDocumentKey(documentName);
-      const chunks = [];
-      const stream = await minioClient.getObject(BUCKET_NAME, objectName);
-      
-      for await (const chunk of stream) {
-        chunks.push(chunk);
-      }
-      
-      const yjsBinary = Buffer.concat(chunks);
+      const yjsBinary = await loadDocumentFromS3(documentName);
       const ydoc = new Y.Doc();
       Y.applyUpdate(ydoc, yjsBinary);
       
@@ -160,7 +138,7 @@ router.post('/import/:documentName', async (req, res) => {
       // Save to S3
       const updatedBinary = Y.encodeStateAsUpdate(ydoc);
       const buffer = Buffer.from(updatedBinary);
-      await minioClient.putObject(BUCKET_NAME, objectName, buffer);
+      await minioClient.putObject(BUCKET_NAME, getDocumentKey(documentName), buffer);
       
       console.log(`✅ Applied: ${result.changeId} (saved to S3, will sync on reconnect)`);
       
@@ -191,19 +169,15 @@ router.get('/metadata/:documentName', async (req, res) => {
   try {
     const { documentName } = req.params;
     
-    const hocuspocus = req.app.locals.hocuspocusServer;
-    let ydoc;
-    
-    try {
-      ydoc = await hocuspocus.getDocument(documentName);
-    } catch (err) {
+    const liveDoc = getLiveDocument(documentName);
+    if (!liveDoc) {
       return res.status(404).json({ 
         error: 'Document not loaded',
         documentName
       });
     }
     
-    const metaMap = ydoc.getMap('aiMeta');
+    const metaMap = liveDoc.getMap('aiMeta');
     const lastEdit = metaMap.get('lastEdit');
     
     res.json({

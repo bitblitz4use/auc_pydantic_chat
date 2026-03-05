@@ -1,5 +1,11 @@
 import { minioClient, BUCKET_NAME } from '../config/minio.js';
-import * as Y from 'yjs';
+
+/**
+ * Get the S3 key for a document name
+ */
+export function getDocumentKey(documentName) {
+  return `documents/${documentName}.bin`;
+}
 
 /**
  * Check if a document exists in S3
@@ -27,7 +33,6 @@ export async function listDocuments() {
     
     for await (const obj of stream) {
       if (obj.name && obj.name.endsWith('.bin')) {
-        // Extract document name from path (e.g., "documents/my-doc.ydoc" -> "my-doc")
         const docName = obj.name
           .replace('documents/', '')
           .replace('.bin', '');
@@ -47,18 +52,16 @@ export async function listDocuments() {
 }
 
 /**
- * Get the S3 key for a document name
- * Hocuspocus S3 extension uses this format
+ * Load Yjs document from S3
  */
-export function getDocumentKey(documentName) {
-  // Hocuspocus S3 extension stores as: documents/{name}.bin
-  return `documents/${documentName}.bin`;
-}
-
-/**
- * Create an empty Yjs document binary
- */
-export function createEmptyYjsDocument() {
-  const ydoc = new Y.Doc();
-  return Y.encodeStateAsUpdate(ydoc);
+export async function loadDocumentFromS3(documentName) {
+  const objectName = getDocumentKey(documentName);
+  const chunks = [];
+  const stream = await minioClient.getObject(BUCKET_NAME, objectName);
+  
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  
+  return Buffer.concat(chunks);
 }

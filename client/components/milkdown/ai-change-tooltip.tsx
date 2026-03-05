@@ -25,42 +25,42 @@ export const AIChangeTooltip = memo(({
   const undoneChanges = changes.filter(c => !c.undoable);
   
   return (
-    <div className="w-80 rounded-lg border border-purple-200 bg-white shadow-lg p-3">
+    <div className="w-80 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg p-3">
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3 pb-2 border-b border-purple-100">
-        <Sparkles className="h-4 w-4 text-purple-500" />
-        <span className="text-sm font-semibold text-purple-900">
+      <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
+        <Sparkles className="h-4 w-4 text-primary" />
+        <span className="text-sm font-semibold text-popover-foreground">
           AI Changes
         </span>
-        <span className="ml-auto text-xs text-purple-600">
+        <span className="ml-auto text-xs text-muted-foreground">
           {activeChanges.length} active
         </span>
       </div>
       
       {/* Change List */}
-      <div className="max-h-48 overflow-y-auto space-y-2 mb-3">
+      <div className="max-h-48 overflow-y-auto space-y-2 mb-3 scrollbar-thin">
         {activeChanges.length === 0 ? (
-          <div className="text-xs text-gray-500 text-center py-4">
+          <div className="text-xs text-muted-foreground text-center py-4">
             No AI changes yet
           </div>
         ) : (
           activeChanges.map(change => (
             <div
               key={change.id}
-              className="text-xs bg-purple-50 rounded p-2 space-y-1"
+              className="text-xs bg-muted/50 rounded p-2 space-y-1 border border-border/50"
             >
               <div className="flex items-center gap-2">
-                <Clock className="h-3 w-3 text-purple-400" />
-                <span className="text-purple-700">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <span className="text-foreground">
                   {new Date(change.timestamp).toLocaleTimeString()}
                 </span>
               </div>
               {change.model && (
-                <div className="text-purple-600">
+                <div className="text-muted-foreground">
                   Model: {change.model}
                 </div>
               )}
-              <div className="text-purple-500">
+              <div className="text-foreground">
                 {change.changesCount} modification{change.changesCount > 1 ? 's' : ''}
               </div>
             </div>
@@ -73,7 +73,7 @@ export const AIChangeTooltip = memo(({
         <button
           onClick={onUndoLast}
           disabled={!canUndo}
-          className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           <Undo2 className="h-4 w-4" />
           Undo Last AI Change
@@ -83,7 +83,7 @@ export const AIChangeTooltip = memo(({
           <button
             onClick={onUndoAll}
             disabled={!canUndo}
-            className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <History className="h-4 w-4" />
             Undo All AI Changes
@@ -94,7 +94,7 @@ export const AIChangeTooltip = memo(({
           <button
             onClick={onRedo}
             disabled={!canRedo}
-            className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center justify-center gap-2 px-3 py-2 text-sm bg-muted text-muted-foreground rounded hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Redo2 className="h-4 w-4" />
             Redo AI Change
