@@ -18,6 +18,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import { EditorToolbar } from "./editor-toolbar";
 import { DocumentSelector } from "./document-selector";
 import { useEditorCommands } from "./hooks/use-editor-commands";
+import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
 
 // API base URL
 const API_BASE = "http://127.0.0.1:3001";
@@ -93,7 +94,6 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   const providerRef = useRef<HocuspocusProvider | null>(null);
   const collabServiceRef = useRef<CollabService | null>(null);
   const collabConnectedRef = useRef<boolean>(false); // Track if we've connected
-  const undoManagerRef = useRef<Y.UndoManager | null>(null); // For AI undo
 
   // Load list of available documents
   const loadDocuments = useCallback(async () => {
@@ -168,8 +168,6 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       providerRef.current = null;
       collabServiceRef.current = null;
       collabConnectedRef.current = false; // Reset connected flag
-      undoManagerRef.current?.destroy();
-      undoManagerRef.current = null;
       setConnectionStatus("disconnected");
     };
   }, [currentDocumentName, loadDocuments]);
@@ -262,76 +260,8 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
     };
   }, [loading, connectionStatus, get]);
 
-  // Initialize AI undo manager when document syncs
-  useEffect(() => {
-    if (connectionStatus !== "synced" || !ydocRef.current) return;
-    
-    const ydoc = ydocRef.current;
-    const fragment = ydoc.getXmlFragment('prosemirror');
-    
-    // Create undo manager ONLY for AI changes (tracked by 'ai' origin)
-    const undoManager = new Y.UndoManager(fragment, {
-      trackedOrigins: new Set(['ai']), // Only track 'ai' origin transactions
-    });
-    
-    undoManagerRef.current = undoManager;
-    
-    console.log('✅ AI undo manager initialized');
-    
-    return () => {
-      undoManager?.destroy();
-      undoManagerRef.current = null;
-    };
-  }, [connectionStatus]);
-
-  // Undo AI changes function
-  const undoAIChanges = useCallback(() => {
-    const manager = undoManagerRef.current;
-    if (!manager || !manager.canUndo()) {
-      console.log('⚠️ No AI changes to undo');
-      return;
-    }
-    
-    let undoneCount = 0;
-    // Undo all AI transactions
-    while (manager.canUndo()) {
-      manager.undo();
-      undoneCount++;
-    }
-    
-    console.log(`✅ Undone ${undoneCount} AI change(s)`);
-  }, []);
-
-  // Redo AI changes function
-  const redoAIChanges = useCallback(() => {
-    const manager = undoManagerRef.current;
-    if (!manager || !manager.canRedo()) {
-      console.log('⚠️ No AI changes to redo');
-      return;
-    }
-    
-    manager.redo();
-    console.log('✅ Redone AI change');
-  }, []);
-
-  // Check if can undo/redo (using state for reactivity)
-  const [canUndoAI, setCanUndoAI] = useState(false);
-  const [canRedoAI, setCanRedoAI] = useState(false);
-
-  // Poll undo/redo state (since UndoManager doesn't emit events)
-  useEffect(() => {
-    if (connectionStatus !== "synced") return;
-
-    const interval = setInterval(() => {
-      const manager = undoManagerRef.current;
-      if (manager) {
-        setCanUndoAI(manager.canUndo());
-        setCanRedoAI(manager.canRedo());
-      }
-    }, 500); // Check every 500ms
-
-    return () => clearInterval(interval);
-  }, [connectionStatus]);
+  // Use AI change tracker hook
+  const aiTracker = useAIChangeTracker(ydocRef.current);
 
   // Switch to a different document
   const switchDocument = useCallback((docName: string) => {
@@ -366,14 +296,16 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
           connectionStatus={connectionStatus}
         />
 
-        {/* Toolbar with AI Undo/Redo */}
+        {/* Toolbar with AI Changes Tooltip */}
         <EditorToolbar
           commands={commands}
           disabled={connectionStatus !== "synced" || loading}
-          canUndoAI={canUndoAI}
-          canRedoAI={canRedoAI}
-          onUndoAI={undoAIChanges}
-          onRedoAI={redoAIChanges}
+          aiChanges={aiTracker.changes}
+          canUndoAI={aiTracker.canUndo}
+          canRedoAI={aiTracker.canRedo}
+          onUndoLastAI={aiTracker.undoLastAIChange}
+          onUndoAllAI={aiTracker.undoAllAIChanges}
+          onRedoAI={aiTracker.redoAIChange}
         />
       </div>
 

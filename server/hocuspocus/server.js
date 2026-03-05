@@ -7,6 +7,12 @@ import aiRoutes from "./routes/ai.js";
 const app = express();
 
 // Middleware
+// Handle raw text bodies for markdown import
+app.use(express.text({ 
+  type: ['text/markdown', 'text/plain'],
+  limit: '10mb' 
+}));
+// Handle JSON for backward compatibility
 app.use(express.json({ limit: "2mb" }));
 app.use(corsMiddleware);
 

@@ -1,5 +1,6 @@
 import express from 'express';
-import { yjsToMarkdown, applyAIMarkdown } from '../utils/markdownConverter.js';
+import { yjsToMarkdown } from '../utils/markdownConverter.js';
+import { applyIncrementalAIChanges } from '../utils/diffApplicator.js';
 import { getDocumentKey } from '../utils/documentManager.js';
 import { minioClient, BUCKET_NAME } from '../config/minio.js';
 import * as Y from 'yjs';
@@ -77,24 +78,22 @@ router.get('/export/:documentName', async (req, res) => {
 
 /**
  * POST /api/ai/import/:documentName
- * Apply AI-edited Markdown back to document
- * Body: { markdown: string, metadata?: { model?: string, changeId?: string } }
+ * Body: Raw markdown (Content-Type: text/markdown or text/plain)
+ * Headers: X-AI-Model, X-AI-Prompt, X-AI-Change-Id (optional)
  */
 router.post('/import/:documentName', async (req, res) => {
   try {
     const { documentName } = req.params;
-    const { markdown, metadata = {} } = req.body;
+    const markdown = req.body;
     
-    console.log(`🤖 AI Import requested for: ${documentName}`);
-    
-    if (!markdown) {
+    if (typeof markdown !== 'string' || !markdown.trim()) {
       return res.status(400).json({ 
-        error: 'Missing markdown field in request body',
-        expected: '{ "markdown": "content here", "metadata": {...} }'
+        error: 'Send raw markdown with Content-Type: text/markdown or text/plain'
       });
     }
     
-    // Get live document (must be open in editor for real-time sync)
+    console.log(`🤖 AI Import: ${documentName}`);
+    
     const hocuspocus = req.app.locals.hocuspocusServer;
     let ydoc;
     
@@ -102,44 +101,39 @@ router.post('/import/:documentName', async (req, res) => {
       ydoc = await hocuspocus.getDocument(documentName);
     } catch (err) {
       return res.status(404).json({ 
-        error: 'Document not loaded in memory',
-        documentName,
-        hint: 'Please open the document in an editor first. AI changes require an active connection for real-time sync and undo support.'
+        error: 'Document not loaded',
+        hint: 'Open document in editor first'
       });
     }
     
-    // Apply AI changes with 'ai' transaction origin
-    applyAIMarkdown(ydoc, markdown);
+    const metadata = {
+      model: req.headers['x-ai-model'],
+      prompt: req.headers['x-ai-prompt'],
+      changeId: req.headers['x-ai-change-id']
+    };
     
-    // Store metadata
-    const metaMap = ydoc.getMap('aiMeta');
-    metaMap.set('lastEdit', {
+    const result = applyIncrementalAIChanges(ydoc, markdown, metadata);
+    
+    ydoc.getMap('aiMeta').set('lastEdit', {
       timestamp: Date.now(),
       ...metadata,
+      ...result
     });
     
-    console.log(`✅ AI changes applied to: ${documentName}`);
-    if (metadata.model) {
-      console.log(`   Model: ${metadata.model}`);
-    }
-    if (metadata.changeId) {
-      console.log(`   Change ID: ${metadata.changeId}`);
-    }
+    console.log(`✅ Applied: ${result.changeId} (${result.changesApplied} changes)`);
     
     res.json({
       success: true,
       documentName,
-      length: markdown.length,
-      appliedAt: new Date().toISOString(),
-      metadata,
+      changeId: result.changeId,
+      changesApplied: result.changesApplied
     });
     
   } catch (error) {
     console.error('❌ Import error:', error);
     res.status(500).json({ 
-      error: 'Failed to import AI changes',
-      message: error.message,
-      documentName: req.params.documentName,
+      error: 'Failed to import',
+      message: error.message
     });
   }
 });

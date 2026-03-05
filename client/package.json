@@ -16,6 +16,7 @@
     "@milkdown/kit": "^7.19.0",
     "@milkdown/plugin-clipboard": "^7.19.0",
     "@milkdown/plugin-collab": "^7.19.0",
+    "@milkdown/plugin-tooltip": "^7.19.0",
     "@milkdown/preset-commonmark": "^7.19.0",
     "@milkdown/react": "^7.19.0",
     "@streamdown/cjk": "^1.0.2",

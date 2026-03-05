@@ -18,13 +18,18 @@ import {
   Undo2,
   Redo2,
 } from 'lucide-react';
+import { AIChangesButton } from './ai-changes-button';
+import { AIChange } from './hooks/use-ai-change-tracker';
 
 interface EditorToolbarProps {
   commands: EditorCommands;
   disabled?: boolean;
+  // New AI tracker props
+  aiChanges?: AIChange[];
   canUndoAI?: boolean;
   canRedoAI?: boolean;
-  onUndoAI?: () => void;
+  onUndoLastAI?: () => void;
+  onUndoAllAI?: () => void;
   onRedoAI?: () => void;
 }
 
@@ -62,9 +67,11 @@ const ToolbarDivider = () => (
 export const EditorToolbar = memo(({ 
   commands, 
   disabled = false,
+  aiChanges = [],
   canUndoAI = false,
   canRedoAI = false,
-  onUndoAI,
+  onUndoLastAI,
+  onUndoAllAI,
   onRedoAI
 }: EditorToolbarProps) => {
   return (
@@ -167,30 +174,18 @@ export const EditorToolbar = memo(({
         icon={<Minus size={16} />}
       />
 
-      {/* AI Undo/Redo - Right aligned */}
-      {(onUndoAI || onRedoAI) && (
+      {/* AI Changes Tooltip Button - Right aligned */}
+      {aiChanges.length > 0 && (
         <>
           <div className="ml-auto" />
-          {onUndoAI && (
-            <button
-              onClick={onUndoAI}
-              disabled={!canUndoAI}
-              className="rounded px-3 py-1 text-xs bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-              title="Undo all AI changes"
-            >
-              ⎌ Undo AI
-            </button>
-          )}
-          {onRedoAI && (
-            <button
-              onClick={onRedoAI}
-              disabled={!canRedoAI}
-              className="rounded px-3 py-1 text-xs bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-              title="Redo AI changes"
-            >
-              ⟲ Redo AI
-            </button>
-          )}
+          <AIChangesButton
+            changes={aiChanges}
+            canUndo={canUndoAI}
+            canRedo={canRedoAI}
+            onUndoLast={onUndoLastAI || (() => {})}
+            onUndoAll={onUndoAllAI || (() => {})}
+            onRedo={onRedoAI || (() => {})}
+          />
         </>
       )}
     </div>
