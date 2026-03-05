@@ -18,7 +18,6 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 // Import new components
 import { EditorToolbar } from "./editor-toolbar";
 import { DocumentSelector } from "./document-selector";
-import { BlockView } from "./block-view";
 import { useEditorCommands } from "./hooks/use-editor-commands";
 import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
 
@@ -318,7 +317,6 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         <div className="editor-scrollbar h-full overflow-auto rounded-lg border border-border bg-card">
           <div className="milkdown-editor-root min-h-full bg-card p-4">
             <Milkdown />
-            <BlockView />
           </div>
         </div>
       </div>
