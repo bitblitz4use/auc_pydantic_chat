@@ -2,7 +2,7 @@
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import { ChatInterface } from "@/components/chat-interface";
-import { MilkdownEditor } from "@/components/milkdown-editor";
+import { MilkdownEditor } from "@/components/milkdown/milkdown-editor";
 import {
   ResizableHandle,
   ResizablePanel,
