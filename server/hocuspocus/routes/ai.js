@@ -95,16 +95,19 @@ router.post('/import/:documentName', async (req, res) => {
     console.log(`🤖 AI Import: ${documentName}`);
     
     const hocuspocus = req.app.locals.hocuspocusServer;
-    let ydoc;
     
-    try {
-      ydoc = await hocuspocus.getDocument(documentName);
-    } catch (err) {
-      return res.status(404).json({ 
-        error: 'Document not loaded',
-        hint: 'Open document in editor first'
-      });
+    // Load from S3
+    const objectName = getDocumentKey(documentName);
+    const chunks = [];
+    const stream = await minioClient.getObject(BUCKET_NAME, objectName);
+    
+    for await (const chunk of stream) {
+      chunks.push(chunk);
     }
+    
+    const yjsBinary = Buffer.concat(chunks);
+    const ydoc = new Y.Doc();
+    Y.applyUpdate(ydoc, yjsBinary);
     
     const metadata = {
       model: req.headers['x-ai-model'],
@@ -112,6 +115,7 @@ router.post('/import/:documentName', async (req, res) => {
       changeId: req.headers['x-ai-change-id']
     };
     
+    // Apply AI changes
     const result = applyIncrementalAIChanges(ydoc, markdown, metadata);
     
     ydoc.getMap('aiMeta').set('lastEdit', {
@@ -120,7 +124,22 @@ router.post('/import/:documentName', async (req, res) => {
       ...result
     });
     
-    console.log(`✅ Applied: ${result.changeId} (${result.changesApplied} changes)`);
+    // Save to S3
+    const updatedBinary = Y.encodeStateAsUpdate(ydoc);
+    const buffer = Buffer.from(updatedBinary);
+    await minioClient.putObject(BUCKET_NAME, objectName, buffer);
+    
+    // Sync to live clients if document is loaded
+    try {
+      const liveDoc = await hocuspocus.getDocument(documentName);
+      const update = Y.encodeStateAsUpdate(ydoc);
+      Y.applyUpdate(liveDoc, update);
+      console.log('📡 Synced to live clients');
+    } catch {
+      console.log('💾 Saved to S3 (will sync on client reconnect)');
+    }
+    
+    console.log(`✅ Applied: ${result.changeId}`);
     
     res.json({
       success: true,
@@ -133,7 +152,8 @@ router.post('/import/:documentName', async (req, res) => {
     console.error('❌ Import error:', error);
     res.status(500).json({ 
       error: 'Failed to import',
-      message: error.message
+      message: error.message,
+      documentName: req.params.documentName
     });
   }
 });
