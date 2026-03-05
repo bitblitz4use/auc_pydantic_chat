@@ -20,6 +20,10 @@ import {
 interface EditorToolbarProps {
   commands: EditorCommands;
   disabled?: boolean;
+  canUndoAI?: boolean;
+  canRedoAI?: boolean;
+  onUndoAI?: () => void;
+  onRedoAI?: () => void;
 }
 
 interface ToolbarButtonProps {
@@ -53,7 +57,14 @@ const ToolbarDivider = () => (
   <div className="mx-1 h-6 w-px bg-border" />
 );
 
-export const EditorToolbar = memo(({ commands, disabled = false }: EditorToolbarProps) => {
+export const EditorToolbar = memo(({ 
+  commands, 
+  disabled = false,
+  canUndoAI = false,
+  canRedoAI = false,
+  onUndoAI,
+  onRedoAI
+}: EditorToolbarProps) => {
   return (
     <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 shadow-sm">
       {/* Headings */}
@@ -137,6 +148,33 @@ export const EditorToolbar = memo(({ commands, disabled = false }: EditorToolbar
         title="Horizontal rule"
         icon={<Minus size={16} />}
       />
+
+      {/* AI Undo/Redo - Right aligned */}
+      {(onUndoAI || onRedoAI) && (
+        <>
+          <div className="ml-auto" />
+          {onUndoAI && (
+            <button
+              onClick={onUndoAI}
+              disabled={!canUndoAI}
+              className="rounded px-3 py-1 text-xs bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              title="Undo all AI changes"
+            >
+              ⎌ Undo AI
+            </button>
+          )}
+          {onRedoAI && (
+            <button
+              onClick={onRedoAI}
+              disabled={!canRedoAI}
+              className="rounded px-3 py-1 text-xs bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              title="Redo AI changes"
+            >
+              ⟲ Redo AI
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 });

@@ -2,6 +2,8 @@
 
 import { memo } from 'react';
 
+type ConnectionStatus = "disconnected" | "connecting" | "connected" | "synced";
+
 interface Document {
   name: string;
   size: number;
@@ -16,6 +18,7 @@ interface DocumentSelectorProps {
   onCreateNew: () => void;
   onRefresh: () => void;
   disabled?: boolean;
+  connectionStatus?: ConnectionStatus;
 }
 
 export const DocumentSelector = memo(({
@@ -26,6 +29,7 @@ export const DocumentSelector = memo(({
   onCreateNew,
   onRefresh,
   disabled = false,
+  connectionStatus,
 }: DocumentSelectorProps) => {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
@@ -59,6 +63,26 @@ export const DocumentSelector = memo(({
       >
         {isLoadingDocuments ? "Loading..." : "Refresh"}
       </button>
+
+      {/* Connection Status - Right aligned */}
+      {connectionStatus && (
+        <>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              {connectionStatus === "synced" ? "Synced & Ready" :
+               connectionStatus === "connected" ? "Connected" :
+               connectionStatus === "connecting" ? "Connecting..." :
+               "Disconnected"}
+            </span>
+            <div className={`h-2 w-2 rounded-full ${
+              connectionStatus === "synced" ? "bg-green-500" :
+              connectionStatus === "connected" ? "bg-yellow-500" :
+              connectionStatus === "connecting" ? "bg-blue-500 animate-pulse" :
+              "bg-gray-500"
+            }`} />
+          </div>
+        </>
+      )}
     </div>
   );
 });

@@ -214,10 +214,11 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="flex h-full flex-col bg-background p-4">
-      <div className="mx-auto flex w-full flex-1 flex-col">
-        <div className="flex h-full w-full flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
-          <Conversation className="flex-1 overflow-auto">
+    <div className="flex h-full flex-col bg-background">
+      {/* Scrollable Messages Area */}
+      <div className="flex-1 overflow-hidden p-4 pb-0">
+        <div className="h-full overflow-hidden rounded-t-lg border border-b-0 border-border bg-card">
+          <Conversation className="conversation-scrollbar h-full">
             <ConversationContent>
               {messages.length === 0 ? (
                 <ConversationEmptyState
@@ -239,69 +240,73 @@ export function ChatInterface() {
               )}
             </ConversationContent>
           </Conversation>
-          <div className="border-t border-border bg-card p-4">
-            <PromptInput globalDrop multiple onSubmit={handleSubmit}>
-              <PromptInputAttachmentsDisplay />
-              <PromptInputBody>
-                <PromptInputTextarea placeholder="Type your message..." />
-              </PromptInputBody>
-              <PromptInputFooter>
-                <PromptInputTools>
-                  <PromptInputActionMenu>
-                    <PromptInputActionMenuTrigger />
-                    <PromptInputActionMenuContent>
-                      <PromptInputActionAddAttachments />
-                    </PromptInputActionMenuContent>
-                  </PromptInputActionMenu>
-                  <PromptInputButton
-                    onClick={() => setWebSearch(!webSearch)}
-                    variant={webSearch ? "default" : "ghost"}
-                  >
-                    <GlobeIcon size={16} />
-                    <span>Search</span>
-                  </PromptInputButton>
-                  <ModelSelector
-                    onOpenChange={setModelSelectorOpen}
-                    open={modelSelectorOpen}
-                  >
-                    <ModelSelectorTrigger asChild>
-                      <PromptInputButton>
-                        {selectedModelData?.chefSlug && (
-                          <ModelSelectorLogo provider={selectedModelData.chefSlug} />
+        </div>
+      </div>
+
+      {/* Fixed Prompt Input at Bottom */}
+      <div className="px-4 pb-4">
+        <div className="rounded-b-lg border border-t-0 border-border bg-card p-4">
+          <PromptInput globalDrop multiple onSubmit={handleSubmit}>
+            <PromptInputAttachmentsDisplay />
+            <PromptInputBody>
+              <PromptInputTextarea placeholder="Type your message..." />
+            </PromptInputBody>
+            <PromptInputFooter>
+              <PromptInputTools>
+                <PromptInputActionMenu>
+                  <PromptInputActionMenuTrigger />
+                  <PromptInputActionMenuContent>
+                    <PromptInputActionAddAttachments />
+                  </PromptInputActionMenuContent>
+                </PromptInputActionMenu>
+                <PromptInputButton
+                  onClick={() => setWebSearch(!webSearch)}
+                  variant={webSearch ? "default" : "ghost"}
+                >
+                  <GlobeIcon size={16} />
+                  <span>Search</span>
+                </PromptInputButton>
+                <ModelSelector
+                  onOpenChange={setModelSelectorOpen}
+                  open={modelSelectorOpen}
+                >
+                  <ModelSelectorTrigger asChild>
+                    <PromptInputButton>
+                      {selectedModelData?.chefSlug && (
+                        <ModelSelectorLogo provider={selectedModelData.chefSlug} />
+                      )}
+                      {selectedModelData?.name && (
+                        <ModelSelectorName>
+                          {selectedModelData.name}
+                        </ModelSelectorName>
                         )}
-                        {selectedModelData?.name && (
-                          <ModelSelectorName>
-                            {selectedModelData.name}
-                          </ModelSelectorName>
-                        )}
-                      </PromptInputButton>
-                    </ModelSelectorTrigger>
-                    <ModelSelectorContent>
-                      <ModelSelectorInput placeholder="Search models..." />
-                      <ModelSelectorList>
-                        <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                        {["OpenAI", "Anthropic", "Google"].map((chef) => (
-                          <ModelSelectorGroup heading={chef} key={chef}>
-                            {models
-                              .filter((m) => m.chef === chef)
-                              .map((m) => (
-                                <ModelItem
-                                  key={m.id}
-                                  m={m}
-                                  onSelect={handleModelSelect}
-                                  selectedModel={model}
-                                />
-                              ))}
-                          </ModelSelectorGroup>
-                        ))}
-                      </ModelSelectorList>
-                    </ModelSelectorContent>
-                  </ModelSelector>
-                </PromptInputTools>
-                <PromptInputSubmit status={status} onStop={handleStop} />
-              </PromptInputFooter>
-            </PromptInput>
-          </div>
+                    </PromptInputButton>
+                  </ModelSelectorTrigger>
+                  <ModelSelectorContent>
+                    <ModelSelectorInput placeholder="Search models..." />
+                    <ModelSelectorList>
+                      <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                      {["OpenAI", "Anthropic", "Google"].map((chef) => (
+                        <ModelSelectorGroup heading={chef} key={chef}>
+                          {models
+                            .filter((m) => m.chef === chef)
+                            .map((m) => (
+                              <ModelItem
+                                key={m.id}
+                                m={m}
+                                onSelect={handleModelSelect}
+                                selectedModel={model}
+                              />
+                            ))}
+                        </ModelSelectorGroup>
+                      ))}
+                    </ModelSelectorList>
+                  </ModelSelectorContent>
+                </ModelSelector>
+              </PromptInputTools>
+              <PromptInputSubmit status={status} onStop={handleStop} />
+            </PromptInputFooter>
+          </PromptInput>
         </div>
       </div>
     </div>

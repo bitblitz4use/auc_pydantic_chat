@@ -1,23 +1,81 @@
 "use client";
 
-import { Editor, rootCtx } from "@milkdown/kit/core";
+import { Editor, rootCtx, editorViewCtx } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { history } from "@milkdown/kit/plugin/history";
+import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { collab, collabServiceCtx, CollabService } from "@milkdown/plugin-collab";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
+import { $prose } from "@milkdown/kit/utils";
+import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
+import { TextSelection } from "@milkdown/kit/prose/state";
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 
 // Import new components
 import { EditorToolbar } from "./editor-toolbar";
-import { EditorStatusBar } from "./editor-status-bar";
 import { DocumentSelector } from "./document-selector";
 import { useEditorCommands } from "./hooks/use-editor-commands";
 
 // API base URL
 const API_BASE = "http://127.0.0.1:3001";
+
+// Custom plugin to handle Enter key on empty list items
+const exitListPlugin = $prose(() => {
+  return new Plugin({
+    key: new PluginKey('exitList'),
+    props: {
+      handleKeyDown(view, event) {
+        if (event.key !== 'Enter' || event.shiftKey) {
+          return false;
+        }
+
+        const { state, dispatch } = view;
+        const { selection, schema } = state;
+        const { $from } = selection;
+
+        // Check if we're in a list item
+        let listItemDepth = -1;
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === 'list_item') {
+            listItemDepth = d;
+            break;
+          }
+        }
+
+        if (listItemDepth === -1) {
+          return false; // Not in a list
+        }
+
+        const listItem = $from.node(listItemDepth);
+        
+        // Check if the list item is empty (only contains an empty paragraph)
+        if (listItem.childCount === 1) {
+          const child = listItem.child(0);
+          if (child.type.name === 'paragraph' && child.content.size === 0) {
+            // Exit the list by lifting the empty list item
+            const pos = $from.before(listItemDepth);
+            const tr = state.tr.delete(pos, pos + listItem.nodeSize);
+            
+            // Insert a paragraph after the list
+            const paragraph = schema.nodes.paragraph.create();
+            tr.insert(pos, paragraph);
+            
+            // Set cursor in the new paragraph
+            tr.setSelection(TextSelection.near(tr.doc.resolve(pos + 1)));
+            
+            dispatch(tr);
+            return true;
+          }
+        }
+
+        return false;
+      },
+    },
+  });
+});
 
 // Props for the editor component
 interface MilkdownEditorProps {
@@ -129,8 +187,10 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
           ctx.set(rootCtx, root);
         })
         .use(commonmark)
+        .use(listener)
         .use(clipboard)
-        .use(history);
+        .use(history)
+        .use(exitListPlugin);
     }
 
     console.log("✅ Creating collaborative editor");
@@ -150,9 +210,11 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         ctx.set(collabServiceCtx, collabService);
       })
       .use(commonmark)
+      .use(listener)
       .use(clipboard)
       .use(history)
-      .use(collab);
+      .use(collab)
+      .use(exitListPlugin);
   }, [connectionStatus]); // Recreate when connection status changes
 
   // Connect CollabService after editor is ready
@@ -289,9 +351,10 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   const commands = useEditorCommands(get);
 
   return (
-    <div className="flex h-full flex-col bg-background p-4">
-      <div className="mx-auto flex w-full flex-1 flex-col gap-2">
-        {/* Document Selector */}
+    <div className="flex h-full flex-col bg-background">
+      {/* Sticky header container */}
+      <div className="sticky top-0 z-10 flex flex-col gap-2 bg-background p-4 pb-2">
+        {/* Document Selector with Connection Status */}
         <DocumentSelector
           currentDocumentName={currentDocumentName}
           availableDocuments={availableDocuments}
@@ -300,26 +363,24 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
           onCreateNew={createNewDocument}
           onRefresh={loadDocuments}
           disabled={connectionStatus === "connecting"}
+          connectionStatus={connectionStatus}
         />
 
-        {/* Status Bar */}
-        <EditorStatusBar
-          connectionStatus={connectionStatus}
+        {/* Toolbar with AI Undo/Redo */}
+        <EditorToolbar
+          commands={commands}
+          disabled={connectionStatus !== "synced" || loading}
           canUndoAI={canUndoAI}
           canRedoAI={canRedoAI}
           onUndoAI={undoAIChanges}
           onRedoAI={redoAIChanges}
         />
+      </div>
 
-        {/* Toolbar */}
-        <EditorToolbar
-          commands={commands}
-          disabled={connectionStatus !== "synced" || loading}
-        />
-
-        {/* Editor */}
-        <div className="flex h-full w-full flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
-          <div className="milkdown-editor-root h-full w-full overflow-auto bg-card p-4">
+      {/* Scrollable Editor Container */}
+      <div className="flex-1 overflow-hidden px-4 pb-4">
+        <div className="editor-scrollbar h-full overflow-auto rounded-lg border border-border bg-card">
+          <div className="milkdown-editor-root min-h-full bg-card p-4">
             <Milkdown />
           </div>
         </div>

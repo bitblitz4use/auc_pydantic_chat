@@ -991,4 +991,245 @@ body[data-scroll-locked] {
   .milkdown-editor-root *:not(pre):not(code):not(a) {
     color: inherit;
   }
+
+  /* ========================================
+   * List Styling - Visible Markers in Dark Mode
+   * ======================================== */
+
+  /* Bullet lists - ensure bullets are visible */
+  .milkdown ul,
+  .milkdown-editor-root ul,
+  .milkdown .ProseMirror ul {
+    list-style-type: disc;
+    padding-left: 0;
+    margin: 0.5rem 0;
+  }
+
+  .milkdown ul li,
+  .milkdown-editor-root ul li,
+  .milkdown .ProseMirror ul li {
+    display: list-item;
+    list-style-type: disc;
+    list-style-position: inside;
+  }
+
+  /* Remove block display from paragraphs inside list items */
+  .milkdown ul li > p,
+  .milkdown-editor-root ul li > p,
+  .milkdown .ProseMirror ul li > p {
+    display: inline;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Ordered lists - ensure numbers are visible */
+  .milkdown ol,
+  .milkdown-editor-root ol,
+  .milkdown .ProseMirror ol {
+    list-style-type: decimal;
+    padding-left: 0;
+    margin: 0.5rem 0;
+  }
+
+  .milkdown ol li,
+  .milkdown-editor-root ol li,
+  .milkdown .ProseMirror ol li {
+    display: list-item;
+    list-style-type: decimal;
+    list-style-position: inside;
+  }
+
+  /* Remove block display from paragraphs inside ordered list items */
+  .milkdown ol li > p,
+  .milkdown-editor-root ol li > p,
+  .milkdown .ProseMirror ol li > p {
+    display: inline;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Dark mode - ensure list markers use foreground color */
+  .dark .milkdown ul li::marker,
+  .dark .milkdown-editor-root ul li::marker,
+  .dark .milkdown .ProseMirror ul li::marker {
+    color: var(--card-foreground);
+  }
+
+  .dark .milkdown ol li::marker,
+  .dark .milkdown-editor-root ol li::marker,
+  .dark .milkdown .ProseMirror ol li::marker {
+    color: var(--card-foreground);
+  }
+
+  /* Light mode - ensure list markers are visible */
+  .milkdown ul li::marker,
+  .milkdown-editor-root ul li::marker,
+  .milkdown .ProseMirror ul li::marker,
+  .milkdown ol li::marker,
+  .milkdown-editor-root ol li::marker,
+  .milkdown .ProseMirror ol li::marker {
+    color: var(--card-foreground);
+  }
+
+  /* Nested lists */
+  .milkdown ul ul,
+  .milkdown-editor-root ul ul,
+  .milkdown .ProseMirror ul ul {
+    list-style-type: circle;
+    margin: 0.25rem 0;
+  }
+
+  .milkdown ul ul ul,
+  .milkdown-editor-root ul ul ul,
+  .milkdown .ProseMirror ul ul ul {
+    list-style-type: square;
+  }
+
+  /* ========================================
+   * Text Selection Styling - Better Visibility
+   * ======================================== */
+
+  /* Global text selection - Light mode */
+  ::selection {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  ::-moz-selection {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  /* Dark mode - force black text on light selection background */
+  .dark ::selection {
+    background-color: oklch(0.72 0 0); /* Light gray selection */
+    color: oklch(0 0 0); /* Black text */
+  }
+
+  .dark ::-moz-selection {
+    background-color: oklch(0.72 0 0);
+    color: oklch(0 0 0);
+  }
+
+  /* Milkdown editor specific selection styling */
+  .milkdown ::selection,
+  .milkdown-editor-root ::selection,
+  .milkdown .ProseMirror ::selection {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  .milkdown ::-moz-selection,
+  .milkdown-editor-root ::-moz-selection,
+  .milkdown .ProseMirror ::-moz-selection {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  /* Dark mode - Milkdown editor with high contrast selection */
+  .dark .milkdown ::selection,
+  .dark .milkdown-editor-root ::selection,
+  .dark .milkdown .ProseMirror ::selection {
+    background-color: oklch(0.72 0 0); /* Light gray background */
+    color: oklch(0 0 0); /* Black text for maximum contrast */
+  }
+
+  .dark .milkdown ::-moz-selection,
+  .dark .milkdown-editor-root ::-moz-selection,
+  .dark .milkdown .ProseMirror ::-moz-selection {
+    background-color: oklch(0.72 0 0);
+    color: oklch(0 0 0);
+  }
+
+  /* ========================================
+   * Custom Scrollbar Styles - Theme Integrated
+   * ======================================== */
+
+  /* Firefox scrollbar styling */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+
+  /* Webkit-based browsers (Chrome, Safari, Edge) scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: var(--radius-sm);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--muted);
+    border-radius: var(--radius-sm);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    background: var(--accent);
+    background-clip: padding-box;
+  }
+
+  /* Corner where horizontal and vertical scrollbars meet */
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Dark mode specific scrollbar adjustments */
+  .dark {
+    scrollbar-color: oklch(0.32 0 0) transparent;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: oklch(0.32 0 0);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.40 0 0);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:active {
+    background: oklch(0.48 0 0);
+  }
+
+  /* Scrollbar for specific containers with more subtle styling */
+  .conversation-scrollbar::-webkit-scrollbar-thumb,
+  .editor-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--border);
+  }
+
+  .conversation-scrollbar::-webkit-scrollbar-thumb:hover,
+  .editor-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+  }
+
+  /* Thin scrollbar variant for compact areas */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    border-width: 1px;
+  }
+
+  /* Hide scrollbar but keep functionality (alternative to no-scrollbar utility) */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }

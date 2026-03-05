@@ -101,12 +101,114 @@ export function useEditorCommands(getEditor: () => Editor | undefined): EditorCo
     }, [executeCommand]),
 
     toggleBulletList: useCallback(() => {
-      executeCommand(wrapInBulletListCommand.key);
-    }, [executeCommand]),
+      const editor = getEditor();
+      if (!editor) {
+        console.warn('Editor not ready');
+        return;
+      }
+      
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { state, dispatch } = view;
+          const { selection } = state;
+          const { $from, empty } = selection;
+          
+          // Check if we're already in a bullet list
+          const bulletList = state.schema.nodes.bullet_list;
+          const listItem = state.schema.nodes.list_item;
+          const paragraph = state.schema.nodes.paragraph;
+          
+          // Find if cursor is in a list
+          let inList = false;
+          for (let d = $from.depth; d > 0; d--) {
+            if ($from.node(d).type === bulletList) {
+              inList = true;
+              break;
+            }
+          }
+          
+          if (inList || !empty) {
+            // If in list or has selection, use the wrap command to toggle
+            callCommand(wrapInBulletListCommand.key)(ctx);
+          } else {
+            // Empty cursor not in list - create new list with 3 items
+            if (bulletList && listItem && paragraph) {
+              const items = [
+                listItem.create(null, paragraph.create()),
+                listItem.create(null, paragraph.create()),
+                listItem.create(null, paragraph.create())
+              ];
+              const list = bulletList.create(null, items);
+              
+              const tr = state.tr.replaceSelectionWith(list);
+              // Position cursor in first list item (inside the paragraph)
+              const pos = tr.selection.from + 2;
+              const $pos = tr.doc.resolve(pos);
+              tr.setSelection(state.selection.constructor.near($pos) as any);
+              dispatch(tr);
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Failed to toggle bullet list:', error);
+      }
+    }, [getEditor]),
 
     toggleOrderedList: useCallback(() => {
-      executeCommand(wrapInOrderedListCommand.key);
-    }, [executeCommand]),
+      const editor = getEditor();
+      if (!editor) {
+        console.warn('Editor not ready');
+        return;
+      }
+      
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const { state, dispatch } = view;
+          const { selection } = state;
+          const { $from, empty } = selection;
+          
+          // Check if we're already in an ordered list
+          const orderedList = state.schema.nodes.ordered_list;
+          const listItem = state.schema.nodes.list_item;
+          const paragraph = state.schema.nodes.paragraph;
+          
+          // Find if cursor is in a list
+          let inList = false;
+          for (let d = $from.depth; d > 0; d--) {
+            if ($from.node(d).type === orderedList) {
+              inList = true;
+              break;
+            }
+          }
+          
+          if (inList || !empty) {
+            // If in list or has selection, use the wrap command to toggle
+            callCommand(wrapInOrderedListCommand.key)(ctx);
+          } else {
+            // Empty cursor not in list - create new list with 3 items
+            if (orderedList && listItem && paragraph) {
+              const items = [
+                listItem.create(null, paragraph.create()),
+                listItem.create(null, paragraph.create()),
+                listItem.create(null, paragraph.create())
+              ];
+              const list = orderedList.create(null, items);
+              
+              const tr = state.tr.replaceSelectionWith(list);
+              // Position cursor in first list item (inside the paragraph)
+              const pos = tr.selection.from + 2;
+              const $pos = tr.doc.resolve(pos);
+              tr.setSelection(state.selection.constructor.near($pos) as any);
+              dispatch(tr);
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Failed to toggle ordered list:', error);
+      }
+    }, [getEditor]),
 
     insertCodeBlock: useCallback(() => {
       executeCommand(createCodeBlockCommand.key);
