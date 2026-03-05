@@ -20,6 +20,11 @@ import { EditorToolbar } from "./editor-toolbar";
 import { DocumentSelector } from "./document-selector";
 import { useEditorCommands } from "./hooks/use-editor-commands";
 import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
+import { useAIDecorations } from "./hooks/use-ai-decorations";
+import { createAIDecorationsPlugin } from "./plugins/ai-decorations-plugin";
+
+// Import AI highlight styles
+import "./styles/ai-highlights.css";
 
 // API base URL
 const API_BASE = "http://127.0.0.1:3001";
@@ -78,6 +83,9 @@ const exitListPlugin = $prose(() => {
     },
   });
 });
+
+// AI decorations plugin to visually highlight AI changes
+const aiDecorationsPlugin = $prose(() => createAIDecorationsPlugin());
 
 // Props for the editor component
 interface MilkdownEditorProps {
@@ -193,7 +201,8 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         .use(clipboard)
         .use(history)
         .use(block)
-        .use(exitListPlugin);
+        .use(exitListPlugin)
+        .use(aiDecorationsPlugin);
     }
 
     console.log("✅ Creating collaborative editor");
@@ -218,8 +227,12 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       .use(history)
       .use(collab)
       .use(block)
-      .use(exitListPlugin);
+      .use(exitListPlugin)
+      .use(aiDecorationsPlugin);
   }, [connectionStatus]); // Only recreate when connection status changes
+
+  // Use AI decorations hook for visual highlighting
+  useAIDecorations(ydocRef.current, get, currentDocumentName);
 
   // Connect CollabService after editor is ready
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Y from 'yjs';
 
 export interface AIChange {
@@ -14,6 +14,28 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
   const [changes, setChanges] = useState<AIChange[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const undoManagerRef = useRef<Y.UndoManager | null>(null);
+  
+  // Create UndoManager once and track it
+  useEffect(() => {
+    if (!ydoc) {
+      undoManagerRef.current = null;
+      return;
+    }
+    
+    const fragment = ydoc.getXmlFragment('prosemirror');
+    const undoManager = new Y.UndoManager(fragment, {
+      trackedOrigins: new Set(['ai'])
+    });
+    
+    undoManagerRef.current = undoManager;
+    
+    console.log('✅ UndoManager created for AI changes');
+    
+    return () => {
+      undoManagerRef.current = null;
+    };
+  }, [ydoc]);
   
   // Subscribe to AI change history
   useEffect(() => {
@@ -45,6 +67,18 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
       const redoableChanges = changeEntries.filter(c => !c.undoable);
       setCanUndo(undoableChanges.length > 0);
       setCanRedo(redoableChanges.length > 0);
+      
+      // Also check UndoManager state
+      if (undoManagerRef.current) {
+        const canUndoFromManager = undoManagerRef.current.undoStack.length > 0;
+        const canRedoFromManager = undoManagerRef.current.redoStack.length > 0;
+        console.log('📊 UndoManager state:', {
+          undoStack: undoManagerRef.current.undoStack.length,
+          redoStack: undoManagerRef.current.redoStack.length,
+          canUndo: canUndoFromManager,
+          canRedo: canRedoFromManager
+        });
+      }
     };
     
     // Initial load
@@ -61,37 +95,48 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
   
   // Undo last AI change
   const undoLastAIChange = useCallback(() => {
-    if (!ydoc) return;
+    if (!ydoc || !undoManagerRef.current) {
+      console.warn('⚠️ UndoManager not initialized');
+      return;
+    }
     
-    const fragment = ydoc.getXmlFragment('prosemirror');
-    const undoManager = new Y.UndoManager(fragment, {
-      trackedOrigins: new Set(['ai'])
-    });
+    const undoManager = undoManagerRef.current;
     
-    if (undoManager.canUndo()) {
-      undoManager.undo();
-      console.log('✅ Undone last AI change');
-      
-      // Update change history to mark as undone
-      const changeHistory = ydoc.getMap('aiChangeHistory');
-      const latestUndoable = changes.find(c => c.undoable);
-      if (latestUndoable) {
-        ydoc.transact(() => {
-          const updated = { ...latestUndoable, undoable: false };
-          changeHistory.set(latestUndoable.id, updated);
-        });
-      }
+    if (!undoManager.canUndo()) {
+      console.warn('⚠️ No AI changes to undo');
+      return;
+    }
+    
+    console.log('🔄 Undoing last AI change...');
+    undoManager.undo();
+    console.log('✅ Undone last AI change');
+    
+    // Update change history to mark as undone
+    const changeHistory = ydoc.getMap('aiChangeHistory');
+    const latestUndoable = changes.find(c => c.undoable);
+    if (latestUndoable) {
+      ydoc.transact(() => {
+        const updated = { ...latestUndoable, undoable: false };
+        changeHistory.set(latestUndoable.id, updated);
+      }, { origin: 'user' }); // Use different origin to avoid tracking
+    } else {
+      console.warn('⚠️ No undoable change found in history');
     }
   }, [ydoc, changes]);
   
   // Undo all AI changes
   const undoAllAIChanges = useCallback(() => {
-    if (!ydoc) return;
+    if (!ydoc || !undoManagerRef.current) {
+      console.warn('⚠️ UndoManager not initialized');
+      return;
+    }
     
-    const fragment = ydoc.getXmlFragment('prosemirror');
-    const undoManager = new Y.UndoManager(fragment, {
-      trackedOrigins: new Set(['ai'])
-    });
+    const undoManager = undoManagerRef.current;
+    
+    if (!undoManager.canUndo()) {
+      console.warn('⚠️ No AI changes to undo');
+      return;
+    }
     
     let count = 0;
     while (undoManager.canUndo()) {
@@ -110,31 +155,37 @@ export function useAIChangeTracker(ydoc: Y.Doc | null) {
           changeHistory.set(change.id, updated);
         }
       });
-    });
+    }, { origin: 'user' }); // Use different origin to avoid tracking
   }, [ydoc, changes]);
   
   // Redo last AI change
   const redoAIChange = useCallback(() => {
-    if (!ydoc) return;
+    if (!ydoc || !undoManagerRef.current) {
+      console.warn('⚠️ UndoManager not initialized');
+      return;
+    }
     
-    const fragment = ydoc.getXmlFragment('prosemirror');
-    const undoManager = new Y.UndoManager(fragment, {
-      trackedOrigins: new Set(['ai'])
-    });
+    const undoManager = undoManagerRef.current;
     
-    if (undoManager.canRedo()) {
-      undoManager.redo();
-      console.log('✅ Redone AI change');
-      
-      // Update change history to mark as redone
-      const changeHistory = ydoc.getMap('aiChangeHistory');
-      const latestRedoable = changes.find(c => !c.undoable);
-      if (latestRedoable) {
-        ydoc.transact(() => {
-          const updated = { ...latestRedoable, undoable: true };
-          changeHistory.set(latestRedoable.id, updated);
-        });
-      }
+    if (!undoManager.canRedo()) {
+      console.warn('⚠️ No AI changes to redo');
+      return;
+    }
+    
+    console.log('🔄 Redoing last AI change...');
+    undoManager.redo();
+    console.log('✅ Redone AI change');
+    
+    // Update change history to mark as redone
+    const changeHistory = ydoc.getMap('aiChangeHistory');
+    const latestRedoable = changes.find(c => !c.undoable);
+    if (latestRedoable) {
+      ydoc.transact(() => {
+        const updated = { ...latestRedoable, undoable: true };
+        changeHistory.set(latestRedoable.id, updated);
+      }, { origin: 'user' }); // Use different origin to avoid tracking
+    } else {
+      console.warn('⚠️ No redoable change found in history');
     }
   }, [ydoc, changes]);
   

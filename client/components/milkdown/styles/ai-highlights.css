@@ -1,0 +1,123 @@
+/**
+ * AI Change Highlight Styles
+ * Visual indicators for AI-modified content in the editor
+ */
+
+/* Base highlight style for AI changes */
+.ai-change-highlight {
+  background-color: rgba(147, 197, 253, 0.25); /* blue-300 with low opacity */
+  border-bottom: 2px solid rgba(59, 130, 246, 0.6); /* blue-500 */
+  border-radius: 2px;
+  padding: 1px 0;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+/* Pulse animation when first applied */
+.ai-change-highlight {
+  animation: ai-highlight-pulse 2s ease-in-out;
+}
+
+@keyframes ai-highlight-pulse {
+  0% {
+    background-color: rgba(147, 197, 253, 0.5);
+  }
+  50% {
+    background-color: rgba(147, 197, 253, 0.25);
+  }
+  100% {
+    background-color: rgba(147, 197, 253, 0.25);
+  }
+}
+
+/* Hover state for better visibility */
+.ai-change-highlight:hover {
+  background-color: rgba(147, 197, 253, 0.4);
+  border-bottom-color: rgba(59, 130, 246, 0.8);
+  cursor: help;
+}
+
+/* Tooltip-like indicator */
+.ai-change-highlight::after {
+  content: '✨ AI';
+  position: absolute;
+  top: -24px;
+  left: 0;
+  background: rgb(59, 130, 246);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  white-space: nowrap;
+  z-index: 1000;
+}
+
+.ai-change-highlight:hover::after {
+  opacity: 1;
+}
+
+/* Different style for insert vs other types */
+.ai-change-highlight[data-change-type="insert"] {
+  background-color: rgba(134, 239, 172, 0.25); /* green-300 */
+  border-bottom-color: rgba(34, 197, 94, 0.6); /* green-500 */
+}
+
+.ai-change-highlight[data-change-type="insert"]:hover {
+  background-color: rgba(134, 239, 172, 0.4);
+  border-bottom-color: rgba(34, 197, 94, 0.8);
+}
+
+.ai-change-highlight[data-change-type="insert"]::after {
+  background: rgb(34, 197, 94);
+  content: '✨ AI Added';
+}
+
+/* Fade out animation when undone */
+.ai-change-highlight.undone {
+  animation: ai-highlight-fadeout 0.5s ease-out forwards;
+}
+
+@keyframes ai-highlight-fadeout {
+  0% {
+    background-color: rgba(147, 197, 253, 0.25);
+    border-bottom-color: rgba(59, 130, 246, 0.6);
+    opacity: 1;
+  }
+  100% {
+    background-color: transparent;
+    border-bottom-color: transparent;
+    opacity: 0;
+  }
+}
+
+/* Ensure decorations don't interfere with text selection */
+.ai-change-highlight::selection {
+  background-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .ai-change-highlight {
+    background-color: rgba(59, 130, 246, 0.15);
+    border-bottom-color: rgba(96, 165, 250, 0.5);
+  }
+  
+  .ai-change-highlight:hover {
+    background-color: rgba(59, 130, 246, 0.25);
+    border-bottom-color: rgba(96, 165, 250, 0.7);
+  }
+  
+  .ai-change-highlight[data-change-type="insert"] {
+    background-color: rgba(34, 197, 94, 0.15);
+    border-bottom-color: rgba(74, 222, 128, 0.5);
+  }
+  
+  .ai-change-highlight[data-change-type="insert"]:hover {
+    background-color: rgba(34, 197, 94, 0.25);
+    border-bottom-color: rgba(74, 222, 128, 0.7);
+  }
+}
