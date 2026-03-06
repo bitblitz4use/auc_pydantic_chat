@@ -25,6 +25,17 @@ import { AIChange } from './hooks/use-ai-change-tracker';
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "synced";
 
+// Font families list
+const FONT_FAMILIES = [
+  { value: 'Inter, sans-serif', label: 'Inter' },
+  { value: 'Roboto, sans-serif', label: 'Roboto' },
+  { value: '"Open Sans", sans-serif', label: 'Open Sans' },
+  { value: '"Segoe UI", sans-serif', label: 'Segoe UI' },
+  { value: 'system-ui, -apple-system, sans-serif', label: 'System' },
+  { value: 'Georgia, serif', label: 'Georgia' },
+  { value: 'Arial, sans-serif', label: 'Arial' },
+];
+
 interface Document {
   name: string;
   size: number;
@@ -211,6 +222,23 @@ export const EditorToolbar = memo(({
         title="Turn into paragraph"
         icon={<Type size={16} />}
       />
+
+      <ToolbarDivider />
+
+      {/* Font Family Selector */}
+      <select
+        onChange={(e) => commands.setFontFamily(e.target.value)}
+        className="rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary h-8 min-w-[140px]"
+        disabled={disabled}
+        title="Font family"
+        defaultValue="Inter, sans-serif"
+      >
+        {FONT_FAMILIES.map((font) => (
+          <option key={font.value} value={font.value}>
+            {font.label}
+          </option>
+        ))}
+      </select>
 
       <ToolbarDivider />
 

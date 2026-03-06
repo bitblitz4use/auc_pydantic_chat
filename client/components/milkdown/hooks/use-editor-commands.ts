@@ -36,6 +36,9 @@ export interface EditorCommands {
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  
+  // Font family
+  setFontFamily: (fontFamily: string) => void;
 }
 
 export function useEditorCommands(getEditor: () => Editor | undefined): EditorCommands {
@@ -292,6 +295,34 @@ export function useEditorCommands(getEditor: () => Editor | undefined): EditorCo
         });
       } catch (error) {
         console.error('Redo failed:', error);
+      }
+    }, [getEditor]),
+
+    // Font family
+    setFontFamily: useCallback((fontFamily: string) => {
+      const editor = getEditor();
+      if (!editor) {
+        console.warn('Editor not ready');
+        return;
+      }
+      
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          // view.dom is the ProseMirror element itself
+          const proseMirror = view.dom as HTMLElement;
+          
+          // Apply font directly to ProseMirror and all its children
+          proseMirror.style.fontFamily = fontFamily;
+          
+          // Also set CSS variable on the root for persistence
+          const rootElement = proseMirror.closest('.milkdown-editor-root') as HTMLElement;
+          if (rootElement) {
+            rootElement.style.setProperty('--editor-font-family', fontFamily);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to set font family:', error);
       }
     }, [getEditor]),
 
