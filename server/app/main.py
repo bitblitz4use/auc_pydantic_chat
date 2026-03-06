@@ -5,6 +5,7 @@ from starlette.responses import Response
 from starlette.background import BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+from contextlib import asynccontextmanager
 import httpx
 import logging
 import sys
@@ -32,7 +33,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Pydantic AI Chat API")
+# Lifespan event handler for startup/shutdown
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Ensure bucket exists
+    try:
+        ensure_bucket_exists()
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize MinIO bucket: {e}")
+    yield
+    # Shutdown: Add cleanup code here if needed in the future
+
+app = FastAPI(title="Pydantic AI Chat API", lifespan=lifespan)
 
 # Configure CORS for Next.js frontend
 app.add_middleware(
@@ -42,14 +54,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Ensure bucket exists on startup
-@app.on_event("startup")
-async def startup_event():
-    try:
-        ensure_bucket_exists()
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize MinIO bucket: {e}")
 
 
 @app.get("/")
