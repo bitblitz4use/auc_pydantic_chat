@@ -1,5 +1,3 @@
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai import Agent
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 import sys
@@ -12,24 +10,11 @@ if str(parent_dir) not in sys.path:
 
 from app.models import DocumentContext
 from app.tools import get_document_content, update_document_content
-from app.config import OLLAMA_BASE_URL, MODEL_NAME
+from app.providers import create_model, parse_model_id
+from app.config import config
 
-# Ollama model configuration
-ollama_model = OpenAIChatModel(
-    model_name=MODEL_NAME,
-    provider=OllamaProvider(base_url=OLLAMA_BASE_URL),  
-)
-
-# Create document editor agent with tools
-document_agent = Agent(
-    ollama_model,
-    deps_type=DocumentContext,
-    tools=[
-        get_document_content,
-        update_document_content,
-        duckduckgo_search_tool(),
-    ],
-    system_prompt="""You are a helpful document editing assistant with the following capabilities:
+# System prompt for document editing agent
+SYSTEM_PROMPT = """You are a helpful document editing assistant with the following capabilities:
 
 1. **Document Access**: You can read and write documents using the get_document_content and update_document_content tools.
 
@@ -48,5 +33,57 @@ document_agent = Agent(
 4. **Web Search**: You can also search the web using DuckDuckGo when users need current information.
 
 Be concise and helpful. After making changes, let the user know they can accept or reject the changes in their editor.
-""",
+"""
+
+
+def create_agent(provider: str, model_name: str) -> Agent:
+    """
+    Create agent with specified model.
+    
+    Args:
+        provider: Provider slug (e.g., "openai", "ollama")
+        model_name: Model identifier (e.g., "gpt-4o", "gpt-oss:20b")
+    
+    Returns:
+        Agent instance configured with the specified model
+    """
+    model = create_model(provider, model_name)
+    
+    return Agent(
+        model,
+        deps_type=DocumentContext,
+        tools=[
+            get_document_content,
+            update_document_content,
+            duckduckgo_search_tool(),
+        ],
+        system_prompt=SYSTEM_PROMPT,
+    )
+
+
+def create_agent_from_model_id(model_id: str) -> Agent:
+    """
+    Create agent from model ID in format "provider:model_name".
+    
+    Args:
+        model_id: Model identifier in format "provider:model_name"
+    
+    Returns:
+        Agent instance configured with the specified model
+    """
+    provider, model_name = parse_model_id(model_id)
+    return create_agent(provider, model_name)
+
+
+# Create default agent for backward compatibility
+default_model = create_model(config.default_provider, config.default_model)
+document_agent = Agent(
+    default_model,
+    deps_type=DocumentContext,
+    tools=[
+        get_document_content,
+        update_document_content,
+        duckduckgo_search_tool(),
+    ],
+    system_prompt=SYSTEM_PROMPT,
 )

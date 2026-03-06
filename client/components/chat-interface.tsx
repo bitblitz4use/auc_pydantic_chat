@@ -40,43 +40,24 @@ import {
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { CheckIcon, GlobeIcon } from "lucide-react";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useState, useEffect } from "react";
 
-const models = [
+interface ModelInfo {
+  id: string;
+  name: string;
+  chef: string;
+  chefSlug: string;
+  providers: string[];
+}
+
+// Default models for initial state (will be replaced by API fetch)
+const defaultModels: ModelInfo[] = [
   {
-    chef: "OpenAI",
-    chefSlug: "openai",
-    id: "gpt-4o",
-    name: "GPT-4o",
-    providers: ["openai", "azure"],
-  },
-  {
-    chef: "OpenAI",
-    chefSlug: "openai",
-    id: "gpt-4o-mini",
-    name: "GPT-4o Mini",
-    providers: ["openai", "azure"],
-  },
-  {
-    chef: "Anthropic",
-    chefSlug: "anthropic",
-    id: "claude-opus-4-20250514",
-    name: "Claude 4 Opus",
-    providers: ["anthropic", "azure", "google", "amazon-bedrock"],
-  },
-  {
-    chef: "Anthropic",
-    chefSlug: "anthropic",
-    id: "claude-sonnet-4-20250514",
-    name: "Claude 4 Sonnet",
-    providers: ["anthropic", "azure", "google", "amazon-bedrock"],
-  },
-  {
-    chef: "Google",
-    chefSlug: "google",
-    id: "gemini-2.0-flash-exp",
-    name: "Gemini 2.0 Flash",
-    providers: ["google"],
+    chef: "Ollama",
+    chefSlug: "ollama",
+    id: "ollama:gpt-oss:20b",
+    name: "Gpt Oss 20b",
+    providers: ["ollama"],
   },
 ];
 
@@ -107,7 +88,7 @@ const AttachmentItem = memo(({ attachment, onRemove }: AttachmentItemProps) => {
 AttachmentItem.displayName = "AttachmentItem";
 
 interface ModelItemProps {
-  m: (typeof models)[0];
+  m: ModelInfo;
   selectedModel: string;
   onSelect: (id: string) => void;
 }
@@ -160,15 +141,47 @@ const PromptInputAttachmentsDisplay = () => {
 };
 
 export function ChatInterface() {
+  const [models, setModels] = useState<ModelInfo[]>(defaultModels);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  
+  // Initialize model with safe fallback - use defaultModels directly
+  const initialModel = defaultModels.length > 0 
+    ? defaultModels[0].id 
+    : "ollama:gpt-oss:20b";
+  
+  const [model, setModel] = useState<string>(initialModel);
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [webSearch, setWebSearch] = useState<boolean>(false);
+  
   const { messages, sendMessage, status, stop } = useChat({
     transport: new DefaultChatTransport({
       api: "http://localhost:8000/api/chat",
     }),
   });
-  
-  const [model, setModel] = useState<string>(models[0].id);
-  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
-  const [webSearch, setWebSearch] = useState<boolean>(false);
+
+  // Fetch available models from API
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const response = await fetch("http://localhost:8000/api/providers");
+        if (response.ok) {
+          const data = await response.json();
+          setModels(data.models || defaultModels);
+          if (data.models && data.models.length > 0) {
+            setModel(data.models[0].id);
+          }
+        } else {
+          console.error("Failed to fetch models:", response.statusText);
+        }
+      } catch (error) {
+        console.error("Error fetching models:", error);
+      } finally {
+        setModelsLoading(false);
+      }
+    };
+
+    fetchModels();
+  }, []);
 
   const selectedModelData = models.find((m) => m.id === model);
 
@@ -186,14 +199,16 @@ export function ChatInterface() {
         return;
       }
 
-      // You can pass model and webSearch to your API
+      // Send model selection in request body
       // eslint-disable-next-line no-console
       console.log("Submitting with model:", model, "webSearch:", webSearch);
 
       await sendMessage({
         text: message.text,
-        // Add any additional data you need to send
-        // body: { model, webSearch }
+        body: { 
+          model: model,
+          webSearch: webSearch 
+        }
       });
     },
     [sendMessage, model, webSearch]
@@ -286,20 +301,27 @@ export function ChatInterface() {
                     <ModelSelectorInput placeholder="Search models..." />
                     <ModelSelectorList>
                       <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                      {["OpenAI", "Anthropic", "Google"].map((chef) => (
-                        <ModelSelectorGroup heading={chef} key={chef}>
-                          {models
-                            .filter((m) => m.chef === chef)
-                            .map((m) => (
-                              <ModelItem
-                                key={m.id}
-                                m={m}
-                                onSelect={handleModelSelect}
-                                selectedModel={model}
-                              />
-                            ))}
-                        </ModelSelectorGroup>
-                      ))}
+                      {modelsLoading ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                          Loading models...
+                        </div>
+                      ) : (
+                        // Group models by provider (chef)
+                        Array.from(new Set(models.map((m) => m.chef))).map((chef) => (
+                          <ModelSelectorGroup heading={chef} key={chef}>
+                            {models
+                              .filter((m) => m.chef === chef)
+                              .map((m) => (
+                                <ModelItem
+                                  key={m.id}
+                                  m={m}
+                                  onSelect={handleModelSelect}
+                                  selectedModel={model}
+                                />
+                              ))}
+                          </ModelSelectorGroup>
+                        ))
+                      )}
                     </ModelSelectorList>
                   </ModelSelectorContent>
                 </ModelSelector>
