@@ -885,6 +885,7 @@ body[data-scroll-locked] {
     @apply bg-card text-card-foreground;
     background-color: var(--card) !important;
     color: var(--card-foreground) !important;
+    padding-top: 0.25rem !important;
   }
 
   /* Ensure all ProseMirror text elements use theme-aware colors */
