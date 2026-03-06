@@ -76,6 +76,11 @@ class ProvidersResponse(BaseModel):
     models: List[ModelInfo]
 
 
+class RenameRequest(BaseModel):
+    """Request format for rename endpoint"""
+    new_path: str
+
+
 @app.get("/api/providers", response_model=ProvidersResponse)
 async def get_providers():
     """
@@ -285,6 +290,71 @@ async def update_file(object_path: str, file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"❌ Error updating {object_path}: {e}")
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+@app.patch("/api/storage/{object_path:path}")
+async def rename_file(object_path: str, request: RenameRequest):
+    """
+    Rename/move a file in MinIO S3 storage.
+    Uses copy_object + remove_object to simulate rename.
+    
+    Args:
+        object_path: Current path/name of the object in the bucket (route parameter)
+        request: Request body containing 'new_path' field
+    
+    Returns:
+        Success message with new object path
+    """
+    new_path = request.new_path
+    
+    logger.info(f"🔄 Rename request: {object_path} -> {new_path}")
+    
+    try:
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        
+        # Copy object to new path
+        from minio.commonconfig import CopySource
+        copy_source = CopySource(bucket_name, object_path)
+        client.copy_object(
+            bucket_name,
+            new_path,
+            copy_source
+        )
+        logger.info(f"✅ Copied {object_path} to {new_path}")
+        
+        # Delete original object - ensure this happens
+        try:
+            client.remove_object(bucket_name, object_path)
+            logger.info(f"✅ Deleted original {object_path}")
+        except Exception as delete_error:
+            # If deletion fails, try to clean up the copied file
+            logger.error(f"❌ Failed to delete original {object_path}: {delete_error}")
+            try:
+                client.remove_object(bucket_name, new_path)
+                logger.warning(f"🧹 Cleaned up copied file {new_path} due to deletion failure")
+            except Exception as cleanup_error:
+                logger.error(f"❌ Failed to cleanup {new_path}: {cleanup_error}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Rename failed: could not delete original file. {str(delete_error)}"
+            )
+        
+        logger.info(f"✅ Successfully renamed {object_path} to {new_path}")
+        return {
+            "status": "success",
+            "message": "File renamed successfully",
+            "old_path": object_path,
+            "new_path": new_path
+        }
+    except HTTPException:
+        raise
+    except S3Error as e:
+        logger.error(f"❌ MinIO error renaming {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error renaming {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Rename failed: {str(e)}")
 
 
 @app.delete("/api/storage/{object_path:path}")

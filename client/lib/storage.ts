@@ -108,6 +108,30 @@ export async function updateFileContent(
 }
 
 /**
+ * Rename/move a file in storage
+ */
+export async function renameFile(
+  oldPath: string,
+  newPath: string
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/api/storage/${oldPath}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ new_path: newPath }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Rename failed: ${errorText || response.statusText}`);
+  }
+}
+
+/**
  * Format file size to human-readable string
  */
 export function formatFileSize(bytes: number): string {

@@ -20,6 +20,7 @@ import {
   deleteFile,
   getFileContent,
   updateFileContent,
+  renameFile,
   formatFileSize,
   formatDate,
   type StorageObject,
@@ -36,6 +37,7 @@ export function PromptsView() {
   const [saving, setSaving] = useState(false);
   const [isNewFile, setIsNewFile] = useState(false);
   const [newFileName, setNewFileName] = useState("new-prompt.md");
+  const [originalFileName, setOriginalFileName] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,8 +63,22 @@ export function PromptsView() {
     setFileContent("");
     setOriginalContent("");
     setNewFileName(`new-prompt-${timestamp}.md`);
+    setOriginalFileName("");
     setIsNewFile(true);
     setDialogOpen(true);
+  };
+
+  const handleDialogClose = (open: boolean) => {
+    if (!open) {
+      // Reset state when dialog closes
+      setIsNewFile(false);
+      setNewFileName("new-prompt.md");
+      setOriginalFileName("");
+      setFileContent("");
+      setOriginalContent("");
+      setSelectedFile(null);
+    }
+    setDialogOpen(open);
   };
 
   const handleCardClick = async (obj: StorageObject) => {
@@ -74,6 +90,10 @@ export function PromptsView() {
       const content = await getFileContent(obj.name);
       setFileContent(content);
       setOriginalContent(content);
+      // Extract and set the original filename
+      const fileName = obj.name.replace("prompts/", "");
+      setNewFileName(fileName);
+      setOriginalFileName(fileName);
     } catch (error) {
       console.error("Error loading file content:", error);
       alert("Failed to load file content");
@@ -111,8 +131,23 @@ export function PromptsView() {
 
       try {
         setSaving(true);
-        await updateFileContent(selectedFile.name, fileContent);
+        
+        // Check if filename changed
+        const fileName = newFileName.endsWith('.md') ? newFileName : `${newFileName}.md`;
+        const newFilePath = `prompts/${fileName}`;
+        const fileNameChanged = fileName !== originalFileName;
+        
+        if (fileNameChanged) {
+          // Rename the file first
+          await renameFile(selectedFile.name, newFilePath);
+        }
+        
+        // Update content (use new path if renamed, otherwise use original)
+        await updateFileContent(fileNameChanged ? newFilePath : selectedFile.name, fileContent);
         setOriginalContent(fileContent);
+        if (fileNameChanged) {
+          setOriginalFileName(fileName);
+        }
         await fetchPrompts();
         setDialogOpen(false);
       } catch (error) {
@@ -124,7 +159,9 @@ export function PromptsView() {
     }
   };
 
-  const hasChanges = isNewFile ? fileContent.trim() !== "" : fileContent !== originalContent;
+  const hasChanges = isNewFile 
+    ? fileContent.trim() !== "" 
+    : fileContent !== originalContent || newFileName !== originalFileName;
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -216,7 +253,7 @@ export function PromptsView() {
           </div>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={handleDialogClose}>
           <DialogContent className="min-w-[800px] h-[600px] max-w-6xl flex flex-col">
             <DialogHeader>
               <DialogTitle>
@@ -225,16 +262,15 @@ export function PromptsView() {
               <DialogDescription>
                 {isNewFile ? "Create a new prompt" : "Edit the prompt content"}
               </DialogDescription>
-              {isNewFile && (
-                <div className="pt-2">
-                  <Input
-                    value={newFileName}
-                    onChange={(e) => setNewFileName(e.target.value)}
-                    placeholder="filename.md"
-                    className="font-mono"
-                  />
-                </div>
-              )}
+              <div className="pt-2">
+                <Input
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="filename.md"
+                  className="font-mono"
+                  disabled={loadingContent}
+                />
+              </div>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto">
               {loadingContent ? (
@@ -378,16 +414,15 @@ export function PromptsView() {
             <DialogDescription>
               {isNewFile ? "Create a new prompt" : "Edit the prompt content"}
             </DialogDescription>
-            {isNewFile && (
-              <div className="pt-2">
-                <Input
-                  value={newFileName}
-                  onChange={(e) => setNewFileName(e.target.value)}
-                  placeholder="filename.md"
-                  className="font-mono"
-                />
-              </div>
-            )}
+            <div className="pt-2">
+              <Input
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                placeholder="filename.md"
+                className="font-mono"
+                disabled={loadingContent}
+              />
+            </div>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto">
             {loadingContent ? (
@@ -405,16 +440,13 @@ export function PromptsView() {
             )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDialogOpen(false);
-                setIsNewFile(false);
-              }}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
+              <Button
+                variant="outline"
+                onClick={() => setDialogOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
             <Button
               onClick={handleSave}
               disabled={saving || !hasChanges || loadingContent}
