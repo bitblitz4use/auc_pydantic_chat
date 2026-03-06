@@ -1,6 +1,7 @@
 "use client";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import type { FileUIPart } from "ai";
 
 import {
   Attachment,
@@ -75,23 +76,13 @@ const defaultModels: ModelInfo[] = [
 ];
 
 interface AttachmentItemProps {
-  attachment: {
-    id: string;
-    type: "file";
-    filename?: string;
-    mediaType?: string;
-    url: string;
-  };
+  attachment: FileUIPart & { id: string };
   onRemove: (id: string) => void;
 }
 
 const AttachmentItem = memo(({ attachment, onRemove }: AttachmentItemProps) => {
-  const handleRemove = useCallback(
-    () => onRemove(attachment.id),
-    [onRemove, attachment.id]
-  );
   return (
-    <Attachment data={attachment} key={attachment.id} onRemove={handleRemove}>
+    <Attachment data={attachment} key={attachment.id} onRemove={() => onRemove(attachment.id)}>
       <AttachmentPreview />
       <AttachmentRemove />
     </Attachment>
@@ -107,9 +98,8 @@ interface ModelItemProps {
 }
 
 const ModelItem = memo(({ m, selectedModel, onSelect }: ModelItemProps) => {
-  const handleSelect = useCallback(() => onSelect(m.id), [onSelect, m.id]);
   return (
-    <ModelSelectorItem key={m.id} onSelect={handleSelect} value={m.id}>
+    <ModelSelectorItem key={m.id} onSelect={() => onSelect(m.id)} value={m.id}>
       <ModelSelectorLogo provider={m.chefSlug} />
       <ModelSelectorName>{m.name}</ModelSelectorName>
       <ModelSelectorLogoGroup>
@@ -131,11 +121,6 @@ ModelItem.displayName = "ModelItem";
 const PromptInputAttachmentsDisplay = () => {
   const attachments = usePromptInputAttachments();
 
-  const handleRemove = useCallback(
-    (id: string) => attachments.remove(id),
-    [attachments]
-  );
-
   if (attachments.files.length === 0) {
     return null;
   }
@@ -146,7 +131,7 @@ const PromptInputAttachmentsDisplay = () => {
         <AttachmentItem
           attachment={attachment}
           key={attachment.id}
-          onRemove={handleRemove}
+          onRemove={(id) => attachments.remove(id)}
         />
       ))}
     </Attachments>
@@ -222,10 +207,10 @@ export function ChatInterface() {
 
   const selectedModelData = models.find((m) => m.id === model);
 
-  const handleModelSelect = useCallback((id: string) => {
+  const handleModelSelect = (id: string) => {
     setModel(id);
     setModelSelectorOpen(false);
-  }, []);
+  };
 
   // Component that uses the controller to clear text immediately
   const PromptInputWithController = () => {
@@ -250,6 +235,8 @@ export function ChatInterface() {
         // Don't await - let it run async, text is already cleared
         sendMessage({
           text: message.text,
+          files: message.files,
+          // @ts-expect-error - body is supported by our custom transport
           body: { 
             model: model,
             webSearch: webSearch 
@@ -259,18 +246,18 @@ export function ChatInterface() {
       [sendMessage, model, webSearch, textInput]
     );
 
-    const handleStop = useCallback(() => {
+    const handleStop = () => {
       stop();
-    }, [stop]);
+    };
 
     // Handlers for focus state
-    const handleTextareaFocus = useCallback(() => {
+    const handleTextareaFocus = () => {
       setIsInputActive(true);
-    }, [setIsInputActive]);
+    };
 
-    const handleTextareaBlur = useCallback(() => {
+    const handleTextareaBlur = () => {
       setIsInputActive(false);
-    }, [setIsInputActive]);
+    };
 
     // Handle prompt selection
     const handlePromptSelect = useCallback(
