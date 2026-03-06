@@ -72,6 +72,42 @@ export async function deleteFile(path: string): Promise<void> {
 }
 
 /**
+ * Get file content from storage
+ */
+export async function getFileContent(path: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/api/storage/${path}/content`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.statusText}`);
+  }
+  return await response.text();
+}
+
+/**
+ * Update file content in storage
+ */
+export async function updateFileContent(
+  path: string,
+  content: string
+): Promise<void> {
+  const blob = new Blob([content], { type: "text/plain" });
+  const file = new File([blob], path.split("/").pop() || "file", {
+    type: "text/plain",
+  });
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE}/api/storage/${path}`, {
+    method: "PUT",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Update failed: ${response.statusText}`);
+  }
+}
+
+/**
  * Format file size to human-readable string
  */
 export function formatFileSize(bytes: number): string {

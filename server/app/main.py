@@ -192,7 +192,7 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
 # Storage CRUD endpoints
 @app.post("/api/storage/{object_path:path}")
 async def upload_file(object_path: str, file: UploadFile = File(...)):
-    """
+    """A
     Upload a file to MinIO S3 storage.
     
     Args:
@@ -349,6 +349,57 @@ async def list_all_files(prefix: Optional[str] = None, recursive: bool = True):
     except Exception as e:
         logger.error(f"❌ Error listing objects: {e}")
         raise HTTPException(status_code=500, detail=f"List failed: {str(e)}")
+
+
+@app.get("/api/storage/{object_path:path}/content")
+async def get_file_content(object_path: str):
+    """
+    Download/get file content from MinIO S3 storage.
+    Uses S3 GetObject API.
+    
+    Args:
+        object_path: Path/name of the object in the bucket (route parameter)
+    
+    Returns:
+        File content as response
+    """
+    logger.info(f"📥 Download request for: {object_path}")
+    
+    try:
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        
+        # Get object from MinIO
+        response = client.get_object(bucket_name, object_path)
+        
+        # Read content
+        content = response.read()
+        response.close()
+        response.release_conn()
+        
+        # Determine content type
+        content_type = "text/plain"
+        if object_path.endswith(('.md', '.markdown')):
+            content_type = "text/markdown"
+        elif object_path.endswith('.json'):
+            content_type = "application/json"
+        elif object_path.endswith('.txt'):
+            content_type = "text/plain"
+        
+        logger.info(f"✅ Successfully downloaded {object_path} ({len(content)} bytes)")
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{object_path.split("/")[-1]}"'
+            }
+        )
+    except S3Error as e:
+        logger.error(f"❌ MinIO error downloading {object_path}: {e}")
+        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error downloading {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
 
 
 @app.get("/api/storage/{path:path}")
