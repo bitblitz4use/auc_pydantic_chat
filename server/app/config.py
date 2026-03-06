@@ -12,6 +12,13 @@ class AppConfig(BaseSettings):
     openai_api_key: str = ""
     ollama_base_url: str = "http://192.168.178.83:11434/v1"
     
+    # MinIO S3 Storage configuration
+    minio_endpoint: str = "localhost:9102"
+    minio_access_key: str = "admin"
+    minio_secret_key: str = "admin123"
+    minio_bucket: str = "auc-chat-storage"
+    minio_secure: bool = False  # Set to True for HTTPS
+    
     # Available models per provider
     # Format: provider_slug -> list of model names
     available_models: Dict[str, List[str]] = {

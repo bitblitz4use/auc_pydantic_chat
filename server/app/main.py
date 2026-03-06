@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -10,6 +10,8 @@ import logging
 import sys
 import json
 from pathlib import Path
+from minio.error import S3Error
+from io import BytesIO
 
 # Add parent directory to path to ensure imports work
 parent_dir = Path(__file__).parent.parent
@@ -20,6 +22,7 @@ from app.config import config, CORS_ORIGINS, HOCUSPOCUS_URL, HTTP_TIMEOUT
 from app.models import DocumentContext
 from app.agent import document_agent, create_agent_from_model_id
 from app.providers import get_available_models, parse_model_id
+from app.storage import get_minio_client, ensure_bucket_exists, list_objects
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 
 # Configure logging
@@ -39,6 +42,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure bucket exists on startup
+@app.on_event("startup")
+async def startup_event():
+    try:
+        ensure_bucket_exists()
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize MinIO bucket: {e}")
 
 
 @app.get("/")
@@ -176,3 +187,201 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         deps=deps,
         sdk_version=6
     )
+
+
+# Storage CRUD endpoints
+@app.post("/api/storage/{object_path:path}")
+async def upload_file(object_path: str, file: UploadFile = File(...)):
+    """
+    Upload a file to MinIO S3 storage.
+    
+    Args:
+        object_path: Path/name of the object in the bucket (route parameter)
+        file: File to upload
+    
+    Returns:
+        Success message with object path
+    """
+    logger.info(f"📤 Upload request for: {object_path}")
+    
+    try:
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        
+        # Read file content
+        file_content = await file.read()
+        file_size = len(file_content)
+        
+        # Upload to MinIO
+        client.put_object(
+            bucket_name,
+            object_path,
+            BytesIO(file_content),
+            length=file_size,
+            content_type=file.content_type or "application/octet-stream"
+        )
+        
+        logger.info(f"✅ Successfully uploaded {object_path} ({file_size} bytes)")
+        return {
+            "status": "success",
+            "message": "File uploaded successfully",
+            "object_path": object_path,
+            "size": file_size
+        }
+    except S3Error as e:
+        logger.error(f"❌ MinIO error uploading {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error uploading {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.put("/api/storage/{object_path:path}")
+async def update_file(object_path: str, file: UploadFile = File(...)):
+    """
+    Update/replace a file in MinIO S3 storage.
+    Uses the same logic as upload (PUT overwrites existing objects).
+    
+    Args:
+        object_path: Path/name of the object in the bucket (route parameter)
+        file: File to upload (replaces existing)
+    
+    Returns:
+        Success message with object path
+    """
+    logger.info(f"🔄 Update request for: {object_path}")
+    
+    try:
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        
+        # Read file content
+        file_content = await file.read()
+        file_size = len(file_content)
+        
+        # Upload to MinIO (overwrites if exists)
+        client.put_object(
+            bucket_name,
+            object_path,
+            BytesIO(file_content),
+            length=file_size,
+            content_type=file.content_type or "application/octet-stream"
+        )
+        
+        logger.info(f"✅ Successfully updated {object_path} ({file_size} bytes)")
+        return {
+            "status": "success",
+            "message": "File updated successfully",
+            "object_path": object_path,
+            "size": file_size
+        }
+    except S3Error as e:
+        logger.error(f"❌ MinIO error updating {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error updating {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+@app.delete("/api/storage/{object_path:path}")
+async def delete_file(object_path: str):
+    """
+    Delete a file from MinIO S3 storage.
+    
+    Args:
+        object_path: Path/name of the object in the bucket (route parameter)
+    
+    Returns:
+        Success message
+    """
+    logger.info(f"🗑️ Delete request for: {object_path}")
+    
+    try:
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        
+        # Delete from MinIO
+        client.remove_object(bucket_name, object_path)
+        
+        logger.info(f"✅ Successfully deleted {object_path}")
+        return {
+            "status": "success",
+            "message": "File deleted successfully",
+            "object_path": object_path
+        }
+    except S3Error as e:
+        logger.error(f"❌ MinIO error deleting {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error deleting {object_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
+
+
+# Storage discovery endpoints
+@app.get("/api/storage")
+async def list_all_files(prefix: Optional[str] = None, recursive: bool = True):
+    """
+    List all files in MinIO S3 storage.
+    
+    Args:
+        prefix: Optional path prefix to filter objects (query parameter)
+        recursive: If True, list recursively; if False, list only direct children (query parameter)
+    
+    Returns:
+        List of objects with metadata
+    """
+    logger.info(f"📋 List request with prefix: {prefix or 'root'}, recursive: {recursive}")
+    
+    try:
+        objects = list_objects(prefix=prefix or "", recursive=recursive)
+        
+        logger.info(f"✅ Found {len(objects)} objects")
+        return {
+            "status": "success",
+            "prefix": prefix or "",
+            "recursive": recursive,
+            "count": len(objects),
+            "objects": objects
+        }
+    except S3Error as e:
+        logger.error(f"❌ MinIO error listing objects: {e}")
+        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error listing objects: {e}")
+        raise HTTPException(status_code=500, detail=f"List failed: {str(e)}")
+
+
+@app.get("/api/storage/{path:path}")
+async def list_files_in_path(path: str, recursive: bool = True):
+    """
+    List files within a specific path in MinIO S3 storage.
+    
+    Args:
+        path: Path prefix to filter objects (route parameter)
+        recursive: If True, list recursively; if False, list only direct children (query parameter)
+    
+    Returns:
+        List of objects with metadata
+    """
+    logger.info(f"📋 List request for path: {path}, recursive: {recursive}")
+    
+    try:
+        # Ensure path ends with / if it's meant to be a directory prefix
+        prefix = path if path.endswith('/') else f"{path}/"
+        objects = list_objects(prefix=prefix, recursive=recursive)
+        
+        logger.info(f"✅ Found {len(objects)} objects in path: {path}")
+        return {
+            "status": "success",
+            "path": path,
+            "prefix": prefix,
+            "recursive": recursive,
+            "count": len(objects),
+            "objects": objects
+        }
+    except S3Error as e:
+        logger.error(f"❌ MinIO error listing objects in path '{path}': {e}")
+        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error listing objects in path '{path}': {e}")
+        raise HTTPException(status_code=500, detail=f"List failed: {str(e)}")
