@@ -73,7 +73,7 @@ const defaultModels: ModelInfo[] = [
     chef: "Ollama",
     chefSlug: "ollama",
     id: "ollama:gpt-oss:20b",
-    name: "Gpt Oss 20b",
+    name: "gpt-oss:20b",
     providers: ["ollama"],
   },
 ];
@@ -241,20 +241,6 @@ export function ChatInterface() {
   // Component that uses the controller to clear text immediately
   const PromptInputWithController = () => {
     const { textInput } = usePromptInputController();
-
-    // Simple focus on task mode change
-    useEffect(() => {
-      const timeoutId = setTimeout(() => {
-        const textarea = document.querySelector(
-          'textarea[name="message"]'
-        ) as HTMLTextAreaElement | null;
-        if (textarea) {
-          textarea.focus();
-        }
-      }, 200);
-      
-      return () => clearTimeout(timeoutId);
-    }, [taskMode]);
 
     const handleSubmit = useCallback(
       async (message: PromptInputMessage) => {

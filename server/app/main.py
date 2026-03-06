@@ -113,15 +113,13 @@ async def get_providers():
         provider_name = provider_names.get(provider_slug, provider_slug.title())
         
         for model_id in model_list:
-            # Format model name for display (e.g., "gpt-oss:20b" -> "Gpt Oss 20b")
-            model_display = model_id.replace(":", " ").replace("-", " ").title()
-            
+            # Use original model ID format (no formatting - keep lowercase, colons, hyphens)
             # Create full model ID in format "provider:model_name"
             full_model_id = f"{provider_slug}:{model_id}"
             
             models.append(ModelInfo(
                 id=full_model_id,
-                name=model_display,
+                name=model_id,  # Use original model ID as name (e.g., "gpt-oss:20b")
                 chef=provider_name,
                 chefSlug=provider_slug,
                 providers=[provider_slug]
