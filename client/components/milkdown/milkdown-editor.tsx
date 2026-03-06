@@ -288,9 +288,8 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
 
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Sticky header container */}
-      <div className="sticky top-0 z-10 flex flex-col gap-2 bg-background p-4 pb-2">
-        {/* Document Selector with Connection Status */}
+      {/* Document Selector - Outside editor, stays at top */}
+      <div className="border-b border-border bg-background p-4">
         <DocumentSelector
           currentDocumentName={currentDocumentName}
           availableDocuments={availableDocuments}
@@ -301,27 +300,32 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
           disabled={connectionStatus === "connecting"}
           connectionStatus={connectionStatus}
         />
-
-        {/* Toolbar with AI Changes Tooltip */}
-        <EditorToolbar
-          commands={commands}
-          disabled={connectionStatus !== "synced" || loading}
-          aiChanges={aiTracker.changes}
-          canUndoAI={aiTracker.canUndo}
-          canRedoAI={aiTracker.canRedo}
-          onUndoLastAI={aiTracker.undoLastAIChange}
-          onUndoAllAI={aiTracker.undoAllAIChanges}
-          onRedoAI={aiTracker.redoAIChange}
-          onAcceptAI={aiTracker.acceptAIChange}
-          onRejectAI={aiTracker.rejectAIChange}
-        />
       </div>
 
-      {/* Scrollable Editor Container */}
-      <div className="flex-1 overflow-hidden px-4 pb-4">
+      {/* Scrollable Editor Container with Toolbar Inside */}
+      <div className="flex-1 overflow-hidden px-4 pt-4 pb-4">
         <div className="editor-scrollbar h-full overflow-auto rounded-lg border border-border bg-card">
-          <div className="milkdown-editor-root min-h-full bg-card p-4">
-            <Milkdown />
+          <div className="relative min-h-full">
+            {/* Floating Toolbar - Sticky within scroll container */}
+            <div className="sticky top-0 z-10 bg-card/95 backdrop-blur-sm p-2">
+              <EditorToolbar
+                commands={commands}
+                disabled={connectionStatus !== "synced" || loading}
+                aiChanges={aiTracker.changes}
+                canUndoAI={aiTracker.canUndo}
+                canRedoAI={aiTracker.canRedo}
+                onUndoLastAI={aiTracker.undoLastAIChange}
+                onUndoAllAI={aiTracker.undoAllAIChanges}
+                onRedoAI={aiTracker.redoAIChange}
+                onAcceptAI={aiTracker.acceptAIChange}
+                onRejectAI={aiTracker.rejectAIChange}
+              />
+            </div>
+
+            {/* Editor Content - Starts right after toolbar */}
+            <div className="milkdown-editor-root p-4">
+              <Milkdown />
+            </div>
           </div>
         </div>
       </div>
