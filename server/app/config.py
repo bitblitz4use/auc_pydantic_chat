@@ -21,8 +21,14 @@ class AppConfig(BaseSettings):
     )
     
     # Provider configurations
-    openai_api_key: str = ""
-    ollama_base_url: str = "http://192.168.178.83:11434/v1"
+    openai_api_key: str = Field(
+        default="",
+        description="OpenAI API key"
+    )
+    ollama_base_url: str = Field(
+        default="http://192.168.178.83:11434/v1",
+        description="Ollama base URL"
+    )
     
     # MinIO S3 Storage configuration
     minio_endpoint: str = Field(
