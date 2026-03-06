@@ -18,7 +18,7 @@ parent_dir = Path(__file__).parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from app.config import config, CORS_ORIGINS, HOCUSPOCUS_URL, HTTP_TIMEOUT
+from app.config import config, HOCUSPOCUS_URL, HTTP_TIMEOUT
 from app.models import DocumentContext
 from app.agent import document_agent, create_agent_from_model_id
 from app.providers import get_available_models, parse_model_id
@@ -37,7 +37,7 @@ app = FastAPI(title="Pydantic AI Chat API")
 # Configure CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
