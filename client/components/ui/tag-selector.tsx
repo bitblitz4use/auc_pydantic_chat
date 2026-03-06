@@ -39,6 +39,7 @@ export function TagSelector({
       handleAddTag(inputValue);
     } else if (e.key === "Escape") {
       setShowSuggestions(false);
+      inputRef.current?.blur();
     }
   };
 
@@ -46,13 +47,12 @@ export function TagSelector({
     onChange(tags.filter((tag) => tag !== tagToRemove));
   };
 
-  // Filter suggestions
-  const suggestions = availableTags.filter(
-    (tag) =>
-      !tags.includes(tag) &&
-      tag.toLowerCase().includes(inputValue.toLowerCase()) &&
-      inputValue.trim().length > 0
-  );
+  // Filter suggestions - show all available tags when input is empty, filter when typing
+  const suggestions = availableTags.filter((tag) => {
+    if (tags.includes(tag)) return false; // Don't show already selected tags
+    if (inputValue.trim().length === 0) return true; // Show all when input is empty
+    return tag.toLowerCase().includes(inputValue.toLowerCase()); // Filter when typing
+  });
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -101,18 +101,19 @@ export function TagSelector({
           }}
           onKeyDown={handleKeyDown}
           onFocus={() => setShowSuggestions(true)}
-          placeholder="Type tag name and press Enter..."
+          placeholder="Type to filter or press Enter to create new tag..."
           className="pr-20"
         />
         {showSuggestions && suggestions.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover p-1 shadow-md">
-            {suggestions.slice(0, 5).map((tag) => (
+          <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover p-1 shadow-md max-h-48 overflow-y-auto">
+            {suggestions.slice(0, 10).map((tag) => (
               <button
                 key={tag}
                 type="button"
-                className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent flex items-center gap-2"
                 onClick={() => handleAddTag(tag)}
               >
+                <Tag className="size-3 text-muted-foreground" />
                 {tag}
               </button>
             ))}

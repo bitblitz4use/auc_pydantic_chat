@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Layout, Upload, FileText, Trash2, Plus, Tag } from "lucide-react";
+import { Layout, Upload, FileText, Trash2, Plus, Tag, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,12 +23,12 @@ import {
   renameFile,
   getFileTags,
   updateFileTags,
-  getAllTagKeys,
   formatFileSize,
   formatDate,
   type StorageObject,
 } from "@/lib/storage";
 import { TagSelector } from "@/components/ui/tag-selector";
+import { cn } from "@/lib/utils";
 
 export function TemplatesView() {
   const [objects, setObjects] = useState<StorageObject[]>([]);
@@ -45,6 +45,7 @@ export function TemplatesView() {
   const [fileTags, setFileTags] = useState<string[]>([]);
   const [originalTags, setOriginalTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +54,15 @@ export function TemplatesView() {
       setLoading(true);
       const files = await listStorageObjects("templates", false, true);
       setObjects(files);
+      
+      // Extract available tags from loaded objects (client-side)
+      const tagSet = new Set<string>();
+      files.forEach((obj) => {
+        if (obj.tags && Array.isArray(obj.tags)) {
+          obj.tags.forEach((tag) => tagSet.add(tag));
+        }
+      });
+      setAvailableTags(Array.from(tagSet).sort());
     } catch (error) {
       console.error("Error fetching templates:", error);
     } finally {
@@ -62,15 +72,6 @@ export function TemplatesView() {
 
   useEffect(() => {
     fetchTemplates();
-    const fetchTags = async () => {
-      try {
-        const tags = await getAllTagKeys("templates");
-        setAvailableTags(tags);
-      } catch (error) {
-        console.error("Error fetching tags:", error);
-      }
-    };
-    fetchTags();
   }, []);
 
   const handleNew = () => {
@@ -94,8 +95,8 @@ export function TemplatesView() {
       setOriginalFileName("");
       setFileContent("");
       setOriginalContent("");
-      setFileTags({});
-      setOriginalTags({});
+      setFileTags([]);
+      setOriginalTags([]);
       setSelectedFile(null);
     }
     setDialogOpen(open);
@@ -146,9 +147,6 @@ export function TemplatesView() {
         setIsNewFile(false);
         setOriginalTags(fileTags);
         await fetchTemplates();
-        // Refresh available tags
-        const tags = await getAllTagKeys("templates");
-        setAvailableTags(tags);
         setDialogOpen(false);
       } catch (error) {
         console.error("Error creating file:", error);
@@ -189,9 +187,6 @@ export function TemplatesView() {
           setOriginalFileName(fileName);
         }
         await fetchTemplates();
-        // Refresh available tags
-        const tags = await getAllTagKeys("templates");
-        setAvailableTags(tags);
         setDialogOpen(false);
       } catch (error) {
         console.error("Error saving file:", error);
@@ -239,6 +234,14 @@ export function TemplatesView() {
       alert("Failed to delete file");
     }
   };
+
+  // Filter objects based on selected tags
+  const filteredObjects = selectedFilterTags.length === 0
+    ? objects
+    : objects.filter((obj) => 
+        obj.tags && 
+        selectedFilterTags.every((filterTag) => obj.tags!.includes(filterTag))
+      );
 
   if (loading) {
     return (
@@ -380,7 +383,8 @@ export function TemplatesView() {
             <div>
               <h2 className="text-xl font-semibold text-foreground">Document Templates</h2>
               <p className="text-sm text-muted-foreground">
-                {objects.length} {objects.length === 1 ? "template" : "templates"}
+                {filteredObjects.length} of {objects.length} {objects.length === 1 ? "template" : "templates"}
+                {selectedFilterTags.length > 0 && ` (filtered by ${selectedFilterTags.length} tag${selectedFilterTags.length > 1 ? 's' : ''})`}
               </p>
             </div>
             <div className="flex gap-2">
@@ -420,9 +424,48 @@ export function TemplatesView() {
             </div>
           </div>
 
+          {/* Tag Filter Section */}
+          {availableTags.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              {availableTags.map((tag) => {
+                const isSelected = selectedFilterTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedFilterTags(selectedFilterTags.filter((t) => t !== tag));
+                      } else {
+                        setSelectedFilterTags([...selectedFilterTags, tag]);
+                      }
+                    }}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors",
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background text-foreground hover:bg-accent"
+                    )}
+                  >
+                    <Tag className="size-3" />
+                    {tag}
+                    {isSelected && <X className="size-3" />}
+                  </button>
+                );
+              })}
+              {selectedFilterTags.length > 0 && (
+                <button
+                  onClick={() => setSelectedFilterTags([])}
+                  className="ml-auto text-xs text-muted-foreground hover:text-foreground underline"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto">
             <div className="space-y-2">
-              {objects.map((obj) => {
+              {filteredObjects.map((obj) => {
                 const fileName = obj.name.replace("templates/", "");
                 return (
                   <div
@@ -490,6 +533,15 @@ export function TemplatesView() {
                 disabled={loadingContent}
               />
             </div>
+            {!loadingContent && (
+              <div className="pt-2">
+                <TagSelector
+                  tags={fileTags}
+                  availableTags={availableTags}
+                  onChange={setFileTags}
+                />
+              </div>
+            )}
           </DialogHeader>
           <div className="flex-1 overflow-y-auto">
             {loadingContent ? (
