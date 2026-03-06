@@ -32,11 +32,14 @@ import {
   PromptInputBody,
   PromptInputButton,
   PromptInputFooter,
+  PromptInputProvider,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
   usePromptInputAttachments,
+  usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
+import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { CheckIcon, GlobeIcon } from "lucide-react";
@@ -190,33 +193,113 @@ export function ChatInterface() {
     setModelSelectorOpen(false);
   }, []);
 
-  const handleSubmit = useCallback(
-    async (message: PromptInputMessage) => {
-      const hasText = Boolean(message.text);
-      const hasAttachments = Boolean(message.files?.length);
+  // Component that uses the controller to clear text immediately
+  const PromptInputWithController = () => {
+    const { textInput } = usePromptInputController();
 
-      if (!(hasText || hasAttachments)) {
-        return;
-      }
+    const handleSubmit = useCallback(
+      async (message: PromptInputMessage) => {
+        const hasText = Boolean(message.text);
+        const hasAttachments = Boolean(message.files?.length);
 
-      // Send model selection in request body
-      // eslint-disable-next-line no-console
-      console.log("Submitting with model:", model, "webSearch:", webSearch);
-
-      await sendMessage({
-        text: message.text,
-        body: { 
-          model: model,
-          webSearch: webSearch 
+        if (!(hasText || hasAttachments)) {
+          return;
         }
-      });
-    },
-    [sendMessage, model, webSearch]
-  );
 
-  const handleStop = useCallback(() => {
-    stop();
-  }, [stop]);
+        // Clear text immediately after submission
+        textInput.clear();
+
+        // Send model selection in request body
+        // eslint-disable-next-line no-console
+        console.log("Submitting with model:", model, "webSearch:", webSearch);
+
+        // Don't await - let it run async, text is already cleared
+        sendMessage({
+          text: message.text,
+          body: { 
+            model: model,
+            webSearch: webSearch 
+          }
+        });
+      },
+      [sendMessage, model, webSearch, textInput]
+    );
+
+    const handleStop = useCallback(() => {
+      stop();
+    }, [stop]);
+
+    return (
+      <PromptInput globalDrop multiple onSubmit={handleSubmit}>
+        <PromptInputAttachmentsDisplay />
+        <PromptInputBody>
+          <PromptInputTextarea placeholder="Type your message..." />
+        </PromptInputBody>
+        <PromptInputFooter>
+          <PromptInputTools>
+            <PromptInputActionMenu>
+              <PromptInputActionMenuTrigger />
+              <PromptInputActionMenuContent>
+                <PromptInputActionAddAttachments />
+              </PromptInputActionMenuContent>
+            </PromptInputActionMenu>
+            <PromptInputButton
+              onClick={() => setWebSearch(!webSearch)}
+              variant={webSearch ? "default" : "ghost"}
+            >
+              <GlobeIcon size={16} />
+              <span>Search</span>
+            </PromptInputButton>
+            <ModelSelector
+              onOpenChange={setModelSelectorOpen}
+              open={modelSelectorOpen}
+            >
+              <ModelSelectorTrigger asChild>
+                <PromptInputButton>
+                  {selectedModelData?.chefSlug && (
+                    <ModelSelectorLogo provider={selectedModelData.chefSlug} />
+                  )}
+                  {selectedModelData?.name && (
+                    <ModelSelectorName>
+                      {selectedModelData.name}
+                    </ModelSelectorName>
+                  )}
+                </PromptInputButton>
+              </ModelSelectorTrigger>
+              <ModelSelectorContent>
+                <ModelSelectorInput placeholder="Search models..." />
+                <ModelSelectorList>
+                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                  {modelsLoading ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      Loading models...
+                    </div>
+                  ) : (
+                    // Group models by provider (chef)
+                    Array.from(new Set(models.map((m) => m.chef))).map((chef) => (
+                      <ModelSelectorGroup heading={chef} key={chef}>
+                        {models
+                          .filter((m) => m.chef === chef)
+                          .map((m) => (
+                            <ModelItem
+                              key={m.id}
+                              m={m}
+                              onSelect={handleModelSelect}
+                              selectedModel={model}
+                            />
+                          ))}
+                      </ModelSelectorGroup>
+                    ))
+                  )}
+                </ModelSelectorList>
+              </ModelSelectorContent>
+            </ModelSelector>
+          </PromptInputTools>
+          <PromptInputSubmit status={status} onStop={handleStop} />
+        </PromptInputFooter>
+      </PromptInput>
+    );
+  };
 
   // Helper function to extract text content from message (handles both old and new formats)
   const getMessageText = (message: any) => {
@@ -228,6 +311,11 @@ export function ChatInterface() {
     return "";
   };
 
+  // Check if we should show loading indicator
+  const isLoading = status === "submitted" || status === "streaming";
+  const lastMessage = messages[messages.length - 1];
+  const showLoadingIndicator = isLoading && (!lastMessage || lastMessage.role === "user");
+
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Scrollable Messages Area */}
@@ -235,23 +323,32 @@ export function ChatInterface() {
         <div className="h-full overflow-hidden rounded-t-lg border border-b-0 border-border bg-card">
           <Conversation className="conversation-scrollbar h-full">
             <ConversationContent>
-              {messages.length === 0 ? (
+              {messages.length === 0 && !showLoadingIndicator ? (
                 <ConversationEmptyState
                   title="Start a conversation"
                   description="Ask me anything!"
                 />
               ) : (
-                messages.map((message) => (
-                  <Message key={message.id} from={message.role}>
-                    <MessageContent>
-                      {message.role === "user" ? (
-                        <p>{getMessageText(message)}</p>
-                      ) : (
-                        <MessageResponse>{getMessageText(message)}</MessageResponse>
-                      )}
-                    </MessageContent>
-                  </Message>
-                ))
+                <>
+                  {messages.map((message) => (
+                    <Message key={message.id} from={message.role}>
+                      <MessageContent>
+                        {message.role === "user" ? (
+                          <p>{getMessageText(message)}</p>
+                        ) : (
+                          <MessageResponse>{getMessageText(message)}</MessageResponse>
+                        )}
+                      </MessageContent>
+                    </Message>
+                  ))}
+                  {showLoadingIndicator && (
+                    <Message from="assistant">
+                      <MessageContent>
+                        <Shimmer>Thinking...</Shimmer>
+                      </MessageContent>
+                    </Message>
+                  )}
+                </>
               )}
             </ConversationContent>
           </Conversation>
@@ -261,74 +358,9 @@ export function ChatInterface() {
       {/* Fixed Prompt Input at Bottom */}
       <div className="px-4 pb-4">
         <div className="rounded-b-lg border border-t-0 border-border bg-card p-4">
-          <PromptInput globalDrop multiple onSubmit={handleSubmit}>
-            <PromptInputAttachmentsDisplay />
-            <PromptInputBody>
-              <PromptInputTextarea placeholder="Type your message..." />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
-                <PromptInputActionMenu>
-                  <PromptInputActionMenuTrigger />
-                  <PromptInputActionMenuContent>
-                    <PromptInputActionAddAttachments />
-                  </PromptInputActionMenuContent>
-                </PromptInputActionMenu>
-                <PromptInputButton
-                  onClick={() => setWebSearch(!webSearch)}
-                  variant={webSearch ? "default" : "ghost"}
-                >
-                  <GlobeIcon size={16} />
-                  <span>Search</span>
-                </PromptInputButton>
-                <ModelSelector
-                  onOpenChange={setModelSelectorOpen}
-                  open={modelSelectorOpen}
-                >
-                  <ModelSelectorTrigger asChild>
-                    <PromptInputButton>
-                      {selectedModelData?.chefSlug && (
-                        <ModelSelectorLogo provider={selectedModelData.chefSlug} />
-                      )}
-                      {selectedModelData?.name && (
-                        <ModelSelectorName>
-                          {selectedModelData.name}
-                        </ModelSelectorName>
-                        )}
-                    </PromptInputButton>
-                  </ModelSelectorTrigger>
-                  <ModelSelectorContent>
-                    <ModelSelectorInput placeholder="Search models..." />
-                    <ModelSelectorList>
-                      <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                      {modelsLoading ? (
-                        <div className="p-4 text-center text-sm text-muted-foreground">
-                          Loading models...
-                        </div>
-                      ) : (
-                        // Group models by provider (chef)
-                        Array.from(new Set(models.map((m) => m.chef))).map((chef) => (
-                          <ModelSelectorGroup heading={chef} key={chef}>
-                            {models
-                              .filter((m) => m.chef === chef)
-                              .map((m) => (
-                                <ModelItem
-                                  key={m.id}
-                                  m={m}
-                                  onSelect={handleModelSelect}
-                                  selectedModel={model}
-                                />
-                              ))}
-                          </ModelSelectorGroup>
-                        ))
-                      )}
-                    </ModelSelectorList>
-                  </ModelSelectorContent>
-                </ModelSelector>
-              </PromptInputTools>
-              <PromptInputSubmit status={status} onStop={handleStop} />
-            </PromptInputFooter>
-          </PromptInput>
+          <PromptInputProvider>
+            <PromptInputWithController />
+          </PromptInputProvider>
         </div>
       </div>
     </div>
