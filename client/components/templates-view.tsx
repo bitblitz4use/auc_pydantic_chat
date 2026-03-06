@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Layout, Upload, FileText, Trash2 } from "lucide-react";
+import { Layout, Upload, FileText, Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,8 @@ export function TemplatesView() {
   const [originalContent, setOriginalContent] = useState<string>("");
   const [loadingContent, setLoadingContent] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isNewFile, setIsNewFile] = useState(false);
+  const [newFileName, setNewFileName] = useState("new-template.md");
   const [dialogOpen, setDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,9 +55,20 @@ export function TemplatesView() {
     fetchTemplates();
   }, []);
 
+  const handleNew = () => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    setSelectedFile(null);
+    setFileContent("");
+    setOriginalContent("");
+    setNewFileName(`new-template-${timestamp}.md`);
+    setIsNewFile(true);
+    setDialogOpen(true);
+  };
+
   const handleCardClick = async (obj: StorageObject) => {
     try {
       setSelectedFile(obj);
+      setIsNewFile(false);
       setDialogOpen(true);
       setLoadingContent(true);
       const content = await getFileContent(obj.name);
@@ -70,23 +84,47 @@ export function TemplatesView() {
   };
 
   const handleSave = async () => {
-    if (!selectedFile) return;
+    if (isNewFile) {
+      // Create new file
+      if (!newFileName.trim()) {
+        alert("Please enter a filename");
+        return;
+      }
+      const fileName = newFileName.endsWith('.md') ? newFileName : `${newFileName}.md`;
+      const filePath = `templates/${fileName}`;
+      
+      try {
+        setSaving(true);
+        await updateFileContent(filePath, fileContent);
+        setIsNewFile(false);
+        await fetchTemplates();
+        setDialogOpen(false);
+      } catch (error) {
+        console.error("Error creating file:", error);
+        alert("Failed to create file");
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      // Update existing file
+      if (!selectedFile) return;
 
-    try {
-      setSaving(true);
-      await updateFileContent(selectedFile.name, fileContent);
-      setOriginalContent(fileContent);
-      await fetchTemplates(); // Refresh list to update file metadata
-      setDialogOpen(false); // Close dialog on successful save
-    } catch (error) {
-      console.error("Error saving file:", error);
-      alert("Failed to save file");
-    } finally {
-      setSaving(false);
+      try {
+        setSaving(true);
+        await updateFileContent(selectedFile.name, fileContent);
+        setOriginalContent(fileContent);
+        await fetchTemplates();
+        setDialogOpen(false);
+      } catch (error) {
+        console.error("Error saving file:", error);
+        alert("Failed to save file");
+      } finally {
+        setSaving(false);
+      }
     }
   };
 
-  const hasChanges = fileContent !== originalContent;
+  const hasChanges = isNewFile ? fileContent.trim() !== "" : fileContent !== originalContent;
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -132,43 +170,115 @@ export function TemplatesView() {
 
   if (objects.length === 0) {
     return (
-      <div className="h-full overflow-hidden px-4 pt-4 pb-4">
-        <div className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-border">
-          <div className="max-w-md space-y-4 text-center px-8">
-            <Layout className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h2 className="text-xl font-semibold text-foreground">Document Templates</h2>
-            <p className="text-sm text-muted-foreground">
-              No templates found. Upload your first template file to get started.
-            </p>
-            <div className="pt-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleFileSelect}
-                disabled={uploading}
-              />
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                variant="outline"
-              >
-                {uploading ? (
-                  <>
-                    <Spinner className="mr-2 size-4" />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="mr-2 size-4" />
-                    Upload Template
-                  </>
-                )}
-              </Button>
+      <>
+        <div className="h-full overflow-hidden px-4 pt-4 pb-4">
+          <div className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-border">
+            <div className="max-w-md space-y-4 text-center px-8">
+              <Layout className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h2 className="text-xl font-semibold text-foreground">Document Templates</h2>
+              <p className="text-sm text-muted-foreground">
+                No templates found. Create a new template or upload an existing file to get started.
+              </p>
+              <div className="pt-2 flex gap-2 justify-center">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                  disabled={uploading}
+                />
+                <Button
+                  onClick={handleNew}
+                  variant="outline"
+                >
+                  <Plus className="mr-2 size-4" />
+                  New Template
+                </Button>
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  variant="outline"
+                >
+                  {uploading ? (
+                    <>
+                      <Spinner className="mr-2 size-4" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 size-4" />
+                      Upload
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="min-w-[800px] h-[600px] max-w-6xl flex flex-col">
+            <DialogHeader>
+              <DialogTitle>
+                {isNewFile ? "New Template" : selectedFile?.name.replace("templates/", "") || "File Content"}
+              </DialogTitle>
+              <DialogDescription>
+                {isNewFile ? "Create a new template" : "Edit the template content"}
+              </DialogDescription>
+              {isNewFile && (
+                <div className="pt-2">
+                  <Input
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    placeholder="filename.md"
+                    className="font-mono"
+                  />
+                </div>
+              )}
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto">
+              {loadingContent ? (
+                <div className="flex items-center justify-center h-full">
+                  <Spinner className="size-6" />
+                </div>
+              ) : (
+                <Textarea
+                  value={fileContent}
+                  onChange={(e) => setFileContent(e.target.value)}
+                  className="w-full min-h-full font-mono text-sm resize-none"
+                  style={{ fontFamily: "monospace" }}
+                  placeholder={isNewFile ? "Enter your template content here..." : ""}
+                />
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDialogOpen(false);
+                  setIsNewFile(false);
+                }}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={saving || !hasChanges || loadingContent}
+              >
+                {saving ? (
+                  <>
+                    <Spinner className="mr-2 size-4" />
+                    Saving...
+                  </>
+                ) : (
+                  isNewFile ? "Create" : "Save"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
     );
   }
 
@@ -183,31 +293,41 @@ export function TemplatesView() {
                 {objects.length} {objects.length === 1 ? "template" : "templates"}
               </p>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              onChange={handleFileSelect}
-              disabled={uploading}
-            />
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              variant="outline"
-              size="sm"
-            >
-              {uploading ? (
-                <>
-                  <Spinner className="mr-2 size-4" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 size-4" />
-                  Upload
-                </>
-              )}
-            </Button>
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleFileSelect}
+                disabled={uploading}
+              />
+              <Button
+                onClick={handleNew}
+                variant="outline"
+                size="sm"
+              >
+                <Plus className="mr-2 size-4" />
+                New
+              </Button>
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                variant="outline"
+                size="sm"
+              >
+                {uploading ? (
+                  <>
+                    <Spinner className="mr-2 size-4" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mr-2 size-4" />
+                    Upload
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -253,11 +373,21 @@ export function TemplatesView() {
         <DialogContent className="min-w-[800px] h-[600px] max-w-6xl flex flex-col">
           <DialogHeader>
             <DialogTitle>
-              {selectedFile?.name.replace("templates/", "") || "File Content"}
+              {isNewFile ? "New Template" : selectedFile?.name.replace("templates/", "") || "File Content"}
             </DialogTitle>
             <DialogDescription>
-              Edit the template content
+              {isNewFile ? "Create a new template" : "Edit the template content"}
             </DialogDescription>
+            {isNewFile && (
+              <div className="pt-2">
+                <Input
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="filename.md"
+                  className="font-mono"
+                />
+              </div>
+            )}
           </DialogHeader>
           <div className="flex-1 overflow-y-auto">
             {loadingContent ? (
@@ -270,13 +400,17 @@ export function TemplatesView() {
                 onChange={(e) => setFileContent(e.target.value)}
                 className="w-full min-h-full font-mono text-sm resize-none"
                 style={{ fontFamily: "monospace" }}
+                placeholder={isNewFile ? "Enter your template content here..." : ""}
               />
             )}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setDialogOpen(false)}
+              onClick={() => {
+                setDialogOpen(false);
+                setIsNewFile(false);
+              }}
               disabled={saving}
             >
               Cancel
@@ -291,7 +425,7 @@ export function TemplatesView() {
                   Saving...
                 </>
               ) : (
-                "Save"
+                isNewFile ? "Create" : "Save"
               )}
             </Button>
           </DialogFooter>
