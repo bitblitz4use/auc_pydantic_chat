@@ -20,7 +20,7 @@ if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
 from app.config import config, HOCUSPOCUS_URL, HTTP_TIMEOUT
-from app.models import DocumentContext
+from app.models import DocumentContext, TaskMode
 from app.agent import document_agent, create_agent_from_model_id
 from app.providers import get_available_models, parse_model_id
 from app.storage import get_minio_client, ensure_bucket_exists, list_objects
@@ -134,14 +134,31 @@ async def get_providers():
 @app.post("/api/chat")
 async def chat(request: Request, background: BackgroundTasks) -> Response:
     """
-    Chat endpoint that handles Vercel AI Data Stream Protocol requests.
-    Supports dynamic model selection via X-Model-ID header or request body.
-    Model format: "provider:model_name" (e.g., "openai:gpt-4o")
+    Chat endpoint with task mode and document context support.
+    Supports:
+    - X-Model-ID header: Model selection
+    - X-Task-Mode header: "ask" or "write"
+    - X-Active-Document header: Document name for write mode
     """
     logger.info("💬 Chat request received")
     
-    # Try to get model from header first (preferred method)
+    # Extract headers
     model_id = request.headers.get("X-Model-ID")
+    task_mode_str = request.headers.get("X-Task-Mode", "ask")
+    active_document = request.headers.get("X-Active-Document")
+    
+    # Log all headers for debugging
+    logger.info(f"📋 Headers received:")
+    logger.info(f"   X-Model-ID: {model_id}")
+    logger.info(f"   X-Task-Mode: {task_mode_str}")
+    logger.info(f"   X-Active-Document: {active_document}")
+    
+    # Parse task mode
+    try:
+        task_mode = TaskMode(task_mode_str.lower())
+    except ValueError:
+        logger.warning(f"⚠️ Invalid task mode '{task_mode_str}', defaulting to 'ask'")
+        task_mode = TaskMode.ASK
     
     # If not in header, try to read from body
     # We need to read the body stream and then recreate it for VercelAIAdapter
@@ -170,7 +187,6 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
             model_id = None
     
     # Determine which agent to use
-    agent = document_agent  # Default
     provider = config.default_provider
     model_name = config.default_model
     
@@ -178,21 +194,41 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         try:
             provider, model_name = parse_model_id(model_id)
             logger.info(f"🎯 Using model: {provider}:{model_name}")
-            agent = create_agent_from_model_id(model_id)
         except ValueError as e:
             logger.warning(f"⚠️ Invalid model ID '{model_id}': {e}. Using default model.")
         except Exception as e:
-            logger.error(f"❌ Error creating agent for '{model_id}': {e}. Using default model.")
+            logger.error(f"❌ Error parsing model ID '{model_id}': {e}. Using default model.")
     else:
         logger.info("ℹ️ No model specified, using default model")
     
+    # Create appropriate agent based on task mode
+    try:
+        agent = create_agent_from_model_id(
+            f"{provider}:{model_name}", 
+            task_mode
+        )
+    except Exception as e:
+        logger.error(f"❌ Error creating agent: {e}. Using default document agent.")
+        agent = document_agent
+    
+    logger.info(f"🤖 Agent mode: {task_mode.value}")
+    
     # Create HTTP client that will stay alive during the entire request
     http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
+    
+    # Set current_document if in write mode and document is provided
+    current_doc = active_document if task_mode == TaskMode.WRITE else None
+    
     deps = DocumentContext(
         http_client=http_client,
         hocuspocus_url=HOCUSPOCUS_URL,
-        model_name=f"{provider}:{model_name}"
+        model_name=f"{provider}:{model_name}",
+        current_document=current_doc,
+        task_mode=task_mode
     )
+    
+    if current_doc:
+        logger.info(f"📄 Active document: {current_doc}")
     
     logger.info(f"🌐 Created HTTP client for Hocuspocus: {deps.hocuspocus_url}")
     

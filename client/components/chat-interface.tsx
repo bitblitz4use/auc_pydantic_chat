@@ -40,11 +40,13 @@ import {
   usePromptInputAttachments,
   usePromptInputController,
 } from "@/components/ai-elements/prompt-input";
+import { TaskModeSelector, type TaskMode } from "@/components/ai-elements/task-mode-selector";
+import { DocumentCitation } from "@/components/ai-elements/document-citation";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 import { CheckIcon, GlobeIcon, FileText } from "lucide-react";
-import { memo, useCallback, useState, useEffect } from "react";
+import { CustomChatTransport } from "@/lib/custom-chat-transport";
+import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -55,6 +57,7 @@ import {
 } from "@/components/ui/command";
 import { listStorageObjects, getFileContent, type StorageObject } from "@/lib/storage";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { useActiveDocument } from "@/hooks/use-active-document";
 
 interface ModelInfo {
   id: string;
@@ -151,16 +154,39 @@ export function ChatInterface() {
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [webSearch, setWebSearch] = useState<boolean>(false);
   
+  // Task mode and active document
+  const [taskMode, setTaskMode] = useState<TaskMode>("ask");
+  const activeDocument = useActiveDocument();
+  
   // Prompt selector state
   const [promptSelectorOpen, setPromptSelectorOpen] = useState(false);
   const [prompts, setPrompts] = useState<StorageObject[]>([]);
   const [promptsLoading, setPromptsLoading] = useState(false);
   const [isInputActive, setIsInputActive] = useState(false);
   
-  const { messages, sendMessage, status, stop } = useChat({
-    transport: new DefaultChatTransport({
+  // Create transport - headers will be set dynamically on each request
+  const transport = useMemo(() => {
+    return new CustomChatTransport({
       api: "http://localhost:8000/api/chat",
-    }),
+    });
+  }, []); // Only create once, headers updated per request
+  
+  // Update transport headers when model, task mode, or document changes
+  useEffect(() => {
+    const headers: Record<string, string> = {
+      "X-Model-ID": model,
+      "X-Task-Mode": taskMode,
+    };
+    
+    if (taskMode === "write" && activeDocument) {
+      headers["X-Active-Document"] = activeDocument;
+    }
+    
+    transport.setHeaders(headers);
+  }, [model, taskMode, activeDocument, transport]);
+  
+  const { messages, sendMessage, status, stop } = useChat({
+    transport,
   });
 
   // Fetch available models from API
@@ -216,6 +242,20 @@ export function ChatInterface() {
   const PromptInputWithController = () => {
     const { textInput } = usePromptInputController();
 
+    // Simple focus on task mode change
+    useEffect(() => {
+      const timeoutId = setTimeout(() => {
+        const textarea = document.querySelector(
+          'textarea[name="message"]'
+        ) as HTMLTextAreaElement | null;
+        if (textarea) {
+          textarea.focus();
+        }
+      }, 200);
+      
+      return () => clearTimeout(timeoutId);
+    }, [taskMode]);
+
     const handleSubmit = useCallback(
       async (message: PromptInputMessage) => {
         const hasText = Boolean(message.text);
@@ -228,9 +268,22 @@ export function ChatInterface() {
         // Clear text immediately after submission
         textInput.clear();
 
+        // Update headers synchronously right before sending to ensure they're current
+        const headers: Record<string, string> = {
+          "X-Model-ID": model,
+          "X-Task-Mode": taskMode,
+        };
+        
+        if (taskMode === "write" && activeDocument) {
+          headers["X-Active-Document"] = activeDocument;
+        }
+        
+        transport.setHeaders(headers);
+
         // Send model selection in request body
         // eslint-disable-next-line no-console
-        console.log("Submitting with model:", model, "webSearch:", webSearch);
+        console.log("Submitting with model:", model, "taskMode:", taskMode, "activeDocument:", activeDocument);
+        console.log("Headers being sent:", headers);
 
         // Don't await - let it run async, text is already cleared
         sendMessage({
@@ -240,10 +293,10 @@ export function ChatInterface() {
           body: { 
             model: model,
             webSearch: webSearch 
-          }
+          },
         });
       },
-      [sendMessage, model, webSearch, textInput]
+      [sendMessage, model, webSearch, taskMode, activeDocument, textInput, transport]
     );
 
     const handleStop = () => {
@@ -317,14 +370,33 @@ export function ChatInterface() {
         <PromptInput globalDrop multiple onSubmit={handleSubmit}>
           <PromptInputAttachmentsDisplay />
           <PromptInputBody>
-            <PromptInputTextarea 
-              placeholder="Type your message..."
-              onFocus={handleTextareaFocus}
-              onBlur={handleTextareaBlur}
-            />
+            <div className="flex flex-col w-full">
+              {/* Document Citation (when in write mode) - above textarea */}
+              {taskMode === "write" && activeDocument && (
+                <div className="px-3 pt-2">
+                  <DocumentCitation
+                    documentName={activeDocument}
+                    onClear={() => {
+                      // Just switch to ask mode, don't clear the document
+                      setTaskMode("ask");
+                    }}
+                  />
+                </div>
+              )}
+              <PromptInputTextarea 
+                placeholder="Type your message..."
+                onFocus={handleTextareaFocus}
+                onBlur={handleTextareaBlur}
+              />
+            </div>
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
+              <TaskModeSelector
+                mode={taskMode}
+                onModeChange={setTaskMode}
+                activeDocument={activeDocument}
+              />
               <PromptInputActionMenu>
                 <PromptInputActionMenuTrigger />
                 <PromptInputActionMenuContent>
@@ -492,6 +564,7 @@ export function ChatInterface() {
               </KbdGroup>
             </div>
           </div>
+          
           <PromptInputProvider>
             <PromptInputWithController />
           </PromptInputProvider>

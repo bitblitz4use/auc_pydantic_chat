@@ -17,12 +17,21 @@ logger = logging.getLogger(__name__)
 
 async def get_document_content(
     ctx: RunContext[DocumentContext], 
-    document_name: str
+    document_name: Optional[str] = None
 ) -> str:
-    """Fetch the current content of a document as markdown."""
-    url = f"{ctx.deps.hocuspocus_url}/api/ai/export/{document_name}"
+    """Fetch the current content of a document as markdown.
     
-    logger.info(f"🔍 Tool called: get_document_content('{document_name}')")
+    If document_name is not provided, uses the current_document from context.
+    """
+    # Use document_name from parameter, or fall back to context
+    doc_name = document_name or ctx.deps.current_document
+    
+    if not doc_name:
+        return "Error: No document specified. Please provide a document name or ensure a document is active in write mode."
+    
+    url = f"{ctx.deps.hocuspocus_url}/api/ai/export/{doc_name}"
+    
+    logger.info(f"🔍 Tool called: get_document_content('{doc_name}')")
     logger.info(f"📡 Requesting: {url}")
     
     try:
@@ -30,10 +39,10 @@ async def get_document_content(
         logger.info(f"✅ Response status: {response.status_code}")
         response.raise_for_status()
         
-        ctx.deps.current_document = document_name
+        ctx.deps.current_document = doc_name
         markdown = response.text
         logger.info(f"✅ Received {len(markdown)} characters of markdown")
-        return f"Document '{document_name}' content:\n\n{markdown}"
+        return f"Document '{doc_name}' content:\n\n{markdown}"
         
     except httpx.ConnectError as e:
         error_msg = f"❌ Connection error: Cannot connect to {ctx.deps.hocuspocus_url}. Is the Hocuspocus server running?"
@@ -45,8 +54,8 @@ async def get_document_content(
         return f"Error: {error_msg}\n\nDetails: {str(e)}"
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            logger.warning(f"⚠️  Document '{document_name}' not found (404)")
-            return f"Error: Document '{document_name}' not found. Make sure it's open in the editor first."
+            logger.warning(f"⚠️  Document '{doc_name}' not found (404)")
+            return f"Error: Document '{doc_name}' not found. Make sure it's open in the editor first."
         error_msg = f"❌ HTTP error {e.response.status_code}: {e.response.text}"
         logger.error(error_msg)
         return f"Error: HTTP {e.response.status_code} - {error_msg}"
@@ -58,14 +67,23 @@ async def get_document_content(
 
 async def update_document_content(
     ctx: RunContext[DocumentContext],
-    document_name: str,
-    markdown_content: str,
+    document_name: Optional[str] = None,
+    markdown_content: str = "",
     change_description: Optional[str] = None
 ) -> str:
-    """Update a document with new markdown content."""
-    url = f"{ctx.deps.hocuspocus_url}/api/ai/import/{document_name}"
+    """Update a document with new markdown content.
     
-    logger.info(f"🔍 Tool called: update_document_content('{document_name}')")
+    If document_name is not provided, uses the current_document from context.
+    """
+    # Use document_name from parameter, or fall back to context
+    doc_name = document_name or ctx.deps.current_document
+    
+    if not doc_name:
+        return "Error: No document specified. Please provide a document name or ensure a document is active in write mode."
+    
+    url = f"{ctx.deps.hocuspocus_url}/api/ai/import/{doc_name}"
+    
+    logger.info(f"🔍 Tool called: update_document_content('{doc_name}')")
     logger.info(f"📡 Requesting: {url}")
     logger.info(f"📝 Content length: {len(markdown_content)} characters")
     
@@ -91,7 +109,7 @@ async def update_document_content(
         result = response.json()
         logger.info(f"✅ Change applied: {result.get('changeId', 'unknown')}")
         return (
-            f"✅ Document '{document_name}' updated successfully!\n"
+            f"✅ Document '{doc_name}' updated successfully!\n"
             f"Change ID: {result['changeId']}\n"
             f"The change is now visible in the editor and can be accepted or rejected by the user."
         )

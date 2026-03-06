@@ -143,6 +143,12 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         console.log("✅ Document synced");
         setConnectionStatus("synced");
         loadDocuments();
+        
+        // Emit document change event when synced (document is active)
+        window.dispatchEvent(
+          new CustomEvent("active-document-changed", { detail: currentDocumentName })
+        );
+        localStorage.setItem("active-document", currentDocumentName);
       },
       onStatus: ({ status }) => {
         console.log("📊 Status:", status);
@@ -272,6 +278,14 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   const switchDocument = useCallback((docName: string) => {
     // Changing document name will trigger useEffect to recreate provider
     setCurrentDocumentName(docName);
+    
+    // Emit custom event for other components (e.g., chat interface)
+    window.dispatchEvent(
+      new CustomEvent("active-document-changed", { detail: docName })
+    );
+    
+    // Store in localStorage as backup
+    localStorage.setItem("active-document", docName);
   }, []);
 
   // Create new document
