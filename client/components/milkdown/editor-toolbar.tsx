@@ -17,9 +17,19 @@ import {
   Type,
   Undo2,
   Redo2,
+  RefreshCw,
+  FilePlus,
 } from 'lucide-react';
 import { AIChangesButton } from './ai-changes-button';
 import { AIChange } from './hooks/use-ai-change-tracker';
+
+type ConnectionStatus = "disconnected" | "connecting" | "connected" | "synced";
+
+interface Document {
+  name: string;
+  size: number;
+  lastModified: Date;
+}
 
 interface EditorToolbarProps {
   commands: EditorCommands;
@@ -33,6 +43,14 @@ interface EditorToolbarProps {
   onRedoAI?: () => void;
   onAcceptAI?: (changeId: string) => void;
   onRejectAI?: (changeId: string) => void;
+  // Document management props
+  connectionStatus?: ConnectionStatus;
+  currentDocumentName: string;
+  availableDocuments: Document[];
+  isLoadingDocuments?: boolean;
+  onSwitchDocument: (docName: string) => void;
+  onCreateNew: () => void;
+  onRefresh: () => void;
 }
 
 interface ToolbarButtonProps {
@@ -76,10 +94,82 @@ export const EditorToolbar = memo(({
   onUndoAllAI,
   onRedoAI,
   onAcceptAI,
-  onRejectAI
+  onRejectAI,
+  connectionStatus,
+  currentDocumentName,
+  availableDocuments,
+  isLoadingDocuments = false,
+  onSwitchDocument,
+  onCreateNew,
+  onRefresh,
 }: EditorToolbarProps) => {
+  // Get status dot color based on connection status
+  const getStatusColor = () => {
+    switch (connectionStatus) {
+      case "synced":
+        return "bg-green-500";
+      case "connected":
+        return "bg-yellow-500";
+      case "connecting":
+        return "bg-blue-500 animate-pulse";
+      case "disconnected":
+      default:
+        return "bg-gray-500";
+    }
+  };
+
   return (
     <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 shadow-sm">
+      {/* Connection Status Dot - First element */}
+      {connectionStatus && (
+        <div
+          className={`h-2 w-2 rounded-full ${getStatusColor()}`}
+          title={
+            connectionStatus === "synced" ? "Synced & Ready" :
+            connectionStatus === "connected" ? "Connected" :
+            connectionStatus === "connecting" ? "Connecting..." :
+            "Disconnected"
+          }
+        />
+      )}
+
+      {/* Document Switcher - Second element */}
+      <select
+        value={currentDocumentName}
+        onChange={(e) => onSwitchDocument(e.target.value)}
+        className="rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary h-8 min-w-[120px]"
+        disabled={disabled}
+        title="Select document"
+      >
+        {availableDocuments.map((doc) => (
+          <option key={doc.name} value={doc.name}>
+            {doc.name}
+          </option>
+        ))}
+        {!availableDocuments.find((d) => d.name === currentDocumentName) && (
+          <option value={currentDocumentName}>{currentDocumentName} (new)</option>
+        )}
+      </select>
+
+      {/* Refresh Button - Third element */}
+      <ToolbarButton
+        onClick={onRefresh}
+        disabled={disabled || isLoadingDocuments}
+        title="Refresh documents"
+        icon={<RefreshCw size={16} className={isLoadingDocuments ? "animate-spin" : ""} />}
+      />
+
+      {/* New Document Button - Fourth element */}
+      <ToolbarButton
+        onClick={onCreateNew}
+        disabled={disabled}
+        title="Create new document"
+        icon={<FilePlus size={16} />}
+      />
+
+      {/* Vertical Divider before Undo/Redo */}
+      <ToolbarDivider />
+
       {/* Undo/Redo */}
       <ToolbarButton
         onClick={() => commands.undo()}

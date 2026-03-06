@@ -17,7 +17,6 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 
 // Import new components
 import { EditorToolbar } from "./editor-toolbar";
-import { DocumentSelector } from "./document-selector";
 import { useEditorCommands } from "./hooks/use-editor-commands";
 import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
 
@@ -288,20 +287,6 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
 
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Document Selector - Outside editor, stays at top */}
-      <div className="border-b border-border bg-background p-4">
-        <DocumentSelector
-          currentDocumentName={currentDocumentName}
-          availableDocuments={availableDocuments}
-          isLoadingDocuments={isLoadingDocuments}
-          onSwitchDocument={switchDocument}
-          onCreateNew={createNewDocument}
-          onRefresh={loadDocuments}
-          disabled={connectionStatus === "connecting"}
-          connectionStatus={connectionStatus}
-        />
-      </div>
-
       {/* Scrollable Editor Container with Toolbar Inside */}
       <div className="flex-1 overflow-hidden px-4 pt-4 pb-4">
         <div className="editor-scrollbar h-full overflow-auto rounded-lg border border-border bg-card">
@@ -319,6 +304,13 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
                 onRedoAI={aiTracker.redoAIChange}
                 onAcceptAI={aiTracker.acceptAIChange}
                 onRejectAI={aiTracker.rejectAIChange}
+                connectionStatus={connectionStatus}
+                currentDocumentName={currentDocumentName}
+                availableDocuments={availableDocuments}
+                isLoadingDocuments={isLoadingDocuments}
+                onSwitchDocument={switchDocument}
+                onCreateNew={createNewDocument}
+                onRefresh={loadDocuments}
               />
             </div>
 
