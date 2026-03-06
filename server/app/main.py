@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Body
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -74,6 +74,16 @@ class ModelInfo(BaseModel):
 class ProvidersResponse(BaseModel):
     """Response format for providers endpoint"""
     models: List[ModelInfo]
+
+
+class RenameRequest(BaseModel):
+    """Request format for rename endpoint"""
+    new_path: str
+
+
+class TagsRequest(BaseModel):
+    """Request format for tags endpoint"""
+    tags: List[str]
 
 
 class RenameRequest(BaseModel):
@@ -200,13 +210,18 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
 
 # Storage CRUD endpoints
 @app.post("/api/storage/{object_path:path}")
-async def upload_file(object_path: str, file: UploadFile = File(...)):
-    """A
-    Upload a file to MinIO S3 storage.
+async def upload_file(
+    object_path: str,
+    file: UploadFile = File(...),
+    tags: Optional[str] = None
+):
+    """
+    Upload a file to MinIO S3 storage with optional tags.
     
     Args:
         object_path: Path/name of the object in the bucket (route parameter)
         file: File to upload
+        tags: Optional JSON string of tags (form data field)
     
     Returns:
         Success message with object path
@@ -217,17 +232,37 @@ async def upload_file(object_path: str, file: UploadFile = File(...)):
         client = get_minio_client()
         bucket_name = config.minio_bucket
         
+        # Parse tags from form data
+        user_tags = []
+        if tags:
+            try:
+                parsed = json.loads(tags)
+                # Handle both array and object formats for backward compatibility
+                if isinstance(parsed, list):
+                    user_tags = parsed
+                elif isinstance(parsed, dict):
+                    user_tags = list(parsed.keys())
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ Invalid tags JSON: {tags}")
+        
+        # Convert tags to metadata
+        metadata = {}
+        if user_tags:
+            from app.storage import create_metadata_from_tags
+            metadata = create_metadata_from_tags(user_tags)
+        
         # Read file content
         file_content = await file.read()
         file_size = len(file_content)
         
-        # Upload to MinIO
+        # Upload to MinIO with metadata
         client.put_object(
             bucket_name,
             object_path,
             BytesIO(file_content),
             length=file_size,
-            content_type=file.content_type or "application/octet-stream"
+            content_type=file.content_type or "application/octet-stream",
+            metadata=metadata
         )
         
         logger.info(f"✅ Successfully uploaded {object_path} ({file_size} bytes)")
@@ -246,14 +281,18 @@ async def upload_file(object_path: str, file: UploadFile = File(...)):
 
 
 @app.put("/api/storage/{object_path:path}")
-async def update_file(object_path: str, file: UploadFile = File(...)):
+async def update_file(
+    object_path: str,
+    file: UploadFile = File(...),
+    tags: Optional[str] = None
+):
     """
-    Update/replace a file in MinIO S3 storage.
-    Uses the same logic as upload (PUT overwrites existing objects).
+    Update/replace a file in MinIO S3 storage with optional tags.
     
     Args:
         object_path: Path/name of the object in the bucket (route parameter)
         file: File to upload (replaces existing)
+        tags: Optional JSON string of tags (form data field)
     
     Returns:
         Success message with object path
@@ -264,17 +303,32 @@ async def update_file(object_path: str, file: UploadFile = File(...)):
         client = get_minio_client()
         bucket_name = config.minio_bucket
         
+        # Parse tags from form data
+        user_tags = {}
+        if tags:
+            try:
+                user_tags = json.loads(tags)
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ Invalid tags JSON: {tags}")
+        
+        # Convert tags to metadata
+        metadata = {}
+        if user_tags:
+            from app.storage import create_metadata_from_tags
+            metadata = create_metadata_from_tags(user_tags)
+        
         # Read file content
         file_content = await file.read()
         file_size = len(file_content)
         
-        # Upload to MinIO (overwrites if exists)
+        # Upload to MinIO with metadata (overwrites if exists)
         client.put_object(
             bucket_name,
             object_path,
             BytesIO(file_content),
             length=file_size,
-            content_type=file.content_type or "application/octet-stream"
+            content_type=file.content_type or "application/octet-stream",
+            metadata=metadata
         )
         
         logger.info(f"✅ Successfully updated {object_path} ({file_size} bytes)")
@@ -290,6 +344,64 @@ async def update_file(object_path: str, file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"❌ Error updating {object_path}: {e}")
         raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+@app.patch("/api/storage/{object_path:path}/tags")
+async def update_file_tags(object_path: str, request: TagsRequest = Body(...)):
+    """
+    Update tags (metadata) for an existing file.
+    
+    Args:
+        object_path: Path/name of the object in the bucket (route parameter)
+        request: Request body containing 'tags' dict
+    
+    Returns:
+        Success message with updated tags
+    """
+    logger.info(f"🏷️ Update tags request for: {object_path}")
+    
+    try:
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        
+        # Get existing metadata
+        stat = client.stat_object(bucket_name, object_path)
+        existing_metadata = stat.metadata.copy()
+        
+        # Remove all existing tag keys (x-amz-meta-*)
+        existing_metadata = {
+            k: v for k, v in existing_metadata.items()
+            if not k.startswith("x-amz-meta-")
+        }
+        
+        # Add new tags
+        from app.storage import create_metadata_from_tags
+        new_metadata = create_metadata_from_tags(request.tags)
+        existing_metadata.update(new_metadata)
+        
+        # Update metadata by copying object to itself
+        from minio.commonconfig import CopySource
+        copy_source = CopySource(bucket_name, object_path)
+        client.copy_object(
+            bucket_name,
+            object_path,
+            copy_source,
+            metadata=existing_metadata,
+            metadata_directive="REPLACE"
+        )
+        
+        logger.info(f"✅ Successfully updated tags for {object_path}")
+        return {
+            "status": "success",
+            "message": "Tags updated successfully",
+            "tags": request.tags
+        }
+    except S3Error as e:
+        logger.error(f"❌ MinIO error updating tags: {e}")
+        raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Error updating tags: {e}")
+        raise HTTPException(status_code=500, detail=f"Update tags failed: {str(e)}")
 
 
 @app.patch("/api/storage/{object_path:path}")
@@ -428,14 +540,14 @@ async def list_all_files(prefix: Optional[str] = None, recursive: bool = True):
 @app.get("/api/storage/{object_path:path}/content")
 async def get_file_content(object_path: str):
     """
-    Download/get file content from MinIO S3 storage.
+    Download/get file content from MinIO S3 storage with tags.
     Uses S3 GetObject API.
     
     Args:
         object_path: Path/name of the object in the bucket (route parameter)
     
     Returns:
-        File content as response
+        File content as response with tags in X-Object-Tags header
     """
     logger.info(f"📥 Download request for: {object_path}")
     
@@ -443,10 +555,15 @@ async def get_file_content(object_path: str):
         client = get_minio_client()
         bucket_name = config.minio_bucket
         
-        # Get object from MinIO
-        response = client.get_object(bucket_name, object_path)
+        # Get object stat for metadata
+        stat = client.stat_object(bucket_name, object_path)
         
-        # Read content
+        # Extract tags from metadata
+        from app.storage import get_user_tags_from_metadata
+        tags = get_user_tags_from_metadata(stat.metadata)
+        
+        # Get object content
+        response = client.get_object(bucket_name, object_path)
         content = response.read()
         response.close()
         response.release_conn()
@@ -465,7 +582,8 @@ async def get_file_content(object_path: str):
             content=content,
             media_type=content_type,
             headers={
-                "Content-Disposition": f'inline; filename="{object_path.split("/")[-1]}"'
+                "Content-Disposition": f'inline; filename="{object_path.split("/")[-1]}"',
+                "X-Object-Tags": json.dumps(tags)
             }
         )
     except S3Error as e:
@@ -477,23 +595,37 @@ async def get_file_content(object_path: str):
 
 
 @app.get("/api/storage/{path:path}")
-async def list_files_in_path(path: str, recursive: bool = True):
+async def list_files_in_path(path: str, recursive: bool = True, include_tags: bool = False):
     """
     List files within a specific path in MinIO S3 storage.
     
     Args:
         path: Path prefix to filter objects (route parameter)
         recursive: If True, list recursively; if False, list only direct children (query parameter)
+        include_tags: If True, include tags in response (query parameter)
     
     Returns:
-        List of objects with metadata
+        List of objects with optional tags
     """
-    logger.info(f"📋 List request for path: {path}, recursive: {recursive}")
+    logger.info(f"📋 List request for path: {path}, recursive: {recursive}, include_tags: {include_tags}")
     
     try:
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        
         # Ensure path ends with / if it's meant to be a directory prefix
         prefix = path if path.endswith('/') else f"{path}/"
         objects = list_objects(prefix=prefix, recursive=recursive)
+        
+        # Optionally add tags to each object
+        if include_tags:
+            from app.storage import get_user_tags_from_metadata
+            for obj in objects:
+                try:
+                    stat = client.stat_object(bucket_name, obj["name"])
+                    obj["tags"] = get_user_tags_from_metadata(stat.metadata)
+                except:
+                    obj["tags"] = []
         
         logger.info(f"✅ Found {len(objects)} objects in path: {path}")
         return {

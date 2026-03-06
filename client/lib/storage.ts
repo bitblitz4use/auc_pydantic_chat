@@ -10,6 +10,7 @@ export interface StorageObject {
   last_modified: string | null;
   etag: string;
   is_dir: boolean;
+  tags?: string[];
 }
 
 export interface StorageResponse {
@@ -26,10 +27,11 @@ export interface StorageResponse {
  */
 export async function listStorageObjects(
   path: string,
-  recursive: boolean = false
+  recursive: boolean = false,
+  includeTags: boolean = false
 ): Promise<StorageObject[]> {
   const response = await fetch(
-    `${API_BASE}/api/storage/${path}?recursive=${recursive}`
+    `${API_BASE}/api/storage/${path}?recursive=${recursive}&include_tags=${includeTags}`
   );
   if (!response.ok) {
     throw new Error(`Failed to fetch: ${response.statusText}`);
@@ -43,10 +45,14 @@ export async function listStorageObjects(
  */
 export async function uploadFile(
   path: string,
-  file: File
+  file: File,
+  tags?: string[]
 ): Promise<void> {
   const formData = new FormData();
   formData.append("file", file);
+  if (tags && tags.length > 0) {
+    formData.append("tags", JSON.stringify(tags));
+  }
 
   const response = await fetch(`${API_BASE}/api/storage/${path}`, {
     method: "POST",
@@ -87,7 +93,8 @@ export async function getFileContent(path: string): Promise<string> {
  */
 export async function updateFileContent(
   path: string,
-  content: string
+  content: string,
+  tags?: string[]
 ): Promise<void> {
   const blob = new Blob([content], { type: "text/plain" });
   const file = new File([blob], path.split("/").pop() || "file", {
@@ -96,6 +103,9 @@ export async function updateFileContent(
 
   const formData = new FormData();
   formData.append("file", file);
+  if (tags && tags.length > 0) {
+    formData.append("tags", JSON.stringify(tags));
+  }
 
   const response = await fetch(`${API_BASE}/api/storage/${path}`, {
     method: "PUT",
@@ -105,6 +115,72 @@ export async function updateFileContent(
   if (!response.ok) {
     throw new Error(`Update failed: ${response.statusText}`);
   }
+}
+
+/**
+ * Get tags for a file
+ */
+export async function getFileTags(path: string): Promise<string[]> {
+  const response = await fetch(`${API_BASE}/api/storage/${path}/content`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.statusText}`);
+  }
+  const tagsHeader = response.headers.get("X-Object-Tags");
+  if (tagsHeader) {
+    try {
+      const parsed = JSON.parse(tagsHeader);
+      // Handle both array and object formats for backward compatibility
+      if (Array.isArray(parsed)) {
+        return parsed;
+      } else if (typeof parsed === "object") {
+        return Object.keys(parsed);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Update tags for a file
+ */
+export async function updateFileTags(
+  path: string,
+  tags: string[]
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/storage/${path}/tags`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ tags }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Update tags failed: ${response.statusText}`);
+  }
+}
+
+/**
+ * Get all unique tag keys from files in a path
+ */
+export async function getAllTagKeys(path: string): Promise<string[]> {
+  const response = await fetch(
+    `${API_BASE}/api/storage/${path}?recursive=false&include_tags=true`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch files: ${response.statusText}`);
+  }
+  const data: StorageResponse = await response.json();
+  const tagKeys = new Set<string>();
+  data.objects.forEach((obj) => {
+    if (obj.tags && Array.isArray(obj.tags)) {
+      obj.tags.forEach((tag) => tagKeys.add(tag));
+    }
+  });
+  return Array.from(tagKeys);
 }
 
 /**

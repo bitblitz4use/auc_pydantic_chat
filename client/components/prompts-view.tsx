@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Wand2, Upload, FileText, Trash2, Plus } from "lucide-react";
+import { Wand2, Upload, FileText, Trash2, Plus, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,10 +21,14 @@ import {
   getFileContent,
   updateFileContent,
   renameFile,
+  getFileTags,
+  updateFileTags,
+  getAllTagKeys,
   formatFileSize,
   formatDate,
   type StorageObject,
 } from "@/lib/storage";
+import { TagSelector } from "@/components/ui/tag-selector";
 
 export function PromptsView() {
   const [objects, setObjects] = useState<StorageObject[]>([]);
@@ -38,13 +42,16 @@ export function PromptsView() {
   const [isNewFile, setIsNewFile] = useState(false);
   const [newFileName, setNewFileName] = useState("new-prompt.md");
   const [originalFileName, setOriginalFileName] = useState<string>("");
+  const [fileTags, setFileTags] = useState<string[]>([]);
+  const [originalTags, setOriginalTags] = useState<string[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchPrompts = async () => {
     try {
       setLoading(true);
-      const files = await listStorageObjects("prompts", false);
+      const files = await listStorageObjects("prompts", false, true);
       setObjects(files);
     } catch (error) {
       console.error("Error fetching prompts:", error);
@@ -55,6 +62,15 @@ export function PromptsView() {
 
   useEffect(() => {
     fetchPrompts();
+    const fetchTags = async () => {
+      try {
+        const tags = await getAllTagKeys("prompts");
+        setAvailableTags(tags);
+      } catch (error) {
+        console.error("Error fetching tags:", error);
+      }
+    };
+    fetchTags();
   }, []);
 
   const handleNew = () => {
@@ -64,6 +80,8 @@ export function PromptsView() {
     setOriginalContent("");
     setNewFileName(`new-prompt-${timestamp}.md`);
     setOriginalFileName("");
+    setFileTags([]);
+    setOriginalTags([]);
     setIsNewFile(true);
     setDialogOpen(true);
   };
@@ -76,6 +94,8 @@ export function PromptsView() {
       setOriginalFileName("");
       setFileContent("");
       setOriginalContent("");
+      setFileTags({});
+      setOriginalTags({});
       setSelectedFile(null);
     }
     setDialogOpen(open);
@@ -87,9 +107,16 @@ export function PromptsView() {
       setIsNewFile(false);
       setDialogOpen(true);
       setLoadingContent(true);
+      
+      // Use tags from list object if available, otherwise fetch
       const content = await getFileContent(obj.name);
+      const tags = obj.tags && obj.tags.length > 0 ? obj.tags : await getFileTags(obj.name);
+      
       setFileContent(content);
       setOriginalContent(content);
+      setFileTags(tags);
+      setOriginalTags(tags);
+      
       // Extract and set the original filename
       const fileName = obj.name.replace("prompts/", "");
       setNewFileName(fileName);
@@ -115,9 +142,13 @@ export function PromptsView() {
       
       try {
         setSaving(true);
-        await updateFileContent(filePath, fileContent);
+        await updateFileContent(filePath, fileContent, fileTags);
         setIsNewFile(false);
+        setOriginalTags(fileTags);
         await fetchPrompts();
+        // Refresh available tags
+        const tags = await getAllTagKeys("prompts");
+        setAvailableTags(tags);
         setDialogOpen(false);
       } catch (error) {
         console.error("Error creating file:", error);
@@ -136,19 +167,31 @@ export function PromptsView() {
         const fileName = newFileName.endsWith('.md') ? newFileName : `${newFileName}.md`;
         const newFilePath = `prompts/${fileName}`;
         const fileNameChanged = fileName !== originalFileName;
+        const tagsChanged = JSON.stringify([...fileTags].sort()) !== JSON.stringify([...originalTags].sort());
         
         if (fileNameChanged) {
-          // Rename the file first
+          // Rename the file first (tags are preserved automatically)
           await renameFile(selectedFile.name, newFilePath);
         }
         
         // Update content (use new path if renamed, otherwise use original)
-        await updateFileContent(fileNameChanged ? newFilePath : selectedFile.name, fileContent);
+        const finalPath = fileNameChanged ? newFilePath : selectedFile.name;
+        await updateFileContent(finalPath, fileContent, fileTags);
+        
+        // Update tags separately if they changed (in case content didn't change)
+        if (tagsChanged) {
+          await updateFileTags(finalPath, fileTags);
+        }
+        
         setOriginalContent(fileContent);
+        setOriginalTags(fileTags);
         if (fileNameChanged) {
           setOriginalFileName(fileName);
         }
         await fetchPrompts();
+        // Refresh available tags
+        const tags = await getAllTagKeys("prompts");
+        setAvailableTags(tags);
         setDialogOpen(false);
       } catch (error) {
         console.error("Error saving file:", error);
@@ -160,8 +203,10 @@ export function PromptsView() {
   };
 
   const hasChanges = isNewFile 
-    ? fileContent.trim() !== "" 
-    : fileContent !== originalContent || newFileName !== originalFileName;
+    ? fileContent.trim() !== "" || Object.keys(fileTags).length > 0
+    : fileContent !== originalContent || 
+      newFileName !== originalFileName ||
+      JSON.stringify(fileTags) !== JSON.stringify(originalTags);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -389,6 +434,19 @@ export function PromptsView() {
                         <span>{formatDate(obj.last_modified)}</span>
                       </div>
                     </div>
+                    {obj.tags && obj.tags.length > 0 && (
+                      <div className="flex items-center justify-center gap-1 flex-wrap shrink-0">
+                        {obj.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs"
+                          >
+                            <Tag className="size-3 text-muted-foreground" />
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -423,6 +481,15 @@ export function PromptsView() {
                 disabled={loadingContent}
               />
             </div>
+            {!loadingContent && (
+              <div className="pt-2">
+                <TagSelector
+                  tags={fileTags}
+                  availableTags={availableTags}
+                  onChange={setFileTags}
+                />
+              </div>
+            )}
           </DialogHeader>
           <div className="flex-1 overflow-y-auto">
             {loadingContent ? (

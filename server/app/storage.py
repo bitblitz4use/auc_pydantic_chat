@@ -68,3 +68,24 @@ def list_objects(prefix: str = "", recursive: bool = True) -> List[Dict]:
     except S3Error as e:
         logger.error(f"❌ Error listing objects with prefix '{prefix}': {e}")
         raise
+
+
+def get_user_tags_from_metadata(metadata: Dict[str, str]) -> List[str]:
+    """Extract user tags from object metadata as string array"""
+    tags = []
+    for k, v in metadata.items():
+        if k.startswith("x-amz-meta-tag-"):
+            # Extract tag name (remove x-amz-meta-tag- prefix)
+            tag_name = k.replace("x-amz-meta-tag-", "")
+            if tag_name:  # Only add non-empty tags
+                tags.append(tag_name)
+    return tags
+
+
+def create_metadata_from_tags(tags: List[str]) -> Dict[str, str]:
+    """Convert string array tags to metadata format"""
+    metadata = {}
+    for tag in tags:
+        if tag and tag.strip():  # Only add non-empty tags
+            metadata[f"x-amz-meta-tag-{tag.strip()}"] = ""
+    return metadata
