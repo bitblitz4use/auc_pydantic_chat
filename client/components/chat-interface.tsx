@@ -447,7 +447,12 @@ export function ChatInterface() {
   // Check if we should show loading indicator
   const isLoading = status === "submitted" || status === "streaming";
   const lastMessage = messages[messages.length - 1];
-  const showLoadingIndicator = isLoading && (!lastMessage || lastMessage.role === "user");
+  // Show loading if: no messages yet, last message is from user, or assistant message is empty (still streaming)
+  const showLoadingIndicator = isLoading && (
+    !lastMessage || 
+    lastMessage.role === "user" || 
+    (lastMessage.role === "assistant" && !getMessageText(lastMessage))
+  );
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -492,7 +497,7 @@ export function ChatInterface() {
       <div className="px-4 pb-4">
         <div className="rounded-b-lg border border-t-0 border-border bg-card p-4 relative">
           {/* Keyboard Shortcut Indicator - Positioned above input, left aligned */}
-          <div className="absolute -top-8 left-4 z-10 pointer-events-none">
+          <div className="absolute -top-4 left-4 z-10 pointer-events-none">
             <div className={`transition-opacity duration-200 ${isInputActive ? "opacity-100" : "opacity-30"}`}>
               <KbdGroup>
                 <Kbd className={isInputActive ? "" : "opacity-50"}>Shift</Kbd>
