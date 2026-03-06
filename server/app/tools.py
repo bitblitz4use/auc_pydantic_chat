@@ -1,0 +1,114 @@
+from pydantic_ai import RunContext
+from typing import Optional
+import httpx
+import uuid
+import logging
+import sys
+from pathlib import Path
+
+# Add parent directory to path to ensure imports work
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+from app.models import DocumentContext
+
+logger = logging.getLogger(__name__)
+
+async def get_document_content(
+    ctx: RunContext[DocumentContext], 
+    document_name: str
+) -> str:
+    """Fetch the current content of a document as markdown."""
+    url = f"{ctx.deps.hocuspocus_url}/api/ai/export/{document_name}"
+    
+    logger.info(f"🔍 Tool called: get_document_content('{document_name}')")
+    logger.info(f"📡 Requesting: {url}")
+    
+    try:
+        response = await ctx.deps.http_client.get(url)
+        logger.info(f"✅ Response status: {response.status_code}")
+        response.raise_for_status()
+        
+        ctx.deps.current_document = document_name
+        markdown = response.text
+        logger.info(f"✅ Received {len(markdown)} characters of markdown")
+        return f"Document '{document_name}' content:\n\n{markdown}"
+        
+    except httpx.ConnectError as e:
+        error_msg = f"❌ Connection error: Cannot connect to {ctx.deps.hocuspocus_url}. Is the Hocuspocus server running?"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nDetails: {str(e)}\n\nPlease ensure the Hocuspocus server is running on {ctx.deps.hocuspocus_url}"
+    except httpx.TimeoutException as e:
+        error_msg = f"❌ Timeout: Request to {url} timed out after 30 seconds"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nDetails: {str(e)}"
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning(f"⚠️  Document '{document_name}' not found (404)")
+            return f"Error: Document '{document_name}' not found. Make sure it's open in the editor first."
+        error_msg = f"❌ HTTP error {e.response.status_code}: {e.response.text}"
+        logger.error(error_msg)
+        return f"Error: HTTP {e.response.status_code} - {error_msg}"
+    except Exception as e:
+        error_msg = f"❌ Unexpected error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nType: {type(e).__name__}"
+
+
+async def update_document_content(
+    ctx: RunContext[DocumentContext],
+    document_name: str,
+    markdown_content: str,
+    change_description: Optional[str] = None
+) -> str:
+    """Update a document with new markdown content."""
+    url = f"{ctx.deps.hocuspocus_url}/api/ai/import/{document_name}"
+    
+    logger.info(f"🔍 Tool called: update_document_content('{document_name}')")
+    logger.info(f"📡 Requesting: {url}")
+    logger.info(f"📝 Content length: {len(markdown_content)} characters")
+    
+    change_id = f"ai-change-{uuid.uuid4().hex[:8]}"
+    logger.info(f"🆔 Generated change ID: {change_id}")
+    
+    headers = {
+        "Content-Type": "text/markdown",
+        "X-AI-Model": ctx.deps.model_name,
+        "X-AI-Prompt": change_description or "AI-assisted edit",
+        "X-AI-Change-Id": change_id
+    }
+    
+    try:
+        response = await ctx.deps.http_client.post(
+            url, 
+            content=markdown_content,
+            headers=headers
+        )
+        logger.info(f"✅ Response status: {response.status_code}")
+        response.raise_for_status()
+        
+        result = response.json()
+        logger.info(f"✅ Change applied: {result.get('changeId', 'unknown')}")
+        return (
+            f"✅ Document '{document_name}' updated successfully!\n"
+            f"Change ID: {result['changeId']}\n"
+            f"The change is now visible in the editor and can be accepted or rejected by the user."
+        )
+        
+    except httpx.ConnectError as e:
+        error_msg = f"❌ Connection error: Cannot connect to {ctx.deps.hocuspocus_url}. Is the Hocuspocus server running?"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nDetails: {str(e)}\n\nPlease ensure the Hocuspocus server is running on {ctx.deps.hocuspocus_url}"
+    except httpx.TimeoutException as e:
+        error_msg = f"❌ Timeout: Request to {url} timed out after 30 seconds"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nDetails: {str(e)}"
+    except httpx.HTTPStatusError as e:
+        error_msg = f"❌ HTTP error {e.response.status_code}: {e.response.text}"
+        logger.error(error_msg)
+        return f"Error updating document: HTTP {e.response.status_code} - {error_msg}"
+    except Exception as e:
+        error_msg = f"❌ Unexpected error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nType: {type(e).__name__}"
