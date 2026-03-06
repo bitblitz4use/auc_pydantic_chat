@@ -1233,35 +1233,4 @@ body[data-scroll-locked] {
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
-
-
-  /* Tooltip for AI change indicator */
-  .ai-change-tooltip {
-    position: absolute;
-    z-index: 1000;
-    padding: 0.5rem 0.75rem;
-    background: var(--popover);
-    color: var(--popover-foreground);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-lg);
-    font-size: 0.75rem;
-    max-width: 200px;
-    pointer-events: none;
-  }
-
-  .ai-change-tooltip .tooltip-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.25rem;
-    font-weight: 600;
-  }
-
-  .ai-change-tooltip .tooltip-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    color: var(--muted-foreground);
-  }
 }
