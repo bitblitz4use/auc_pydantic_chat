@@ -53,6 +53,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { listStorageObjects, getFileContent, type StorageObject } from "@/lib/storage";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 
 interface ModelInfo {
   id: string;
@@ -169,6 +170,7 @@ export function ChatInterface() {
   const [promptSelectorOpen, setPromptSelectorOpen] = useState(false);
   const [prompts, setPrompts] = useState<StorageObject[]>([]);
   const [promptsLoading, setPromptsLoading] = useState(false);
+  const [isInputActive, setIsInputActive] = useState(false);
   
   const { messages, sendMessage, status, stop } = useChat({
     transport: new DefaultChatTransport({
@@ -261,6 +263,15 @@ export function ChatInterface() {
       stop();
     }, [stop]);
 
+    // Handlers for focus state
+    const handleTextareaFocus = useCallback(() => {
+      setIsInputActive(true);
+    }, [setIsInputActive]);
+
+    const handleTextareaBlur = useCallback(() => {
+      setIsInputActive(false);
+    }, [setIsInputActive]);
+
     // Handle prompt selection
     const handlePromptSelect = useCallback(
       async (promptName: string) => {
@@ -319,7 +330,11 @@ export function ChatInterface() {
         <PromptInput globalDrop multiple onSubmit={handleSubmit}>
           <PromptInputAttachmentsDisplay />
           <PromptInputBody>
-            <PromptInputTextarea placeholder="Type your message... (Shift+P for prompts)" />
+            <PromptInputTextarea 
+              placeholder="Type your message..."
+              onFocus={handleTextareaFocus}
+              onBlur={handleTextareaBlur}
+            />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
@@ -475,7 +490,16 @@ export function ChatInterface() {
 
       {/* Fixed Prompt Input at Bottom */}
       <div className="px-4 pb-4">
-        <div className="rounded-b-lg border border-t-0 border-border bg-card p-4">
+        <div className="rounded-b-lg border border-t-0 border-border bg-card p-4 relative">
+          {/* Keyboard Shortcut Indicator - Positioned above input, left aligned */}
+          <div className="absolute -top-8 left-4 z-10 pointer-events-none">
+            <div className={`transition-opacity duration-200 ${isInputActive ? "opacity-100" : "opacity-30"}`}>
+              <KbdGroup>
+                <Kbd className={isInputActive ? "" : "opacity-50"}>Shift</Kbd>
+                <Kbd className={isInputActive ? "" : "opacity-50"}>P</Kbd>
+              </KbdGroup>
+            </div>
+          </div>
           <PromptInputProvider>
             <PromptInputWithController />
           </PromptInputProvider>
