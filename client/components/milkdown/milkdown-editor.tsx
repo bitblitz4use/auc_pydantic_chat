@@ -8,6 +8,7 @@ import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { collab, collabServiceCtx, CollabService } from "@milkdown/plugin-collab";
 import { block } from "@milkdown/kit/plugin/block";
+import { tableBlock, tableBlockConfig } from "@milkdown/kit/component/table-block";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { $prose } from "@milkdown/kit/utils";
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
@@ -26,6 +27,22 @@ import "./styles/ai-highlights.css";
 
 // API base URL
 const API_BASE = "http://127.0.0.1:3001";
+
+// Helper function to render Lucide icons as SVG strings
+const renderIcon = (iconType: string, size = 16) => {
+  const iconPaths: Record<string, string> = {
+    'align-left': '<line x1="21" x2="3" y1="6" y2="6"/><line x1="15" x2="3" y1="12" y2="12"/><line x1="17" x2="3" y1="18" y2="18"/>',
+    'align-center': '<line x1="21" x2="3" y1="6" y2="6"/><line x1="18" x2="6" y1="12" y2="12"/><line x1="21" x2="3" y1="18" y2="18"/>',
+    'align-right': '<line x1="21" x2="3" y1="6" y2="6"/><line x1="21" x2="9" y1="12" y2="12"/><line x1="21" x2="7" y1="18" y2="18"/>',
+    'plus': '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    'trash': '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
+    'grip-vertical': '<circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>',
+    'grip-horizontal': '<circle cx="12" cy="9" r="1"/><circle cx="5" cy="9" r="1"/><circle cx="19" cy="9" r="1"/><circle cx="12" cy="15" r="1"/><circle cx="5" cy="15" r="1"/><circle cx="19" cy="15" r="1"/>',
+  };
+
+  const path = iconPaths[iconType] || '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+};
 
 // Custom plugin to handle Enter key on empty list items
 const exitListPlugin = $prose(() => {
@@ -196,9 +213,27 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       return Editor.make()
         .config((ctx) => {
           ctx.set(rootCtx, root);
+          ctx.update(tableBlockConfig.key, (prev) => ({
+            ...prev,
+            renderButton: (type) => {
+              switch (type) {
+                case 'add_row': return renderIcon('plus');
+                case 'add_col': return renderIcon('plus');
+                case 'delete_row': return renderIcon('trash');
+                case 'delete_col': return renderIcon('trash');
+                case 'align_col_left': return renderIcon('align-left');
+                case 'align_col_center': return renderIcon('align-center');
+                case 'align_col_right': return renderIcon('align-right');
+                case 'col_drag_handle': return renderIcon('grip-vertical');
+                case 'row_drag_handle': return renderIcon('grip-horizontal');
+                default: return '';
+              }
+            }
+          }));
         })
         .use(commonmark)
         .use(gfm)
+        .use(tableBlock)
         .use(listener)
         .use(clipboard)
         .use(history)
@@ -221,9 +256,27 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       .config((ctx) => {
         ctx.set(rootCtx, root);
         ctx.set(collabServiceCtx, collabService);
+        ctx.update(tableBlockConfig.key, (prev) => ({
+          ...prev,
+          renderButton: (type) => {
+            switch (type) {
+              case 'add_row': return renderIcon('plus');
+              case 'add_col': return renderIcon('plus');
+              case 'delete_row': return renderIcon('trash');
+              case 'delete_col': return renderIcon('trash');
+              case 'align_col_left': return renderIcon('align-left');
+              case 'align_col_center': return renderIcon('align-center');
+              case 'align_col_right': return renderIcon('align-right');
+              case 'col_drag_handle': return renderIcon('grip-vertical');
+              case 'row_drag_handle': return renderIcon('grip-horizontal');
+              default: return '';
+            }
+          }
+        }));
       })
       .use(commonmark)
       .use(gfm)
+      .use(tableBlock)
       .use(listener)
       .use(clipboard)
       .use(history)

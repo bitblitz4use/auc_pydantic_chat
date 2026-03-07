@@ -1166,6 +1166,129 @@ body[data-scroll-locked] {
   }
 
   /* ========================================
+   * Table Block Component - Shadcn Theme Integration
+   * ======================================== */
+
+  .milkdown .milkdown-table-block {
+    /* Override crepe colors with shadcn theme variables */
+    --crepe-color-surface: var(--card);
+    --crepe-color-outline: var(--muted-foreground);
+    --crepe-color-primary: var(--primary);
+    --crepe-color-hover: var(--accent);
+    --crepe-color-selected: var(--accent);
+    --crepe-shadow-1: var(--shadow-md);
+  }
+
+  /* Table block handles - Match shadcn button styling */
+  .milkdown .milkdown-table-block .cell-handle {
+    background-color: var(--card) !important;
+    color: var(--card-foreground) !important;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .milkdown .milkdown-table-block .cell-handle:hover {
+    background-color: var(--accent) !important;
+    color: var(--accent-foreground) !important;
+  }
+
+  /* Fix centering of drag handle icons */
+  .milkdown .milkdown-table-block .cell-handle > svg {
+    display: block;
+    margin: auto;
+  }
+
+  /* Table block button groups - Match shadcn popover style */
+  .milkdown .milkdown-table-block .button-group {
+    background-color: var(--popover) !important;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    padding: 4px;
+  }
+
+  /* Table block buttons - Match shadcn button style */
+  .milkdown .milkdown-table-block .button-group button {
+    background-color: transparent;
+    color: var(--popover-foreground);
+    border: none;
+    transition: all 0.2s ease;
+  }
+
+  .milkdown .milkdown-table-block .button-group button:hover {
+    background-color: var(--accent) !important;
+    color: var(--accent-foreground) !important;
+  }
+
+  .milkdown .milkdown-table-block .button-group button:active {
+    background-color: var(--primary) !important;
+    color: var(--primary-foreground) !important;
+  }
+
+  /* SVG icons in buttons */
+  .milkdown .milkdown-table-block svg {
+    fill: currentColor;
+  }
+
+  /* Add row/column buttons */
+  .milkdown .milkdown-table-block .add-button {
+    background-color: var(--card) !important;
+    color: var(--card-foreground) !important;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .milkdown .milkdown-table-block .add-button:hover {
+    background-color: var(--accent) !important;
+    color: var(--accent-foreground) !important;
+    border-color: var(--primary);
+  }
+
+  .milkdown .milkdown-table-block .add-button:active {
+    background-color: var(--primary) !important;
+    color: var(--primary-foreground) !important;
+  }
+
+  /* Line handles (drag indicators) */
+  .milkdown .milkdown-table-block .line-handle {
+    background-color: var(--primary);
+  }
+
+  /* Selected cell outline */
+  .milkdown .milkdown-table-block th:has(.ProseMirror-selectednode),
+  .milkdown .milkdown-table-block td:has(.ProseMirror-selectednode) {
+    outline-color: var(--primary);
+  }
+
+  /* Selected cell background */
+  .milkdown .milkdown-table-block .selectedCell::after {
+    background-color: var(--primary);
+  }
+
+  /* Drag preview */
+  .milkdown .milkdown-table-block .drag-preview {
+    background-color: var(--card);
+    outline-color: var(--primary);
+  }
+
+  /* Dark mode specific adjustments */
+  .dark .milkdown .milkdown-table-block .cell-handle {
+    border-color: var(--border);
+  }
+
+  .dark .milkdown .milkdown-table-block .button-group {
+    background-color: var(--popover) !important;
+    border-color: var(--border);
+  }
+
+  .dark .milkdown .milkdown-table-block .add-button {
+    background-color: var(--card) !important;
+    border-color: var(--border);
+  }
+
+  /* ========================================
    * Text Selection Styling - Better Visibility
    * ======================================== */
 
