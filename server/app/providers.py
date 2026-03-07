@@ -1,16 +1,41 @@
 """
 Provider factory module for creating AI models dynamically.
-Uses Pydantic AI's built-in provider system.
+Uses Pydantic AI's built-in provider system with Ollama compatibility fix.
 """
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from typing import Dict
 import logging
+import httpx
 
 from app.config import config
 
 logger = logging.getLogger(__name__)
+
+
+async def _fix_ollama_messages(request: httpx.Request) -> None:
+    """
+    Fix null content in messages for Ollama compatibility.
+    Ollama doesn't accept null content - replaces with empty string.
+    """
+    if request.content:
+        try:
+            import json
+            body = json.loads(request.content.decode('utf-8'))
+            
+            # Fix null content in messages
+            if 'messages' in body:
+                for msg in body['messages']:
+                    if msg.get('content') is None:
+                        msg['content'] = ''
+                
+                # Update request with fixed content
+                new_content = json.dumps(body).encode('utf-8')
+                request.stream = httpx.ByteStream(new_content)
+                request.headers['Content-Length'] = str(len(new_content))
+        except Exception:
+            pass  # If anything fails, let the original request through
 
 
 def create_model(provider: str, model_name: str) -> OpenAIChatModel:
@@ -39,17 +64,19 @@ def create_model(provider: str, model_name: str) -> OpenAIChatModel:
     
     elif provider == "ollama":
         logger.info(f"🔧 Creating Ollama model: {model_name}")
-        logger.info(f"   Ollama base URL: {config.ollama_base_url}")
-        try:
-            model = OpenAIChatModel(
-                model_name=model_name,
-                provider=OllamaProvider(base_url=config.ollama_base_url)
+        
+        # Create httpx client with minimal hook for Ollama compatibility
+        client = httpx.AsyncClient(
+            event_hooks={'request': [_fix_ollama_messages]}
+        )
+        
+        return OpenAIChatModel(
+            model_name=model_name,
+            provider=OllamaProvider(
+                base_url=config.ollama_base_url,
+                http_client=client
             )
-            logger.info(f"   ✅ Ollama model created successfully")
-            return model
-        except Exception as e:
-            logger.error(f"   ❌ Failed to create Ollama model: {type(e).__name__}: {e}")
-            raise
+        )
     
     else:
         raise ValueError(
@@ -59,18 +86,7 @@ def create_model(provider: str, model_name: str) -> OpenAIChatModel:
 
 
 def parse_model_id(model_id: str) -> tuple[str, str]:
-    """
-    Parse model ID in format "provider:model_name" into provider and model name.
-    
-    Args:
-        model_id: Model identifier in format "provider:model_name"
-    
-    Returns:
-        Tuple of (provider, model_name)
-    
-    Raises:
-        ValueError: If model_id format is invalid
-    """
+    """Parse model ID in format "provider:model_name"."""
     if ":" not in model_id:
         raise ValueError(
             f"Invalid model ID format: {model_id}. "
@@ -82,10 +98,5 @@ def parse_model_id(model_id: str) -> tuple[str, str]:
 
 
 def get_available_models() -> Dict[str, list[str]]:
-    """
-    Get all available models grouped by provider.
-    
-    Returns:
-        Dictionary mapping provider slugs to lists of model names
-    """
+    """Get all available models grouped by provider."""
     return config.available_models.copy()

@@ -45,7 +45,7 @@ import { DocumentCitation } from "@/components/ai-elements/document-citation";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useChat } from "@ai-sdk/react";
 import { CheckIcon, GlobeIcon, FileText } from "lucide-react";
-import { CustomChatTransport } from "@/lib/custom-chat-transport";
+import { SimpleChatTransport } from "@/lib/simple-chat-transport";
 import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
 import {
   CommandDialog,
@@ -180,7 +180,7 @@ export function ChatInterface() {
   }, [taskMode, activeSource]);
   
   const transport = useMemo(() => {
-    return new CustomChatTransport({
+    return new SimpleChatTransport({
       api: "http://localhost:8000/api/chat",
     });
   }, []);
@@ -271,34 +271,23 @@ export function ChatInterface() {
 
         textInput.clear();
 
-        const body: {
-          model: string;
-          webSearch: boolean;
-          taskMode: TaskMode;
-          activeDocument?: string;
-          activeSource?: string;
-        } = {
-          model,
-          webSearch,
-          taskMode,
-        };
-
-        if (taskMode === "write" && activeDocument) {
-          body.activeDocument = activeDocument;
-        }
-
-        if (taskMode === "summarize" && activeSource) {
-          body.activeSource = activeSource;
-        }
-
-        sendMessage({
-          text: message.text,
-          files: message.files,
-          // @ts-expect-error - body is supported by our custom transport
-          body,
-        });
+        sendMessage(
+          {
+            text: message.text,
+            files: message.files,
+          },
+          {
+            body: {
+              model,
+              webSearch,
+              taskMode,
+              activeDocument: taskMode === "write" ? activeDocument : undefined,
+              activeSource: taskMode === "summarize" ? activeSource : undefined,
+            },
+          }
+        );
       },
-      [sendMessage, model, webSearch, taskMode, activeDocument, activeSource, textInput]
+      [sendMessage, textInput, model, webSearch, taskMode, activeDocument, activeSource]
     );
 
     const handleStop = () => {

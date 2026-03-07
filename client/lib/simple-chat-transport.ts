@@ -2,10 +2,9 @@ import { DefaultChatTransport } from "ai";
 import type { ChatTransport, ChatRequestOptions, UIMessageChunk, UIDataTypes, UITools } from "ai";
 
 /**
- * Custom chat transport wrapper
- * Wraps DefaultChatTransport for potential future extensions
+ * Simple chat transport that passes body parameters directly to DefaultChatTransport
  */
-export class CustomChatTransport implements ChatTransport<any, UIDataTypes, UITools> {
+export class SimpleChatTransport implements ChatTransport<any, UIDataTypes, UITools> {
   private transport: DefaultChatTransport;
 
   constructor(config: { api: string }) {
@@ -19,6 +18,7 @@ export class CustomChatTransport implements ChatTransport<any, UIDataTypes, UITo
     messages: any[];
     abortSignal: AbortSignal | undefined;
   } & ChatRequestOptions): Promise<ReadableStream<UIMessageChunk<any, UIDataTypes>>> {
+    // Pass through all options including body directly to DefaultChatTransport
     return this.transport.sendMessages(options);
   }
 
