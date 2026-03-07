@@ -56,6 +56,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { listStorageObjects, getFileContent, type StorageObject } from "@/lib/storage";
+import { listSources, type Source } from "@/lib/storage";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useActiveDocument } from "@/hooks/use-active-document";
 
@@ -154,15 +155,29 @@ export function ChatInterface() {
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [webSearch, setWebSearch] = useState<boolean>(false);
   
-  // Task mode and active document
+  // Task mode and active document/source
   const [taskMode, setTaskMode] = useState<TaskMode>("ask");
   const activeDocument = useActiveDocument();
+  const [activeSource, setActiveSource] = useState<string | null>(null);
+  const [activeSourceName, setActiveSourceName] = useState<string | null>(null);
   
   // Prompt selector state
   const [promptSelectorOpen, setPromptSelectorOpen] = useState(false);
   const [prompts, setPrompts] = useState<StorageObject[]>([]);
   const [promptsLoading, setPromptsLoading] = useState(false);
   const [isInputActive, setIsInputActive] = useState(false);
+  
+  // Source selector state (similar to prompt selector)
+  const [sourceSelectorOpen, setSourceSelectorOpen] = useState(false);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  
+  // Auto-open source selector when switching to summarize mode
+  useEffect(() => {
+    if (taskMode === "summarize" && !activeSource) {
+      setSourceSelectorOpen(true);
+    }
+  }, [taskMode, activeSource]);
   
   // Create transport - headers will be set dynamically on each request
   const transport = useMemo(() => {
@@ -171,7 +186,7 @@ export function ChatInterface() {
     });
   }, []); // Only create once, headers updated per request
   
-  // Update transport headers when model, task mode, or document changes
+  // Update transport headers when model, task mode, document, or source changes
   useEffect(() => {
     const headers: Record<string, string> = {
       "X-Model-ID": model,
@@ -182,8 +197,16 @@ export function ChatInterface() {
       headers["X-Active-Document"] = activeDocument;
     }
     
+    if (taskMode === "summarize" && activeSource) {
+      headers["X-Active-Source"] = activeSource;
+    }
+    
+    // Always update headers immediately when taskMode changes
     transport.setHeaders(headers);
-  }, [model, taskMode, activeDocument, transport]);
+    
+    // Debug log to verify headers are being set
+    console.log("Updated transport headers:", headers);
+  }, [model, taskMode, activeDocument, activeSource, transport]);
   
   const { messages, sendMessage, status, stop } = useChat({
     transport,
@@ -231,6 +254,24 @@ export function ChatInterface() {
     }
   }, [promptSelectorOpen]);
 
+  // Fetch sources when selector opens
+  useEffect(() => {
+    if (sourceSelectorOpen) {
+      const fetchSources = async () => {
+        try {
+          setSourcesLoading(true);
+          const fetchedSources = await listSources(true);
+          setSources(fetchedSources);
+        } catch (error) {
+          console.error("Error fetching sources:", error);
+        } finally {
+          setSourcesLoading(false);
+        }
+      };
+      fetchSources();
+    }
+  }, [sourceSelectorOpen]);
+
   const selectedModelData = models.find((m) => m.id === model);
 
   const handleModelSelect = (id: string) => {
@@ -264,11 +305,16 @@ export function ChatInterface() {
           headers["X-Active-Document"] = activeDocument;
         }
         
+        if (taskMode === "summarize" && activeSource) {
+          headers["X-Active-Source"] = activeSource;
+        }
+        
+        // Always set headers before sending to ensure latest values
         transport.setHeaders(headers);
 
         // Send model selection in request body
         // eslint-disable-next-line no-console
-        console.log("Submitting with model:", model, "taskMode:", taskMode, "activeDocument:", activeDocument);
+        console.log("Submitting with model:", model, "taskMode:", taskMode, "activeDocument:", activeDocument, "activeSource:", activeSource);
         console.log("Headers being sent:", headers);
 
         // Don't await - let it run async, text is already cleared
@@ -282,7 +328,7 @@ export function ChatInterface() {
           },
         });
       },
-      [sendMessage, model, webSearch, taskMode, activeDocument, textInput, transport]
+      [sendMessage, model, webSearch, taskMode, activeDocument, activeSource, textInput, transport]
     );
 
     const handleStop = () => {
@@ -330,6 +376,16 @@ export function ChatInterface() {
       [textInput]
     );
 
+    // Handle source selection
+    const handleSourceSelect = useCallback(
+      (source: Source) => {
+        setActiveSource(source.source_id);
+        setActiveSourceName(source.original_filename || source.source_id);
+        setSourceSelectorOpen(false);
+      },
+      []
+    );
+
     // Keyboard shortcut handler - only when textarea is focused
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -369,6 +425,19 @@ export function ChatInterface() {
                   />
                 </div>
               )}
+              {/* Source Citation (when in summarize mode) */}
+              {taskMode === "summarize" && activeSourceName && (
+                <div className="px-3 pt-2">
+                  <DocumentCitation
+                    documentName={activeSourceName}
+                    onClear={() => {
+                      setActiveSource(null);
+                      setActiveSourceName(null);
+                      setTaskMode("ask");
+                    }}
+                  />
+                </div>
+              )}
               <PromptInputTextarea 
                 placeholder="Type your message..."
                 onFocus={handleTextareaFocus}
@@ -382,6 +451,7 @@ export function ChatInterface() {
                 mode={taskMode}
                 onModeChange={setTaskMode}
                 activeDocument={activeDocument}
+                activeSource={activeSource}
               />
               <PromptInputActionMenu>
                 <PromptInputActionMenuTrigger />
@@ -471,6 +541,34 @@ export function ChatInterface() {
                     </CommandItem>
                   );
                 })}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </CommandDialog>
+
+        {/* Source Selector Dialog */}
+        <CommandDialog
+          open={sourceSelectorOpen}
+          onOpenChange={setSourceSelectorOpen}
+          title="Select Source"
+          description="Choose a source document to summarize"
+        >
+          <CommandInput placeholder="Search sources..." />
+          <CommandList>
+            <CommandEmpty>
+              {sourcesLoading ? "Loading sources..." : "No sources found."}
+            </CommandEmpty>
+            {!sourcesLoading && sources.length > 0 && (
+              <CommandGroup heading="Sources">
+                {sources.map((source) => (
+                  <CommandItem
+                    key={source.source_id}
+                    onSelect={() => handleSourceSelect(source)}
+                  >
+                    <FileText className="size-4" />
+                    <span>{source.original_filename || source.source_id}</span>
+                  </CommandItem>
+                ))}
               </CommandGroup>
             )}
           </CommandList>

@@ -9,6 +9,7 @@ class TaskMode(str, Enum):
     """Task mode selector"""
     ASK = "ask"          # General conversation
     WRITE = "write"      # Document-focused interaction
+    SUMMARIZE = "summarize"  # Source summarization
 
 
 class DocumentContext(BaseModel):
@@ -16,6 +17,7 @@ class DocumentContext(BaseModel):
     http_client: httpx.AsyncClient
     hocuspocus_url: str = "http://localhost:3001"
     current_document: Optional[str] = None
+    current_source: Optional[str] = None  # Source ID for summarize mode
     model_name: str = "gpt-oss:20b"
     task_mode: TaskMode = TaskMode.ASK
     

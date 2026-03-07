@@ -31,15 +31,28 @@ export class CustomChatTransport implements ChatTransport<any, UIDataTypes, UITo
     messages: any[];
     abortSignal: AbortSignal | undefined;
   } & ChatRequestOptions): Promise<ReadableStream<UIMessageChunk<any, UIDataTypes>>> {
-    const headers = new Headers(options.headers);
+    // Start with custom headers first (they take precedence)
+    const headers = new Headers();
     
-    // Add custom headers
+    // Add custom headers first
     Object.entries(this.headers).forEach(([key, value]) => {
       headers.set(key, value);
     });
+    
+    // Then merge any headers from options (but custom headers take precedence)
+    if (options.headers) {
+      const optionsHeaders = new Headers(options.headers);
+      optionsHeaders.forEach((value, key) => {
+        // Only set if not already set by custom headers
+        if (!this.headers[key]) {
+          headers.set(key, value);
+        }
+      });
+    }
 
     // Debug: log headers being sent
     console.log("Transport sending headers:", Object.fromEntries(headers.entries()));
+    console.log("Custom headers stored:", this.headers);
 
     return this.transport.sendMessages({
       ...options,

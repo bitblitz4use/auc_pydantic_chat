@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, FileEdit } from "lucide-react";
+import { MessageSquare, FileEdit, FileText } from "lucide-react";
 import {
   PromptInputSelect,
   PromptInputSelectContent,
@@ -11,12 +11,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
-export type TaskMode = "ask" | "write";
+export type TaskMode = "ask" | "write" | "summarize";
 
 interface TaskModeSelectorProps {
   mode: TaskMode;
   onModeChange: (mode: TaskMode) => void;
   activeDocument?: string | null;
+  activeSource?: string | null;
   className?: string;
 }
 
@@ -24,6 +25,7 @@ export function TaskModeSelector({
   mode,
   onModeChange,
   activeDocument,
+  activeSource,
   className,
 }: TaskModeSelectorProps) {
   const handleValueChange = (value: TaskMode) => {
@@ -45,10 +47,15 @@ export function TaskModeSelector({
               <MessageSquare className="size-4 text-orange-400" />
               <span className="text-xs">Ask</span>
             </div>
-          ) : (
+          ) : mode === "write" ? (
             <div className="flex items-center gap-1.5">
               <FileEdit className="size-4 text-green-500" />
               <span className="text-xs">Write</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <FileText className="size-4 text-blue-500" />
+              <span className="text-xs">Summarize</span>
             </div>
           )}
         </PromptInputSelectValue>
@@ -64,6 +71,12 @@ export function TaskModeSelector({
           <div className="flex items-center gap-2">
             <FileEdit className="size-4 text-green-500" />
             <span>Write</span>
+          </div>
+        </PromptInputSelectItem>
+        <PromptInputSelectItem value="summarize">
+          <div className="flex items-center gap-2">
+            <FileText className="size-4 text-blue-500" />
+            <span>Summarize</span>
           </div>
         </PromptInputSelectItem>
       </PromptInputSelectContent>

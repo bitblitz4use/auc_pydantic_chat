@@ -125,3 +125,60 @@ async def update_document_content(
         error_msg = f"❌ Unexpected error: {str(e)}"
         logger.error(error_msg, exc_info=True)
         return f"Error: {error_msg}\n\nType: {type(e).__name__}"
+
+
+async def get_source_content(
+    ctx: RunContext[DocumentContext],
+    source_id: Optional[str] = None
+) -> str:
+    """Fetch the markdown content of a source document.
+    
+    Downloads the converted markdown content for the specified source.
+    If source_id is not provided, uses the current_source from context.
+    
+    Returns the full markdown content of the source document.
+    """
+    # Use source_id from parameter, or fall back to context
+    src_id = source_id or ctx.deps.current_source
+    
+    if not src_id:
+        return "Error: No source specified. Please provide a source ID or ensure a source is selected in summarize mode."
+    
+    # Get source markdown from the sources API
+    # API base URL is typically http://localhost:8000 (different from hocuspocus_url)
+    api_base = "http://localhost:8000"
+    url = f"{api_base}/api/sources/{src_id}/markdown"
+    
+    logger.info(f"🔍 Tool called: get_source_content('{src_id}')")
+    logger.info(f"📡 Requesting: {url}")
+    
+    try:
+        response = await ctx.deps.http_client.get(url)
+        logger.info(f"✅ Response status: {response.status_code}")
+        response.raise_for_status()
+        
+        markdown_content = response.text
+        logger.info(f"✅ Received {len(markdown_content)} characters of markdown")
+        
+        # Return the content - similar to get_document_content pattern
+        return f"Source document content (source_id: {src_id}):\n\n{markdown_content}"
+        
+    except httpx.ConnectError as e:
+        error_msg = f"❌ Connection error: Cannot connect to API server."
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nDetails: {str(e)}"
+    except httpx.TimeoutException as e:
+        error_msg = f"❌ Timeout: Request to {url} timed out"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nDetails: {str(e)}"
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning(f"⚠️  Source '{src_id}' not found (404)")
+            return f"Error: Source '{src_id}' not found. Make sure the source exists."
+        error_msg = f"❌ HTTP error {e.response.status_code}: {e.response.text}"
+        logger.error(error_msg)
+        return f"Error: HTTP {e.response.status_code} - {error_msg}"
+    except Exception as e:
+        error_msg = f"❌ Unexpected error: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return f"Error: {error_msg}\n\nType: {type(e).__name__}"

@@ -3,8 +3,8 @@ from pydantic_ai import Agent
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 from app.agent.schema import DocumentContext, TaskMode
-from app.agent.tools import get_document_content, update_document_content
-from app.agent.prompts import ASK_SYSTEM_PROMPT, WRITE_SYSTEM_PROMPT
+from app.agent.tools import get_document_content, update_document_content, get_source_content
+from app.agent.prompts import ASK_SYSTEM_PROMPT, WRITE_SYSTEM_PROMPT, SUMMARIZE_SYSTEM_PROMPT
 from app.providers import create_model, parse_model_id
 from app.config import config
 
@@ -53,6 +53,29 @@ def create_write_agent(provider: str, model_name: str) -> Agent:
     )
 
 
+def create_summarize_agent(provider: str, model_name: str) -> Agent:
+    """
+    Create source summarization agent with source tools.
+    
+    Args:
+        provider: Provider slug (e.g., "openai", "ollama")
+        model_name: Model identifier (e.g., "gpt-4o", "gpt-oss:20b")
+    
+    Returns:
+        Agent instance configured for source summarization
+    """
+    model = create_model(provider, model_name)
+    return Agent(
+        model,
+        deps_type=DocumentContext,
+        tools=[
+            get_source_content,
+            duckduckgo_search_tool(),
+        ],
+        system_prompt=SUMMARIZE_SYSTEM_PROMPT,
+    )
+
+
 def create_agent(provider: str, model_name: str, task_mode: TaskMode = TaskMode.ASK) -> Agent:
     """
     Create agent with specified model and task mode.
@@ -60,13 +83,15 @@ def create_agent(provider: str, model_name: str, task_mode: TaskMode = TaskMode.
     Args:
         provider: Provider slug (e.g., "openai", "ollama")
         model_name: Model identifier (e.g., "gpt-4o", "gpt-oss:20b")
-        task_mode: Task mode (ASK or WRITE)
+        task_mode: Task mode (ASK, WRITE, or SUMMARIZE)
     
     Returns:
         Agent instance configured with the specified model and mode
     """
     if task_mode == TaskMode.WRITE:
         return create_write_agent(provider, model_name)
+    elif task_mode == TaskMode.SUMMARIZE:
+        return create_summarize_agent(provider, model_name)
     else:
         return create_ask_agent(provider, model_name)
 
@@ -77,7 +102,7 @@ def create_agent_from_model_id(model_id: str, task_mode: TaskMode = TaskMode.ASK
     
     Args:
         model_id: Model identifier in format "provider:model_name"
-        task_mode: Task mode (ASK or WRITE)
+        task_mode: Task mode (ASK, WRITE, or SUMMARIZE)
     
     Returns:
         Agent instance configured with the specified model and mode

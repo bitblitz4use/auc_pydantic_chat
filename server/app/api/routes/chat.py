@@ -24,8 +24,9 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     Chat endpoint with task mode and document context support.
     Supports:
     - X-Model-ID header: Model selection
-    - X-Task-Mode header: "ask" or "write"
+    - X-Task-Mode header: "ask", "write", or "summarize"
     - X-Active-Document header: Document name for write mode
+    - X-Active-Source header: Source ID for summarize mode
     """
     logger.info("💬 Chat request received")
     
@@ -33,12 +34,14 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     model_id = request.headers.get("X-Model-ID")
     task_mode_str = request.headers.get("X-Task-Mode", "ask")
     active_document = request.headers.get("X-Active-Document")
+    active_source = request.headers.get("X-Active-Source")
     
     # Log all headers for debugging
     logger.info(f"📋 Headers received:")
     logger.info(f"   X-Model-ID: {model_id}")
     logger.info(f"   X-Task-Mode: {task_mode_str}")
     logger.info(f"   X-Active-Document: {active_document}")
+    logger.info(f"   X-Active-Source: {active_source}")
     
     # Parse task mode
     try:
@@ -105,17 +108,22 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     
     # Set current_document if in write mode and document is provided
     current_doc = active_document if task_mode == TaskMode.WRITE else None
+    # Set current_source if in summarize mode and source is provided
+    current_src = active_source if task_mode == TaskMode.SUMMARIZE else None
     
     deps = DocumentContext(
         http_client=http_client,
         hocuspocus_url=HOCUSPOCUS_URL,
         model_name=f"{provider}:{model_name}",
         current_document=current_doc,
+        current_source=current_src,
         task_mode=task_mode
     )
     
     if current_doc:
         logger.info(f"📄 Active document: {current_doc}")
+    if current_src:
+        logger.info(f"📚 Active source: {current_src}")
     
     logger.info(f"🌐 Created HTTP client for Hocuspocus: {deps.hocuspocus_url}")
     
