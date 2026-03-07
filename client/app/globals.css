@@ -1089,6 +1089,83 @@ body[data-scroll-locked] {
   }
 
   /* ========================================
+   * Table Styling - Visible Borders in Dark/Light Mode
+   * ======================================== */
+
+  /* Base table styling */
+  .milkdown table,
+  .milkdown-editor-root table,
+  .milkdown .ProseMirror table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    overflow: hidden;
+    table-layout: auto;
+  }
+
+  .milkdown th,
+  .milkdown td,
+  .milkdown-editor-root th,
+  .milkdown-editor-root td,
+  .milkdown .ProseMirror th,
+  .milkdown .ProseMirror td {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    vertical-align: top;
+    position: relative;
+  }
+
+  /* Table headers */
+  .milkdown th,
+  .milkdown-editor-root th,
+  .milkdown .ProseMirror th {
+    background-color: var(--muted);
+    font-weight: 600;
+    color: var(--card-foreground);
+  }
+
+  /* Table cells */
+  .milkdown td,
+  .milkdown-editor-root td,
+  .milkdown .ProseMirror td {
+    background-color: var(--card);
+    color: var(--card-foreground);
+  }
+
+  /* Alternating row colors for better readability */
+  .milkdown tr:nth-child(even) td,
+  .milkdown-editor-root tr:nth-child(even) td,
+  .milkdown .ProseMirror tr:nth-child(even) td {
+    background-color: var(--muted);
+    opacity: 0.3;
+  }
+
+  /* Dark mode - ensure borders are visible */
+  .dark .milkdown table,
+  .dark .milkdown-editor-root table,
+  .dark .milkdown .ProseMirror table {
+    border-color: var(--border);
+  }
+
+  .dark .milkdown th,
+  .dark .milkdown td,
+  .dark .milkdown-editor-root th,
+  .dark .milkdown-editor-root td,
+  .dark .milkdown .ProseMirror th,
+  .dark .milkdown .ProseMirror td {
+    border-color: var(--border);
+  }
+
+  /* Hover effect for table rows */
+  .milkdown tbody tr:hover,
+  .milkdown-editor-root tbody tr:hover,
+  .milkdown .ProseMirror tbody tr:hover {
+    background-color: var(--accent);
+    opacity: 0.5;
+  }
+
+  /* ========================================
    * Text Selection Styling - Better Visibility
    * ======================================== */
 

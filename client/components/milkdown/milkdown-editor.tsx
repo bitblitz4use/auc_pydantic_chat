@@ -2,6 +2,7 @@
 
 import { Editor, rootCtx, editorViewCtx } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { gfm } from "@milkdown/kit/preset/gfm";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
@@ -197,6 +198,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
           ctx.set(rootCtx, root);
         })
         .use(commonmark)
+        .use(gfm)
         .use(listener)
         .use(clipboard)
         .use(history)
@@ -221,6 +223,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         ctx.set(collabServiceCtx, collabService);
       })
       .use(commonmark)
+      .use(gfm)
       .use(listener)
       .use(clipboard)
       .use(history)
