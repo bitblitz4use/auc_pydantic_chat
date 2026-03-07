@@ -587,6 +587,7 @@ export function ChatInterface() {
     return "";
   };
 
+
   // Check if we should show loading indicator
   const isLoading = status === "submitted" || status === "streaming";
   const lastMessage = messages[messages.length - 1];

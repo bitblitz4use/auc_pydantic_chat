@@ -39,10 +39,17 @@ def create_model(provider: str, model_name: str) -> OpenAIChatModel:
     
     elif provider == "ollama":
         logger.info(f"🔧 Creating Ollama model: {model_name}")
-        return OpenAIChatModel(
-            model_name=model_name,
-            provider=OllamaProvider(base_url=config.ollama_base_url)
-        )
+        logger.info(f"   Ollama base URL: {config.ollama_base_url}")
+        try:
+            model = OpenAIChatModel(
+                model_name=model_name,
+                provider=OllamaProvider(base_url=config.ollama_base_url)
+            )
+            logger.info(f"   ✅ Ollama model created successfully")
+            return model
+        except Exception as e:
+            logger.error(f"   ❌ Failed to create Ollama model: {type(e).__name__}: {e}")
+            raise
     
     else:
         raise ValueError(

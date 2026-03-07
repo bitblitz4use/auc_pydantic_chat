@@ -5,6 +5,7 @@ import { getLiveDocument, getUndoManager } from '../config/hocuspocus.js';
 import { prosemirrorToYXmlFragment } from 'y-prosemirror';
 import { defaultMarkdownParser } from 'prosemirror-markdown';
 import * as Y from 'yjs';
+import { loadDocumentFromS3 } from '../utils/documentManager.js';
 
 const router = express.Router();
 

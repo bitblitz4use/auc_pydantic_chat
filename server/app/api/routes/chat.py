@@ -7,6 +7,11 @@ import httpx
 import logging
 import json
 
+# Enable httpx logging for debugging HTTP requests to Ollama
+# Set to INFO to see request/response summaries without too much detail
+httpx_logger = logging.getLogger("httpx")
+httpx_logger.setLevel(logging.INFO)
+
 from app.config import config, HOCUSPOCUS_URL, HTTP_TIMEOUT
 from app.agent.schema import DocumentContext, TaskMode
 from app.agent.agent import document_agent, create_agent_from_model_id
@@ -131,9 +136,34 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     background.add_task(http_client.aclose)
     
     logger.info("🚀 Dispatching to VercelAIAdapter")
-    return await VercelAIAdapter.dispatch_request(
-        request,
-        agent=agent,
-        deps=deps,
-        sdk_version=6
-    )
+    logger.info(f"   Provider: {provider}, Model: {model_name}")
+    try:
+        return await VercelAIAdapter.dispatch_request(
+            request,
+            agent=agent,
+            deps=deps,
+            sdk_version=5
+        )
+    except Exception as e:
+        logger.error(f"❌ Error in VercelAIAdapter: {type(e).__name__}: {e}")
+        logger.error(f"   Provider: {provider}, Model: {model_name}")
+        
+        # Try to extract more details from HTTP errors
+        if hasattr(e, 'response'):
+            try:
+                if hasattr(e.response, 'read'):
+                    error_detail = await e.response.read()
+                    logger.error(f"   HTTP error response: {error_detail.decode('utf-8', errors='ignore')}")
+                elif hasattr(e.response, 'text'):
+                    error_detail = await e.response.text()
+                    logger.error(f"   HTTP error response: {error_detail}")
+                else:
+                    logger.error(f"   HTTP error response: {str(e.response)}")
+            except Exception as read_error:
+                logger.error(f"   Could not read error response: {read_error}")
+        
+        # Log the full exception traceback for debugging
+        import traceback
+        logger.error(f"   Traceback:\n{traceback.format_exc()}")
+        
+        raise
