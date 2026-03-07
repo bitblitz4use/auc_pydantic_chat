@@ -6,7 +6,7 @@ import logging
 
 from app.config import config
 from app.storage.client import ensure_bucket_exists
-from app.api.routes import chat, providers, storage
+from app.api.routes import chat, providers, storage, sources
 
 # Configure logging
 logging.basicConfig(
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api")
 app.include_router(providers.router, prefix="/api")
 app.include_router(storage.router, prefix="/api")
+app.include_router(sources.router, prefix="/api")
 
 
 @app.get("/")

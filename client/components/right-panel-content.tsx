@@ -3,10 +3,11 @@
 import { MilkdownEditor } from "@/components/milkdown/milkdown-editor";
 import { PromptsView } from "@/components/prompts-view";
 import { TemplatesView } from "@/components/templates-view";
+import { SourcesView } from "@/components/sources-view";
 import { useState } from "react";
-import { Settings, FileText, Wand2, Layout } from "lucide-react";
+import { Settings, FileText, Wand2, Layout, Database } from "lucide-react";
 
-type ContentView = "editor" | "prompts" | "templates";
+type ContentView = "editor" | "prompts" | "templates" | "sources";
 
 export function RightPanelContent() {
   const [activeView, setActiveView] = useState<ContentView>("editor");
@@ -48,6 +49,17 @@ export function RightPanelContent() {
         >
           <Layout size={20} />
         </button>
+        <button
+          className={`flex h-10 w-10 items-center justify-center rounded-md transition-all duration-200 ${
+            activeView === "sources"
+              ? "bg-accent text-accent-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+          }`}
+          title="Sources"
+          onClick={() => setActiveView("sources")}
+        >
+          <Database size={20} />
+        </button>
         
         {/* Spacer */}
         <div className="flex-1" />
@@ -70,6 +82,7 @@ export function RightPanelContent() {
           {activeView === "editor" && <MilkdownEditor />}
           {activeView === "prompts" && <PromptsView />}
           {activeView === "templates" && <TemplatesView />}
+          {activeView === "sources" && <SourcesView />}
         </div>
       </div>
     </div>

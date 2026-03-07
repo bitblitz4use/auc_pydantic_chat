@@ -229,3 +229,98 @@ export function formatDate(dateString: string | null): string {
     return "Unknown";
   }
 }
+
+/**
+ * Source information from upload and conversion
+ */
+export interface SourceInfo {
+  source_id: string;
+  original_path: string;
+  markdown_path: string;
+  original_filename: string;
+  file_size: number;
+  markdown_size: number;
+}
+
+/**
+ * Upload and convert a source document
+ */
+export async function uploadAndConvertSource(
+  file: File,
+  tags?: string[]
+): Promise<SourceInfo> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (tags && tags.length > 0) {
+    formData.append("tags", JSON.stringify(tags));
+  }
+
+  const response = await fetch(`${API_BASE}/api/sources/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Upload and conversion failed: ${errorText || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+/**
+ * List all sources
+ */
+export interface Source {
+  source_id: string;
+  original_path: string | null;
+  markdown_path: string | null;
+  original_filename: string | null;
+  file_size: number;
+  markdown_size: number;
+  last_modified: string | null;
+  tags: string[];
+}
+
+export interface SourcesResponse {
+  status: string;
+  count: number;
+  sources: Source[];
+}
+
+export async function listSources(includeTags: boolean = true): Promise<Source[]> {
+  const response = await fetch(
+    `${API_BASE}/api/sources?recursive=false&include_tags=${includeTags}`
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch sources: ${response.statusText}`);
+  }
+  const data: SourcesResponse = await response.json();
+  return data.sources;
+}
+
+/**
+ * Get markdown content for a source
+ */
+export async function getSourceMarkdown(sourceId: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/api/sources/${sourceId}/markdown`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch markdown: ${response.statusText}`);
+  }
+  return await response.text();
+}
+
+/**
+ * Delete a source (both original and markdown)
+ */
+export async function deleteSource(sourceId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/sources/${sourceId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Delete source failed: ${errorText || response.statusText}`);
+  }
+}
