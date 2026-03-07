@@ -1,19 +1,14 @@
+"""Agent tools for document operations"""
 from pydantic_ai import RunContext
 from typing import Optional
 import httpx
 import uuid
 import logging
-import sys
-from pathlib import Path
 
-# Add parent directory to path to ensure imports work
-parent_dir = Path(__file__).parent.parent
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
-
-from app.models import DocumentContext
+from app.agent.schema import DocumentContext
 
 logger = logging.getLogger(__name__)
+
 
 async def get_document_content(
     ctx: RunContext[DocumentContext], 
