@@ -2,7 +2,9 @@
  * Storage API utilities for MinIO integration
  */
 
-const API_BASE = "http://localhost:8000";
+import { API_CONFIG } from "./config";
+
+const API_BASE = API_CONFIG.STORAGE_API;
 
 export interface StorageObject {
   name: string;

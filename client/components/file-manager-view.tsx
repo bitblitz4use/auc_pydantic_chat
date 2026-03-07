@@ -28,6 +28,7 @@ import {
   type StorageObject,
 } from "@/lib/storage";
 import { TagSelector } from "@/components/ui/tag-selector";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn, extractFileName, ensureMdExtension, arraysEqual, extractTags } from "@/lib/utils";
 
 interface FileManagerViewProps {
@@ -283,12 +284,12 @@ export function FileManagerView({
     <>
       <div className="h-full overflow-hidden px-4 pt-4 pb-4">
         {objects.length === 0 ? (
-          <div className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-border">
-            <div className="max-w-md space-y-4 text-center px-8">
-              <Icon className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h2 className="text-xl font-semibold text-foreground">{title}</h2>
-              <p className="text-sm text-muted-foreground">{emptyStateDescription}</p>
-              <div className="pt-2 flex gap-2 justify-center">
+          <EmptyState
+            icon={Icon}
+            title={title}
+            description={emptyStateDescription}
+            actions={
+              <>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -298,9 +299,9 @@ export function FileManagerView({
                 />
                 <NewButton />
                 <UploadButton />
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          />
         ) : (
           <div className="flex h-full flex-col">
             <div className="mb-4 flex items-center justify-between">

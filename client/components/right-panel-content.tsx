@@ -4,6 +4,7 @@ import { MilkdownEditor } from "@/components/milkdown/milkdown-editor";
 import { PromptsView } from "@/components/prompts-view";
 import { TemplatesView } from "@/components/templates-view";
 import { SourcesView } from "@/components/sources-view";
+import { ToolbarButton } from "@/components/ui/toolbar-button";
 import { useState } from "react";
 import { Settings, FileText, Wand2, Layout, Database } from "lucide-react";
 
@@ -16,61 +17,41 @@ export function RightPanelContent() {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <button
-          className={`flex h-10 w-10 items-center justify-center rounded-md transition-all duration-200 ${
-            activeView === "editor"
-              ? "bg-accent text-accent-foreground shadow-sm"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-          }`}
-          title="Editor"
+        <ToolbarButton
+          icon={FileText}
+          isActive={activeView === "editor"}
           onClick={() => setActiveView("editor")}
-        >
-          <FileText size={20} />
-        </button>
-        <button
-          className={`flex h-10 w-10 items-center justify-center rounded-md transition-all duration-200 ${
-            activeView === "prompts"
-              ? "bg-accent text-accent-foreground shadow-sm"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-          }`}
-          title="Prompts"
+          title="Editor"
+        />
+        <ToolbarButton
+          icon={Wand2}
+          isActive={activeView === "prompts"}
           onClick={() => setActiveView("prompts")}
-        >
-          <Wand2 size={20} />
-        </button>
-        <button
-          className={`flex h-10 w-10 items-center justify-center rounded-md transition-all duration-200 ${
-            activeView === "templates"
-              ? "bg-accent text-accent-foreground shadow-sm"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-          }`}
-          title="Templates"
+          title="Prompts"
+        />
+        <ToolbarButton
+          icon={Layout}
+          isActive={activeView === "templates"}
           onClick={() => setActiveView("templates")}
-        >
-          <Layout size={20} />
-        </button>
-        <button
-          className={`flex h-10 w-10 items-center justify-center rounded-md transition-all duration-200 ${
-            activeView === "sources"
-              ? "bg-accent text-accent-foreground shadow-sm"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-          }`}
-          title="Sources"
+          title="Templates"
+        />
+        <ToolbarButton
+          icon={Database}
+          isActive={activeView === "sources"}
           onClick={() => setActiveView("sources")}
-        >
-          <Database size={20} />
-        </button>
+          title="Sources"
+        />
         
         {/* Spacer */}
         <div className="flex-1" />
         
         {/* Settings button */}
-        <button
-          className="flex h-10 w-10 items-center justify-center rounded-md transition-all duration-200 hover:bg-accent/50 hover:text-accent-foreground text-muted-foreground"
+        <ToolbarButton
+          icon={Settings}
+          isActive={false}
+          onClick={() => {}}
           title="Settings"
-        >
-          <Settings size={20} />
-        </button>
+        />
       </div>
 
       {/* Content Area with Animation */}

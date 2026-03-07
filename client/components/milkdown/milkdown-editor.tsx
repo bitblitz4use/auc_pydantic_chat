@@ -25,8 +25,8 @@ import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
 // Import AI highlight styles
 import "./styles/ai-highlights.css";
 
-// API base URL
-const API_BASE = "http://127.0.0.1:3001";
+// Import API config
+import { apiUrl } from "@/lib/config";
 
 // Helper function to render Lucide icons as SVG strings
 const renderIcon = (iconType: string, size = 16) => {
@@ -120,7 +120,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   const loadDocuments = useCallback(async () => {
     setIsLoadingDocuments(true);
     try {
-      const response = await fetch(`${API_BASE}/api/documents`);
+      const response = await fetch(apiUrl.documents());
       const data = await response.json();
       setAvailableDocuments(data.documents || []);
     } catch (error) {
@@ -146,7 +146,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
 
     // Set up Hocuspocus provider (auto-connects by default)
     const provider = new HocuspocusProvider({
-      url: "ws://127.0.0.1:1234",
+      url: apiUrl.editorWs(),
       name: currentDocumentName,
       document: ydoc,
       onConnect: () => {

@@ -23,6 +23,7 @@ import {
   type Source,
 } from "@/lib/storage";
 import { TagSelector } from "@/components/ui/tag-selector";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn, extractTags } from "@/lib/utils";
 
 export function SourcesView() {
@@ -153,14 +154,12 @@ export function SourcesView() {
     <>
       <div className="h-full overflow-hidden px-4 pt-4 pb-4">
         {sources.length === 0 ? (
-          <div className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-border">
-            <div className="max-w-md space-y-4 text-center px-8">
-              <FileUp className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h2 className="text-xl font-semibold text-foreground">Document Sources</h2>
-              <p className="text-sm text-muted-foreground">
-                Upload documents to convert them to markdown. Supported formats: PDF, DOCX, PPTX, HTML, images.
-              </p>
-              <div className="pt-2 flex gap-2 justify-center">
+          <EmptyState
+            icon={FileUp}
+            title="Document Sources"
+            description="Upload documents to convert them to markdown. Supported formats: PDF, DOCX, PPTX, HTML, images."
+            actions={
+              <>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -170,9 +169,9 @@ export function SourcesView() {
                   accept=".pdf,.docx,.pptx,.html,.htm,.png,.jpg,.jpeg,.gif,.bmp,.tiff"
                 />
                 <UploadButton />
-              </div>
-            </div>
-          </div>
+              </>
+            }
+          />
         ) : (
           <div className="flex h-full flex-col">
             <div className="mb-4 flex items-center justify-between">

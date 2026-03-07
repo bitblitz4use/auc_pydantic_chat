@@ -46,38 +46,16 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useChat } from "@ai-sdk/react";
 import { CheckIcon, GlobeIcon, FileText } from "lucide-react";
 import { SimpleChatTransport } from "@/lib/simple-chat-transport";
-import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { listStorageObjects, getFileContent, type StorageObject } from "@/lib/storage";
-import { listSources, type Source } from "@/lib/storage";
+import { memo, useCallback, useState, useEffect, useMemo } from "react";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useActiveDocument } from "@/hooks/use-active-document";
-
-interface ModelInfo {
-  id: string;
-  name: string;
-  chef: string;
-  chefSlug: string;
-  providers: string[];
-}
-
-// Default models for initial state (will be replaced by API fetch)
-const defaultModels: ModelInfo[] = [
-  {
-    chef: "Ollama",
-    chefSlug: "ollama",
-    id: "ollama:gpt-oss:20b",
-    name: "gpt-oss:20b",
-    providers: ["ollama"],
-  },
-];
+import { useModelSelection, type ModelInfo } from "@/hooks/use-model-selection";
+import { usePromptSelector } from "@/hooks/use-prompt-selector";
+import { useSourceSelector } from "@/hooks/use-source-selector";
+import { ResourceSelectorDialog } from "@/components/ui/resource-selector-dialog";
+import { apiUrl } from "@/lib/config";
+import type { StorageObject } from "@/lib/storage";
+import type { Source } from "@/lib/storage";
 
 interface AttachmentItemProps {
   attachment: FileUIPart & { id: string };
@@ -107,7 +85,7 @@ const ModelItem = memo(({ m, selectedModel, onSelect }: ModelItemProps) => {
       <ModelSelectorLogo provider={m.chefSlug} />
       <ModelSelectorName>{m.name}</ModelSelectorName>
       <ModelSelectorLogoGroup>
-        {m.providers.map((provider) => (
+        {m.providers.map((provider: string) => (
           <ModelSelectorLogo key={provider} provider={provider} />
         ))}
       </ModelSelectorLogoGroup>
@@ -143,16 +121,10 @@ const PromptInputAttachmentsDisplay = () => {
 };
 
 export function ChatInterface() {
-  const [models, setModels] = useState<ModelInfo[]>(defaultModels);
-  const [modelsLoading, setModelsLoading] = useState(true);
+  // Use custom hooks
+  const modelSelection = useModelSelection();
+  const promptSelector = usePromptSelector();
   
-  // Initialize model with safe fallback - use defaultModels directly
-  const initialModel = defaultModels.length > 0 
-    ? defaultModels[0].id 
-    : "ollama:gpt-oss:20b";
-  
-  const [model, setModel] = useState<string>(initialModel);
-  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [webSearch, setWebSearch] = useState<boolean>(false);
   
   // Task mode and active document/source
@@ -161,100 +133,19 @@ export function ChatInterface() {
   const [activeSource, setActiveSource] = useState<string | null>(null);
   const [activeSourceName, setActiveSourceName] = useState<string | null>(null);
   
-  // Prompt selector state
-  const [promptSelectorOpen, setPromptSelectorOpen] = useState(false);
-  const [prompts, setPrompts] = useState<StorageObject[]>([]);
-  const [promptsLoading, setPromptsLoading] = useState(false);
+  const sourceSelector = useSourceSelector(taskMode, activeSource);
+  
   const [isInputActive, setIsInputActive] = useState(false);
-  
-  // Source selector state (similar to prompt selector)
-  const [sourceSelectorOpen, setSourceSelectorOpen] = useState(false);
-  const [sources, setSources] = useState<Source[]>([]);
-  const [sourcesLoading, setSourcesLoading] = useState(false);
-  
-  // Auto-open source selector when switching to summarize mode
-  useEffect(() => {
-    if (taskMode === "summarize" && !activeSource) {
-      setSourceSelectorOpen(true);
-    }
-  }, [taskMode, activeSource]);
   
   const transport = useMemo(() => {
     return new SimpleChatTransport({
-      api: "http://localhost:8000/api/chat",
+      api: apiUrl.chat(),
     });
   }, []);
   
   const { messages, sendMessage, status, stop } = useChat({
     transport,
   });
-
-  // Fetch available models from API
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        const response = await fetch("http://localhost:8000/api/providers");
-        if (response.ok) {
-          const data = await response.json();
-          setModels(data.models || defaultModels);
-          if (data.models && data.models.length > 0) {
-            setModel(data.models[0].id);
-          }
-        } else {
-          console.error("Failed to fetch models:", response.statusText);
-        }
-      } catch (error) {
-        console.error("Error fetching models:", error);
-      } finally {
-        setModelsLoading(false);
-      }
-    };
-
-    fetchModels();
-  }, []);
-
-  // Fetch prompts when selector opens
-  useEffect(() => {
-    if (promptSelectorOpen) {
-      const fetchPrompts = async () => {
-        try {
-          setPromptsLoading(true);
-          const files = await listStorageObjects("prompts", false);
-          setPrompts(files);
-        } catch (error) {
-          console.error("Error fetching prompts:", error);
-        } finally {
-          setPromptsLoading(false);
-        }
-      };
-      fetchPrompts();
-    }
-  }, [promptSelectorOpen]);
-
-  // Fetch sources when selector opens
-  useEffect(() => {
-    if (sourceSelectorOpen) {
-      const fetchSources = async () => {
-        try {
-          setSourcesLoading(true);
-          const fetchedSources = await listSources(true);
-          setSources(fetchedSources);
-        } catch (error) {
-          console.error("Error fetching sources:", error);
-        } finally {
-          setSourcesLoading(false);
-        }
-      };
-      fetchSources();
-    }
-  }, [sourceSelectorOpen]);
-
-  const selectedModelData = models.find((m) => m.id === model);
-
-  const handleModelSelect = (id: string) => {
-    setModel(id);
-    setModelSelectorOpen(false);
-  };
 
   // Component that uses the controller to clear text immediately
   const PromptInputWithController = () => {
@@ -271,24 +162,24 @@ export function ChatInterface() {
 
         textInput.clear();
 
-        sendMessage(
-          {
-            text: message.text,
-            files: message.files,
-          },
-          {
-            body: {
-              model,
-              webSearch,
-              taskMode,
-              activeDocument: taskMode === "write" ? activeDocument : undefined,
-              activeSource: taskMode === "summarize" ? activeSource : undefined,
+          sendMessage(
+            {
+              text: message.text,
+              files: message.files,
             },
-          }
-        );
-      },
-      [sendMessage, textInput, model, webSearch, taskMode, activeDocument, activeSource]
-    );
+            {
+              body: {
+                model: modelSelection.selectedModel,
+                webSearch,
+                taskMode,
+                activeDocument: taskMode === "write" ? activeDocument : undefined,
+                activeSource: taskMode === "summarize" ? activeSource : undefined,
+              },
+            }
+          );
+        },
+        [sendMessage, textInput, modelSelection.selectedModel, webSearch, taskMode, activeDocument, activeSource]
+      );
 
     const handleStop = () => {
       stop();
@@ -303,44 +194,33 @@ export function ChatInterface() {
       setIsInputActive(false);
     };
 
-    // Handle prompt selection
-    const handlePromptSelect = useCallback(
-      async (promptName: string) => {
-        try {
-          const content = await getFileContent(promptName);
-          // Append to existing text if any, otherwise set it
-          const currentText = textInput.value;
-          const newText = currentText ? `${currentText}\n\n${content}` : content;
-          textInput.setInput(newText);
-          setPromptSelectorOpen(false);
-          
-          // Focus textarea and set cursor to end after dialog closes
-          // Use setTimeout to ensure DOM has updated after dialog closes
-          setTimeout(() => {
-            // Find the textarea by name attribute (name="message")
-            const textarea = document.querySelector(
-              'textarea[name="message"]'
-            ) as HTMLTextAreaElement | null;
-            if (textarea) {
-              textarea.focus();
-              // Set cursor to end of text
-              const length = newText.length;
-              textarea.setSelectionRange(length, length);
-            }
-          }, 100);
-        } catch (error) {
-          console.error("Error loading prompt:", error);
-        }
+    // Handle prompt insertion
+    const handlePromptInsert = useCallback(
+      (content: string) => {
+        const currentText = textInput.value;
+        const newText = currentText ? `${currentText}\n\n${content}` : content;
+        textInput.setInput(newText);
+        
+        // Focus textarea and set cursor to end after dialog closes
+        setTimeout(() => {
+          const textarea = document.querySelector(
+            'textarea[name="message"]'
+          ) as HTMLTextAreaElement | null;
+          if (textarea) {
+            textarea.focus();
+            const length = newText.length;
+            textarea.setSelectionRange(length, length);
+          }
+        }, 100);
       },
       [textInput]
     );
 
     // Handle source selection
     const handleSourceSelect = useCallback(
-      (source: Source) => {
-        setActiveSource(source.source_id);
-        setActiveSourceName(source.original_filename || source.source_id);
-        setSourceSelectorOpen(false);
+      (sourceId: string, sourceName: string) => {
+        setActiveSource(sourceId);
+        setActiveSourceName(sourceName);
       },
       []
     );
@@ -357,14 +237,14 @@ export function ChatInterface() {
             activeElement?.closest('form[class*="w-full"]')
           ) {
             e.preventDefault();
-            setPromptSelectorOpen(true);
+            promptSelector.setOpen(true);
           }
         }
       };
 
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
-    }, []);
+    }, [promptSelector]);
 
     return (
       <>
@@ -426,17 +306,17 @@ export function ChatInterface() {
                 <span>Search</span>
               </PromptInputButton>
               <ModelSelector
-                onOpenChange={setModelSelectorOpen}
-                open={modelSelectorOpen}
+                onOpenChange={modelSelection.setSelectorOpen}
+                open={modelSelection.selectorOpen}
               >
                 <ModelSelectorTrigger asChild>
                   <PromptInputButton>
-                    {selectedModelData?.chefSlug && (
-                      <ModelSelectorLogo provider={selectedModelData.chefSlug} />
+                    {modelSelection.selectedModelData?.chefSlug && (
+                      <ModelSelectorLogo provider={modelSelection.selectedModelData.chefSlug} />
                     )}
-                    {selectedModelData?.name && (
+                    {modelSelection.selectedModelData?.name && (
                       <ModelSelectorName>
-                        {selectedModelData.name}
+                        {modelSelection.selectedModelData.name}
                       </ModelSelectorName>
                     )}
                   </PromptInputButton>
@@ -445,22 +325,22 @@ export function ChatInterface() {
                   <ModelSelectorInput placeholder="Search models..." />
                   <ModelSelectorList>
                     <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                    {modelsLoading ? (
+                    {modelSelection.loading ? (
                       <div className="p-4 text-center text-sm text-muted-foreground">
                         Loading models...
                       </div>
                     ) : (
                       // Group models by provider (chef)
-                      Array.from(new Set(models.map((m) => m.chef))).map((chef) => (
+                      Array.from(new Set(modelSelection.models.map((m) => m.chef))).map((chef) => (
                         <ModelSelectorGroup heading={chef} key={chef}>
-                          {models
+                          {modelSelection.models
                             .filter((m) => m.chef === chef)
                             .map((m) => (
                               <ModelItem
                                 key={m.id}
                                 m={m}
-                                onSelect={handleModelSelect}
-                                selectedModel={model}
+                                onSelect={modelSelection.handleModelSelect}
+                                selectedModel={modelSelection.selectedModel}
                               />
                             ))}
                         </ModelSelectorGroup>
@@ -475,63 +355,44 @@ export function ChatInterface() {
         </PromptInput>
 
         {/* Prompt Selector Dialog */}
-        <CommandDialog
-          open={promptSelectorOpen}
-          onOpenChange={setPromptSelectorOpen}
+        <ResourceSelectorDialog
+          open={promptSelector.open}
+          onOpenChange={promptSelector.setOpen}
           title="Select Prompt"
           description="Choose a prompt to insert into your message"
-        >
-          <CommandInput placeholder="Search prompts..." />
-          <CommandList>
-            <CommandEmpty>
-              {promptsLoading ? "Loading prompts..." : "No prompts found."}
-            </CommandEmpty>
-            {!promptsLoading && prompts.length > 0 && (
-              <CommandGroup heading="Prompts">
-                {prompts.map((prompt) => {
-                  const fileName = prompt.name.replace("prompts/", "");
-                  return (
-                    <CommandItem
-                      key={prompt.name}
-                      onSelect={() => handlePromptSelect(prompt.name)}
-                    >
-                      <FileText className="size-4" />
-                      <span>{fileName}</span>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </CommandDialog>
+          items={promptSelector.prompts}
+          loading={promptSelector.loading}
+          onSelect={(prompt) => promptSelector.handlePromptSelect(prompt.name, handlePromptInsert)}
+          renderItem={(prompt) => ({
+            key: prompt.name,
+            label: prompt.name.replace("prompts/", ""),
+            icon: <FileText className="size-4" />,
+          })}
+          searchPlaceholder="Search prompts..."
+          emptyText="No prompts found."
+          loadingText="Loading prompts..."
+          groupHeading="Prompts"
+        />
 
         {/* Source Selector Dialog */}
-        <CommandDialog
-          open={sourceSelectorOpen}
-          onOpenChange={setSourceSelectorOpen}
+        <ResourceSelectorDialog
+          open={sourceSelector.open}
+          onOpenChange={sourceSelector.setOpen}
           title="Select Source"
           description="Choose a source document to summarize"
-        >
-          <CommandInput placeholder="Search sources..." />
-          <CommandList>
-            <CommandEmpty>
-              {sourcesLoading ? "Loading sources..." : "No sources found."}
-            </CommandEmpty>
-            {!sourcesLoading && sources.length > 0 && (
-              <CommandGroup heading="Sources">
-                {sources.map((source) => (
-                  <CommandItem
-                    key={source.source_id}
-                    onSelect={() => handleSourceSelect(source)}
-                  >
-                    <FileText className="size-4" />
-                    <span>{source.original_filename || source.source_id}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </CommandDialog>
+          items={sourceSelector.sources}
+          loading={sourceSelector.loading}
+          onSelect={(source) => sourceSelector.handleSourceSelect(source, handleSourceSelect)}
+          renderItem={(source) => ({
+            key: source.source_id,
+            label: source.original_filename || source.source_id,
+            icon: <FileText className="size-4" />,
+          })}
+          searchPlaceholder="Search sources..."
+          emptyText="No sources found."
+          loadingText="Loading sources..."
+          groupHeading="Sources"
+        />
       </>
     );
   };
