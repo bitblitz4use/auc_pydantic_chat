@@ -245,17 +245,38 @@ export interface SourceInfo {
 }
 
 /**
- * Upload and convert a source document
+ * Conversion progress interface
  */
-export async function uploadAndConvertSource(
+export interface ConversionProgress {
+  stage: 'connected' | 'uploading' | 'converting' | 'storing' | 'complete' | 'error';
+  progress: number;
+  message: string;
+  markdown_size?: number;
+  error?: boolean;
+}
+
+/**
+ * Upload and convert a source document with real-time progress via WebSocket
+ * Uses WebSocketManager for persistent connections that survive component unmounting
+ */
+export async function uploadSourceWithProgress(
   file: File,
+  onProgress: (progress: ConversionProgress) => void,
   tags?: string[]
-): Promise<SourceInfo> {
+): Promise<{ source_id: string; filename: string }> {
+  
+  // Step 1: Upload file to get source_id
   const formData = new FormData();
   formData.append("file", file);
   if (tags && tags.length > 0) {
     formData.append("tags", JSON.stringify(tags));
   }
+
+  onProgress({
+    stage: 'uploading',
+    progress: 5,
+    message: 'Uploading file...',
+  });
 
   const response = await fetch(`${API_BASE}/api/sources/upload`, {
     method: "POST",
@@ -264,11 +285,42 @@ export async function uploadAndConvertSource(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Upload and conversion failed: ${errorText || response.statusText}`);
+    throw new Error(`Upload failed: ${errorText || response.statusText}`);
   }
 
-  const data = await response.json();
-  return data;
+  const result = await response.json();
+  const { source_id } = result;
+
+  onProgress({
+    stage: 'uploading',
+    progress: 15,
+    message: 'File uploaded successfully',
+  });
+
+  // Return source_id and filename for WebSocket manager
+  // Component will handle WebSocket connection via wsManager
+  return { source_id, filename: file.name };
+}
+
+/**
+ * Upload and convert a source document (legacy/simple version)
+ */
+export async function uploadAndConvertSource(
+  file: File,
+  tags?: string[]
+): Promise<SourceInfo> {
+  // Use the new progress-based function but ignore progress
+  const { source_id } = await uploadSourceWithProgress(file, () => {}, tags);
+  
+  // Return expected format
+  return {
+    source_id,
+    original_path: `sources/${source_id}/original`,
+    markdown_path: `sources/${source_id}/converted.md`,
+    original_filename: file.name,
+    file_size: file.size,
+    markdown_size: 0, // Unknown until conversion completes
+  };
 }
 
 /**

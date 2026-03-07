@@ -14,17 +14,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  uploadAndConvertSource,
+  uploadSourceWithProgress,
   listSources,
   getSourceMarkdown,
   deleteSource,
   formatFileSize,
   formatDate,
   type Source,
+  type ConversionProgress,
 } from "@/lib/storage";
 import { TagSelector } from "@/components/ui/tag-selector";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn, extractTags } from "@/lib/utils";
+import { ConversionProgressCard } from "@/components/ui/conversion-progress";
+import { wsManager } from "@/lib/websocket-manager";
+import { conversionStateManager } from "@/lib/conversion-state-manager";
 
 export function SourcesView() {
   const [sources, setSources] = useState<Source[]>([]);
@@ -37,6 +41,7 @@ export function SourcesView() {
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [selectedFilterTags, setSelectedFilterTags] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [convertingFiles, setConvertingFiles] = useState(() => conversionStateManager.getAllStates());
 
   const fetchSources = async () => {
     try {
@@ -53,19 +58,97 @@ export function SourcesView() {
 
   useEffect(() => {
     fetchSources();
+
+    // Subscribe to state changes from conversion state manager
+    const unsubscribe = conversionStateManager.subscribe((states) => {
+      setConvertingFiles(states);
+    });
+
+    // Reconnect to any active conversions
+    const activeConversions = wsManager.getActiveConversions();
+    activeConversions.forEach(sourceId => {
+      const filename = wsManager.getFilename(sourceId);
+      if (filename) {
+        // Subscribe to existing WebSocket connection
+        wsManager.connect(sourceId, filename, (progress) => {
+          // Update state manager (which will notify this component)
+          conversionStateManager.updateState(sourceId, filename, progress);
+
+          // Handle completion
+          if (progress.stage === 'complete') {
+            setTimeout(() => {
+              conversionStateManager.removeState(sourceId);
+              fetchSources();
+            }, 1500);
+          } else if (progress.stage === 'error') {
+            setTimeout(() => {
+              conversionStateManager.removeState(sourceId);
+            }, 3000);
+          }
+        });
+      }
+    });
+
+    // Cleanup: unsubscribe from state manager when component unmounts
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Generate temporary ID for upload progress
+    const tempId = `temp-${Date.now()}`;
+
     try {
       setUploading(true);
-      await uploadAndConvertSource(file);
-      await fetchSources();
+
+      // Upload file and get source_id
+      const { source_id, filename } = await uploadSourceWithProgress(
+        file,
+        (progress) => {
+          // Show initial upload progress with temp ID via state manager
+          conversionStateManager.updateState(tempId, file.name, progress);
+        }
+      );
+
+      // Remove temp ID from state manager
+      conversionStateManager.removeState(tempId);
+
+      // Connect to WebSocket via manager for conversion progress
+      wsManager.connect(source_id, filename, (progress) => {
+        // Update state manager (which will notify all subscribed components)
+        conversionStateManager.updateState(source_id, filename, progress);
+
+        // Handle completion
+        if (progress.stage === 'complete') {
+          setTimeout(() => {
+            conversionStateManager.removeState(source_id);
+            fetchSources();
+          }, 1500);
+        } else if (progress.stage === 'error') {
+          setTimeout(() => {
+            conversionStateManager.removeState(source_id);
+          }, 3000);
+        }
+      });
+
     } catch (error) {
-      console.error("Error uploading and converting source:", error);
-      alert("Failed to upload and convert source: " + (error instanceof Error ? error.message : "Unknown error"));
+      console.error("Upload error:", error);
+      
+      // Show error with temp ID via state manager
+      conversionStateManager.updateState(tempId, file.name, {
+        stage: 'error',
+        progress: 0,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        error: true,
+      });
+
+      setTimeout(() => {
+        conversionStateManager.removeState(tempId);
+      }, 3000);
     } finally {
       setUploading(false);
       if (fileInputRef.current) {
@@ -118,6 +201,11 @@ export function SourcesView() {
         source.tags && 
         selectedFilterTags.every((filterTag) => source.tags!.includes(filterTag))
       );
+
+  // Hide sources that are actively converting (they're shown as progress cards instead)
+  const sourcesToDisplay = filteredSources.filter(source => 
+    !conversionStateManager.isActive(source.source_id)
+  );
 
   const UploadButton = ({ size = "default" }: { size?: "default" | "sm" }) => (
     <Button
@@ -178,8 +266,9 @@ export function SourcesView() {
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Document Sources</h2>
                 <p className="text-sm text-muted-foreground">
-                  {filteredSources.length} of {sources.length} source{sources.length === 1 ? "" : "s"}
+                  {sourcesToDisplay.length} of {sources.length} source{sources.length === 1 ? "" : "s"}
                   {selectedFilterTags.length > 0 && ` (filtered by ${selectedFilterTags.length} tag${selectedFilterTags.length > 1 ? 's' : ''})`}
+                  {convertingFiles.size > 0 && ` · ${convertingFiles.size} converting`}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -234,8 +323,22 @@ export function SourcesView() {
             )}
 
             <div className="flex-1 overflow-y-auto">
+              {/* Show converting files at top */}
+              {convertingFiles.size > 0 && (
+                <div className="mb-4 space-y-2">
+                  {Array.from(convertingFiles.values()).map((state) => (
+                    <ConversionProgressCard
+                      key={state.sourceId}
+                      progress={state}
+                      filename={state.filename}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Existing sources list */}
               <div className="space-y-2">
-                {filteredSources.map((source) => {
+                {sourcesToDisplay.map((source) => {
                   const fileName = source.original_filename || `Source ${source.source_id.slice(0, 8)}`;
                   return (
                     <div

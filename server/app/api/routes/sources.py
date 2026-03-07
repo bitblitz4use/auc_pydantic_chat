@@ -1,13 +1,14 @@
 """Sources API routes for document upload and conversion"""
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks, WebSocket, WebSocketDisconnect
 from starlette.responses import Response
-from typing import Optional
+from typing import Optional, Dict
 from minio.error import S3Error
 from io import BytesIO
 import json
 import logging
 import uuid
 from pathlib import Path
+import asyncio
 
 from app.config import config
 from app.storage.client import (
@@ -19,146 +20,244 @@ from app.storage.client import (
 from app.docling.converter import DoclingConverter
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
+# Active WebSocket connections per source_id
+active_connections: Dict[str, WebSocket] = {}
+# Buffer for progress updates (in case WS connects after conversion starts)
+conversion_progress: Dict[str, dict] = {}
 
-@router.post("/sources/upload")
-async def upload_and_convert_source(
-    file: UploadFile = File(...),
-    tags: Optional[str] = None
+
+async def send_progress(source_id: str, stage: str, progress: int, message: str, **extra):
+    """Send progress update via WebSocket if connected, otherwise buffer it"""
+    progress_data = {
+        "stage": stage,
+        "progress": progress,
+        "message": message,
+        **extra
+    }
+    
+    # Always store the latest progress
+    conversion_progress[source_id] = progress_data
+    
+    # Try to send if connected
+    if source_id in active_connections:
+        try:
+            await active_connections[source_id].send_json(progress_data)
+            logger.info(f"📡 {source_id[:8]}: {stage} ({progress}%) - {message}")
+        except Exception as e:
+            logger.debug(f"Failed to send progress for {source_id[:8]}: {e}")
+            active_connections.pop(source_id, None)
+    else:
+        logger.debug(f"⏳ {source_id[:8]}: Progress buffered (WS not connected yet): {stage} {progress}%")
+
+
+async def convert_document_background(
+    source_id: str,
+    file_content: bytes,
+    original_filename: str,
+    file_extension: str,
+    file_size: int,
+    tags: list
 ):
-    """
-    Upload a source document, convert to markdown, and store both in S3.
-    
-    Storage structure:
-    - sources/{source_id}/original.{ext}  (original file)
-    - sources/{source_id}/converted.md     (markdown output)
-    
-    Args:
-        file: File to upload and convert
-        tags: Optional JSON string of tags (form data field)
-    
-    Returns:
-        Success message with source_id and paths
-    """
-    logger.info(f"📤 Upload and convert request for: {file.filename}")
-    
-    # Generate unique source ID
-    source_id = str(uuid.uuid4())
-    
+    """Background conversion task with WebSocket progress updates"""
     try:
+        # Small delay to allow WebSocket connection to establish
+        await asyncio.sleep(0.3)
+        
         client = get_minio_client()
         bucket_name = config.minio_bucket
+        metadata = create_metadata_from_tags(tags) if tags else {}
         
-        # Parse tags from form data
-        user_tags = []
-        if tags:
-            try:
-                parsed = json.loads(tags)
-                if isinstance(parsed, list):
-                    user_tags = parsed
-                elif isinstance(parsed, dict):
-                    user_tags = list(parsed.keys())
-            except json.JSONDecodeError:
-                logger.warning(f"⚠️ Invalid tags JSON: {tags}")
-        
-        # Read file content first
-        file_content = await file.read()
-        file_size = len(file_content)
-        original_filename = file.filename or "unknown"
-        file_extension = Path(original_filename).suffix
-        
-        # Convert tags to metadata
-        metadata = {}
-        if user_tags:
-            metadata = create_metadata_from_tags(user_tags)
-        
-        # Store original filename in metadata for later retrieval
-        # Use base64 encoding to handle special characters safely (S3 metadata must be ASCII)
+        # Store original filename in metadata
         try:
             import base64
             encoded_filename = base64.b64encode(original_filename.encode('utf-8')).decode('ascii')
             metadata["x-amz-meta-original-filename"] = encoded_filename
         except Exception as e:
             logger.warning(f"⚠️ Could not encode filename for metadata: {e}")
-            # Fallback to sanitized filename
             metadata["x-amz-meta-original-filename"] = original_filename.encode('ascii', 'ignore').decode('ascii')
         
-        logger.info(f"📄 File: {original_filename}, Size: {file_size} bytes, Extension: {file_extension}")
+        # Stage 1: Converting
+        await send_progress(source_id, "converting", 30, "Converting to markdown...")
         
-        # Convert to markdown using Docling
-        try:
+        # Run blocking conversion in thread pool to not block event loop
+        def _convert_sync():
             converter = DoclingConverter()
-            markdown_content = converter.convert_to_markdown(file_content, original_filename)
-            markdown_bytes = markdown_content.encode('utf-8')
-            logger.info(f"✅ Conversion successful: {len(markdown_bytes)} bytes markdown")
-        except Exception as conv_error:
-            logger.error(f"❌ Document conversion failed: {conv_error}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Document conversion failed: {str(conv_error)}"
-            )
+            return converter.convert_to_markdown(file_content, original_filename)
         
-        # Store original file
-        original_path = f"sources/{source_id}/original{file_extension}"
-        try:
-            original_stream = BytesIO(file_content)
-            original_stream.seek(0)
-            client.put_object(
-                bucket_name,
-                original_path,
-                original_stream,
-                length=file_size,
-                content_type=file.content_type or "application/octet-stream",
-                metadata=metadata
-            )
-            logger.info(f"✅ Stored original: {original_path}")
-        except S3Error as e:
-            logger.error(f"❌ Failed to store original file: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to store original file: {str(e)}")
+        # Run in thread pool - ensures proper event loop context
+        loop = asyncio.get_event_loop()
+        markdown_content = await loop.run_in_executor(None, _convert_sync)
+        markdown_bytes = markdown_content.encode('utf-8')
         
-        # Store markdown file
+        await send_progress(source_id, "converting", 70, "Conversion complete")
+        
+        # Stage 2: Storing markdown
+        await send_progress(source_id, "storing", 80, "Storing markdown...")
+        
         markdown_path = f"sources/{source_id}/converted.md"
-        try:
-            markdown_stream = BytesIO(markdown_bytes)
-            markdown_stream.seek(0)
+        markdown_stream = BytesIO(markdown_bytes)
+        markdown_stream.seek(0)
+        
+        # MinIO operations also in thread pool
+        def _store_markdown_sync():
             client.put_object(
                 bucket_name,
                 markdown_path,
                 markdown_stream,
-                length=len(markdown_bytes),
-                content_type="text/markdown",
-                metadata=metadata
+                len(markdown_bytes),
+                "text/markdown",
+                metadata
             )
-            logger.info(f"✅ Stored markdown: {markdown_path}")
-        except S3Error as e:
-            logger.error(f"❌ Failed to store markdown file: {e}")
-            # Try to clean up original file if markdown storage fails
-            try:
-                client.remove_object(bucket_name, original_path)
-                logger.warning(f"🧹 Cleaned up original file after markdown storage failure")
-            except:
-                pass
-            raise HTTPException(status_code=500, detail=f"Failed to store markdown file: {str(e)}")
         
-        logger.info(f"✅ Successfully uploaded and converted source: {source_id}")
+        await loop.run_in_executor(None, _store_markdown_sync)
+        
+        # Complete
+        await send_progress(
+            source_id,
+            "complete",
+            100,
+            "Conversion complete",
+            markdown_size=len(markdown_bytes),
+            markdown_path=markdown_path
+        )
+        
+        logger.info(f"✅ Conversion complete: {source_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Conversion failed for {source_id}: {e}")
+        await send_progress(source_id, "error", 0, str(e), error=True)
+    finally:
+        # Clean up connection after a delay
+        await asyncio.sleep(2)
+        active_connections.pop(source_id, None)
+        # Clean up buffered progress after additional delay
+        await asyncio.sleep(5)
+        conversion_progress.pop(source_id, None)
+
+
+@router.post("/sources/upload")
+async def upload_source(
+    file: UploadFile = File(...),
+    tags: Optional[str] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """Upload source file, store original immediately, convert in background"""
+    logger.info(f"📤 Upload: {file.filename}")
+    
+    source_id = str(uuid.uuid4())
+    
+    try:
+        # Parse tags
+        parsed_tags = []
+        if tags:
+            try:
+                parsed = json.loads(tags)
+                if isinstance(parsed, list):
+                    parsed_tags = parsed
+                elif isinstance(parsed, dict):
+                    parsed_tags = list(parsed.keys())
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ Invalid tags JSON: {tags}")
+        
+        # Read file
+        file_content = await file.read()
+        file_size = len(file_content)
+        original_filename = file.filename or "unknown"
+        file_extension = Path(original_filename).suffix or ".bin"
+        
+        # Store original immediately
+        client = get_minio_client()
+        bucket_name = config.minio_bucket
+        metadata = create_metadata_from_tags(parsed_tags) if parsed_tags else {}
+        
+        # Store original filename in metadata
+        try:
+            import base64
+            encoded_filename = base64.b64encode(original_filename.encode('utf-8')).decode('ascii')
+            metadata["x-amz-meta-original-filename"] = encoded_filename
+        except Exception as e:
+            logger.warning(f"⚠️ Could not encode filename for metadata: {e}")
+            metadata["x-amz-meta-original-filename"] = original_filename.encode('ascii', 'ignore').decode('ascii')
+        
+        original_path = f"sources/{source_id}/original{file_extension}"
+        original_stream = BytesIO(file_content)
+        
+        # Run MinIO upload in thread to not block event loop
+        def _store_original_sync():
+            client.put_object(
+                bucket_name,
+                original_path,
+                original_stream,
+                file_size,
+                file.content_type or "application/octet-stream",
+                metadata
+            )
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _store_original_sync)
+        
+        logger.info(f"✅ Stored original: {original_path}")
+        
+        # Queue background conversion
+        background_tasks.add_task(
+            convert_document_background,
+            source_id,
+            file_content,
+            original_filename,
+            file_extension,
+            file_size,
+            parsed_tags
+        )
+        
         return {
-            "status": "success",
-            "message": "Source uploaded and converted successfully",
             "source_id": source_id,
             "original_path": original_path,
-            "markdown_path": markdown_path,
             "original_filename": original_filename,
             "file_size": file_size,
-            "markdown_size": len(markdown_bytes)
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"❌ Error uploading and converting source: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload and conversion failed: {str(e)}")
+        logger.error(f"❌ Upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.websocket("/sources/{source_id}/progress")
+async def conversion_progress_websocket(websocket: WebSocket, source_id: str):
+    """WebSocket endpoint for real-time conversion progress"""
+    await websocket.accept()
+    active_connections[source_id] = websocket
+    logger.info(f"🔌 WebSocket connected: {source_id[:8]}")
+    
+    try:
+        # Send any buffered progress immediately upon connection
+        if source_id in conversion_progress:
+            logger.info(f"📤 Sending buffered progress for {source_id[:8]}: {conversion_progress[source_id].get('stage')} {conversion_progress[source_id].get('progress')}%")
+            await websocket.send_json(conversion_progress[source_id])
+        else:
+            # Send initial connection confirmation
+            await websocket.send_json({
+                "stage": "connected",
+                "progress": 0,
+                "message": "Waiting for conversion to start..."
+            })
+        
+        # Keep connection alive until conversion is done
+        while True:
+            # Wait for any client messages (ping/pong)
+            try:
+                await websocket.receive_text()
+            except WebSocketDisconnect:
+                break
+                
+    except WebSocketDisconnect:
+        logger.info(f"🔌 WebSocket disconnected: {source_id[:8]}")
+    finally:
+        active_connections.pop(source_id, None)
+        # Clean up progress after some time
+        await asyncio.sleep(5)
+        conversion_progress.pop(source_id, None)
 
 
 @router.get("/sources")
