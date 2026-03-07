@@ -27,26 +27,46 @@ router = APIRouter()
 async def chat(request: Request, background: BackgroundTasks) -> Response:
     """
     Chat endpoint with task mode and document context support.
-    Supports:
-    - X-Model-ID header: Model selection
-    - X-Task-Mode header: "ask", "write", or "summarize"
-    - X-Active-Document header: Document name for write mode
-    - X-Active-Source header: Source ID for summarize mode
+    Parameters are sent in the request body:
+    - model: Model selection
+    - taskMode: "ask", "write", or "summarize"
+    - activeDocument: Document name for write mode (optional)
+    - activeSource: Source ID for summarize mode (optional)
+    - webSearch: Enable web search (optional)
     """
     logger.info("💬 Chat request received")
     
-    # Extract headers
-    model_id = request.headers.get("X-Model-ID")
-    task_mode_str = request.headers.get("X-Task-Mode", "ask")
-    active_document = request.headers.get("X-Active-Document")
-    active_source = request.headers.get("X-Active-Source")
+    # Read body to extract parameters
+    # We need to read the body stream and then recreate it for VercelAIAdapter
+    body_bytes = await request.body()
+    body_data = {}
     
-    # Log all headers for debugging
-    logger.info(f"📋 Headers received:")
-    logger.info(f"   X-Model-ID: {model_id}")
-    logger.info(f"   X-Task-Mode: {task_mode_str}")
-    logger.info(f"   X-Active-Document: {active_document}")
-    logger.info(f"   X-Active-Source: {active_source}")
+    if body_bytes:
+        try:
+            body_data = json.loads(body_bytes)
+        except json.JSONDecodeError:
+            logger.warning("⚠️ Could not parse request body as JSON")
+    
+    # Extract from body.body (Vercel AI SDK format) or body root
+    body_root = body_data.get("body", {}) if isinstance(body_data.get("body"), dict) else body_data
+    
+    model_id = body_root.get("model") or body_data.get("model")
+    task_mode_str = body_root.get("taskMode") or body_data.get("taskMode", "ask")
+    active_document = body_root.get("activeDocument") or body_data.get("activeDocument")
+    active_source = body_root.get("activeSource") or body_data.get("activeSource")
+    
+    logger.info(f"📋 Request parameters:")
+    logger.info(f"   Model: {model_id}")
+    logger.info(f"   Task Mode: {task_mode_str}")
+    logger.info(f"   Active Document: {active_document}")
+    logger.info(f"   Active Source: {active_source}")
+    
+    # Recreate the request body stream for VercelAIAdapter
+    # This is necessary because request.body() consumes the stream
+    async def receive():
+        return {"type": "http.request", "body": body_bytes}
+    
+    request._receive = receive
     
     # Parse task mode
     try:
@@ -55,33 +75,7 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         logger.warning(f"⚠️ Invalid task mode '{task_mode_str}', defaulting to 'ask'")
         task_mode = TaskMode.ASK
     
-    # If not in header, try to read from body
-    # We need to read the body stream and then recreate it for VercelAIAdapter
-    if not model_id:
-        try:
-            # Read body to extract model
-            body_bytes = await request.body()
-            if body_bytes:
-                try:
-                    body = json.loads(body_bytes)
-                    # Vercel AI SDK may send model in body.body
-                    model_id = body.get("body", {}).get("model") or body.get("model")
-                except json.JSONDecodeError:
-                    # Body might not be JSON (could be streaming)
-                    model_id = None
-                
-                # Recreate the request body stream for VercelAIAdapter
-                # This is necessary because request.body() consumes the stream
-                async def receive():
-                    return {"type": "http.request", "body": body_bytes}
-                
-                # Replace the receive function to allow VercelAIAdapter to read the body
-                request._receive = receive
-        except Exception as e:
-            logger.warning(f"⚠️ Could not parse request body for model selection: {e}")
-            model_id = None
-    
-    # Determine which agent to use
+    # Parse model ID
     provider = config.default_provider
     model_name = config.default_model
     

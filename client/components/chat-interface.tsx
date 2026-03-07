@@ -179,34 +179,11 @@ export function ChatInterface() {
     }
   }, [taskMode, activeSource]);
   
-  // Create transport - headers will be set dynamically on each request
   const transport = useMemo(() => {
     return new CustomChatTransport({
       api: "http://localhost:8000/api/chat",
     });
-  }, []); // Only create once, headers updated per request
-  
-  // Update transport headers when model, task mode, document, or source changes
-  useEffect(() => {
-    const headers: Record<string, string> = {
-      "X-Model-ID": model,
-      "X-Task-Mode": taskMode,
-    };
-    
-    if (taskMode === "write" && activeDocument) {
-      headers["X-Active-Document"] = activeDocument;
-    }
-    
-    if (taskMode === "summarize" && activeSource) {
-      headers["X-Active-Source"] = activeSource;
-    }
-    
-    // Always update headers immediately when taskMode changes
-    transport.setHeaders(headers);
-    
-    // Debug log to verify headers are being set
-    console.log("Updated transport headers:", headers);
-  }, [model, taskMode, activeDocument, activeSource, transport]);
+  }, []);
   
   const { messages, sendMessage, status, stop } = useChat({
     transport,
@@ -292,43 +269,36 @@ export function ChatInterface() {
           return;
         }
 
-        // Clear text immediately after submission
         textInput.clear();
 
-        // Update headers synchronously right before sending to ensure they're current
-        const headers: Record<string, string> = {
-          "X-Model-ID": model,
-          "X-Task-Mode": taskMode,
+        const body: {
+          model: string;
+          webSearch: boolean;
+          taskMode: TaskMode;
+          activeDocument?: string;
+          activeSource?: string;
+        } = {
+          model,
+          webSearch,
+          taskMode,
         };
-        
+
         if (taskMode === "write" && activeDocument) {
-          headers["X-Active-Document"] = activeDocument;
+          body.activeDocument = activeDocument;
         }
-        
+
         if (taskMode === "summarize" && activeSource) {
-          headers["X-Active-Source"] = activeSource;
+          body.activeSource = activeSource;
         }
-        
-        // Always set headers before sending to ensure latest values
-        transport.setHeaders(headers);
 
-        // Send model selection in request body
-        // eslint-disable-next-line no-console
-        console.log("Submitting with model:", model, "taskMode:", taskMode, "activeDocument:", activeDocument, "activeSource:", activeSource);
-        console.log("Headers being sent:", headers);
-
-        // Don't await - let it run async, text is already cleared
         sendMessage({
           text: message.text,
           files: message.files,
           // @ts-expect-error - body is supported by our custom transport
-          body: { 
-            model: model,
-            webSearch: webSearch 
-          },
+          body,
         });
       },
-      [sendMessage, model, webSearch, taskMode, activeDocument, activeSource, textInput, transport]
+      [sendMessage, model, webSearch, taskMode, activeDocument, activeSource, textInput]
     );
 
     const handleStop = () => {
