@@ -7,9 +7,10 @@ import { Edge } from "@/components/ai-elements/edge";
 import { Controls } from "@/components/ai-elements/controls";
 import { Background, BackgroundVariant } from "@xyflow/react";
 import { applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
-import { Plus, PlayCircle, Info } from "lucide-react";
+import { Plus, PlayCircle, Info, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PromptNode } from "@/components/chains/nodes/prompt-node";
+import { AnnotationNode } from "@/components/chains/nodes/annotation-node";
 import type { ChainMetadata, ChainNode } from "@/lib/prompt-chains";
 import {
   Alert,
@@ -18,6 +19,7 @@ import {
 
 const nodeTypes = {
   prompt: PromptNode,
+  annotation: AnnotationNode,
 };
 
 const edgeTypes = {
@@ -73,18 +75,49 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
   // Add new prompt node to canvas
   const addNode = useCallback(() => {
     const nodes = chain.canvas?.nodes || [];
+    const promptNodes = nodes.filter(n => n.type === 'prompt');
     const newNode: ChainNode = {
       id: `node-${Date.now()}`,
       type: 'prompt',
       data: {
         promptFile: '',
-        label: `Step ${nodes.length + 1}`,
+        label: `Step ${promptNodes.length + 1}`,
         model: '',
         description: '',
       },
       position: {
         x: 100 + (nodes.length * 50),
         y: 150 + (nodes.length * 50),
+      },
+    };
+
+    onChainUpdate({
+      ...chain,
+      canvas: {
+        ...chain.canvas,
+        nodes: [...nodes, newNode],
+      },
+    });
+  }, [chain, onChainUpdate]);
+
+  // Add new annotation node to canvas
+  const addAnnotationNode = useCallback(() => {
+    const nodes = chain.canvas?.nodes || [];
+    const newNode: ChainNode = {
+      id: `annotation-${Date.now()}`,
+      type: 'annotation',
+      data: {
+        title: 'Note',
+        comment: '',
+      },
+      position: {
+        x: 150 + (nodes.length * 30),
+        y: 100 + (nodes.length * 30),
+      },
+      style: {
+        width: 300,
+        height: 200,
+        zIndex: -1,  // Place behind other nodes by default
       },
     };
 
@@ -154,12 +187,12 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         fitView={hasNodes}
         panOnDrag={true}
         selectionOnDrag={false}
-        defaultViewport={{ x: 0, y: 0, zoom: 0.75 }}
+        defaultViewport={{ x: 0, y: 0, zoom: 1.0 }}
         minZoom={0.3}
         maxZoom={1.5}
         fitViewOptions={{
           padding: 0.2,
-          maxZoom: 0.85,
+          maxZoom: 1.0,
         }}
       >
         {/* Override default background with visible dots */}
@@ -181,6 +214,11 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         <Button onClick={addNode} size="sm" className="shadow-lg">
           <Plus className="mr-2 size-4" />
           Add Step
+        </Button>
+        
+        <Button onClick={addAnnotationNode} variant="outline" size="sm" className="shadow-lg">
+          <MessageSquare className="mr-2 size-4" />
+          Add Note
         </Button>
         
         {hasNodes && (

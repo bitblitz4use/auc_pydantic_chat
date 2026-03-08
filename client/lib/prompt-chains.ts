@@ -4,7 +4,9 @@
 
 import yaml from 'js-yaml';
 
-export interface ChainNode {
+export type ChainNode = PromptChainNode | AnnotationChainNode;
+
+export interface PromptChainNode {
   id: string;
   type: 'prompt';
   data: {
@@ -13,8 +15,23 @@ export interface ChainNode {
     model?: string;
     description?: string;
     onUpdate?: (nodeId: string, newData: any) => void;
+    onDelete?: (nodeId: string) => void;
   };
   position: { x: number; y: number };
+  style?: any;
+}
+
+export interface AnnotationChainNode {
+  id: string;
+  type: 'annotation';
+  data: {
+    title: string;
+    comment: string;
+    onUpdate?: (nodeId: string, newData: any) => void;
+    onDelete?: (nodeId: string) => void;
+  };
+  position: { x: number; y: number };
+  style?: any;
 }
 
 export interface ChainEdge {
@@ -105,17 +122,36 @@ function cleanMetadataForSerialization(metadata: ChainMetadata): any {
   
   // Clean up node data - remove callback functions
   if (cleaned.canvas?.nodes) {
-    cleaned.canvas.nodes = cleaned.canvas.nodes.map((node: any) => ({
-      id: node.id,
-      type: node.type,
-      position: node.position,
-      data: {
-        promptFile: node.data.promptFile,
-        label: node.data.label,
-        model: node.data.model,
-        description: node.data.description,
-      },
-    }));
+    cleaned.canvas.nodes = cleaned.canvas.nodes.map((node: any) => {
+      const baseNode = {
+        id: node.id,
+        type: node.type,
+        position: node.position,
+        ...(node.style && { style: node.style }),
+      };
+      
+      if (node.type === 'prompt') {
+        return {
+          ...baseNode,
+          data: {
+            promptFile: node.data.promptFile,
+            label: node.data.label,
+            model: node.data.model,
+            description: node.data.description,
+          },
+        };
+      } else if (node.type === 'annotation') {
+        return {
+          ...baseNode,
+          data: {
+            title: node.data.title,
+            comment: node.data.comment,
+          },
+        };
+      }
+      
+      return baseNode;
+    });
   }
   
   return cleaned;
@@ -159,7 +195,7 @@ export async function loadPromptChain(chainPath: string): Promise<{
   const prompts = new Map<string, string>();
   
   for (const node of chain.metadata.canvas.nodes) {
-    if (node.data.promptFile && !prompts.has(node.data.promptFile)) {
+    if (node.type === 'prompt' && node.data.promptFile && !prompts.has(node.data.promptFile)) {
       try {
         const content = await getFileContent(`prompts/${node.data.promptFile}`);
         prompts.set(node.data.promptFile, content);

@@ -297,7 +297,7 @@ export function ChainsView() {
                                 </div>
                                 <div className="p-4 border-t border-border bg-muted/10 flex items-center justify-between">
                                   <div className="text-sm text-muted-foreground">
-                                    {parsed.metadata.canvas?.nodes?.length || 0} steps · {parsed.metadata.canvas?.edges?.length || 0} connections
+                                    {parsed.metadata.canvas?.nodes?.filter((n: any) => n.type === 'prompt').length || 0} steps · {parsed.metadata.canvas?.edges?.length || 0} connections
                                   </div>
                                   <Button
                                     onClick={() => handleSaveChain(chainId)}
