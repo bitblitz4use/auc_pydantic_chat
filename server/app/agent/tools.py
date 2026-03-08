@@ -86,15 +86,17 @@ async def update_document_content(
     logger.info(f"🆔 Generated change ID: {change_id}")
     
     headers = {
-        "Content-Type": "application/json",
-        "X-AI-Model": ctx.deps.model_name,
-        "X-AI-Prompt": change_description or "AI-assisted edit",
-        "X-AI-Change-Id": change_id
+        "Content-Type": "application/json"
     }
     
     body = {
         "documentName": doc_name,
-        "markdown": markdown_content
+        "markdown": markdown_content,
+        "metadata": {
+            "model": ctx.deps.model_name,
+            "prompt": change_description or "AI-assisted edit",
+            "changeId": change_id
+        }
     }
     
     try:

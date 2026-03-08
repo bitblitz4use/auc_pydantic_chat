@@ -74,8 +74,11 @@ router.get('/export', async (req, res) => {
 
 /**
  * POST /api/ai/import
- * Body: { documentName: string, markdown: string }
- * Headers: X-AI-Model, X-AI-Prompt, X-AI-Change-Id (optional)
+ * Body: { 
+ *   documentName: string, 
+ *   markdown: string,
+ *   metadata?: { model: string, prompt: string, changeId: string }
+ * }
  * 
  * Production-ready implementation:
  * - Uses Yjs relative positions for stable change tracking
@@ -84,7 +87,7 @@ router.get('/export', async (req, res) => {
  */
 router.post('/import', async (req, res) => {
   try {
-    const { documentName, markdown } = req.body;
+    const { documentName, markdown, metadata = {} } = req.body;
     
     if (!documentName || typeof markdown !== 'string' || !markdown.trim()) {
       return res.status(400).json({ 
@@ -93,12 +96,6 @@ router.post('/import', async (req, res) => {
     }
     
     console.log(`🤖 AI Import: ${documentName}`);
-    
-    const metadata = {
-      model: req.headers['x-ai-model'],
-      prompt: req.headers['x-ai-prompt'],
-      changeId: req.headers['x-ai-change-id']
-    };
     
     // Use AI provider approach - AI connects as a collaborator
     console.log('🤖 AI connecting as collaborator...');
