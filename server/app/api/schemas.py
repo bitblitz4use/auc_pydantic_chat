@@ -25,3 +25,8 @@ class RenameRequest(BaseModel):
 class TagsRequest(BaseModel):
     """Request format for tags endpoint"""
     tags: List[str]
+
+
+class FolderRequest(BaseModel):
+    """Request format for folder creation endpoint"""
+    folderPath: str

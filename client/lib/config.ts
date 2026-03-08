@@ -14,7 +14,15 @@ export const apiUrl = {
   chat: () => `${API_CONFIG.CHAT_API}/api/chat`,
   providers: () => `${API_CONFIG.CHAT_API}/api/providers`,
   sources: (path: string = "") => `${API_CONFIG.STORAGE_API}/api/sources${path ? `/${path}` : ""}`,
-  documents: () => `${API_CONFIG.EDITOR_API}/api/documents`,
+  
+  // Document operations - use STORAGE_API (FastAPI) instead of EDITOR_API
+  documents: () => `${API_CONFIG.STORAGE_API}/api/documents`,
+  documentOps: (name?: string) => name 
+    ? `${API_CONFIG.STORAGE_API}/api/documents/${encodeURIComponent(name)}`
+    : `${API_CONFIG.STORAGE_API}/api/documents`,
+  documentFolder: () => `${API_CONFIG.STORAGE_API}/api/documents/folder`,
+  
+  // WebSocket for collaborative editing still uses EDITOR_API (Hocuspocus)
   editorWs: () => {
     // Extract host and port from EDITOR_API and construct WebSocket URL
     // Default to ws://127.0.0.1:1234 if EDITOR_API is the default
