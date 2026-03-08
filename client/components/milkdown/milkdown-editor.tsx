@@ -350,6 +350,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
     const newName = prompt("Enter document name:");
     if (newName && newName.trim()) {
       switchDocument(newName.trim());
+      // No timeout needed - onSynced will refresh automatically
     }
   }, [switchDocument]);
 
@@ -365,7 +366,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         <div className="h-full rounded-lg border border-border bg-card flex overflow-hidden">
           {/* Document Tree Sidebar - Fixed position, scrollable */}
           <div
-            className={`border-r border-border flex-shrink-0 overflow-auto transition-all duration-300 ${
+            className={`border-r border-border flex-shrink-0 transition-all duration-300 ${
               isSidebarCollapsed ? "w-0" : "w-64"
             }`}
           >

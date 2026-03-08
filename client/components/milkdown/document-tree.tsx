@@ -121,6 +121,16 @@ export function DocumentTree({
             onSelect={handleSelect as (path: string) => void}
             defaultExpanded={new Set(folders)}
           >
+            {/* Show current document if not in list (new document) */}
+            {!documents.find(d => d.name === selectedPath) && selectedPath && (
+              <FileTreeFile
+                key={selectedPath}
+                path={selectedPath}
+                name={`${selectedPath} (new)`}
+                icon={<FileText className="size-4 text-amber-400" />}
+              />
+            )}
+            
             {tree.root.map((doc) => (
               <FileTreeFile
                 key={doc.name}
