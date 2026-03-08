@@ -1,6 +1,6 @@
 "use client";
 
-import { Handle, Position } from "reactflow";
+import { Handle, Position } from "@xyflow/react";
 import { Wand2, Settings } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -25,29 +25,29 @@ export function PromptNode({ data, id }: any) {
 
   return (
     <>
-      {/* Input handle (connections come from above) */}
+      {/* Input handle (connections come from left) */}
       <Handle
         type="target"
-        position={Position.Top}
-        className="w-3 h-3 !bg-primary border-2 border-background"
+        position={Position.Left}
+        className="w-2 h-2 !bg-primary border border-background"
       />
 
-      {/* Node card - shadcn design */}
-      <div className="bg-card border-2 border-border rounded-lg shadow-lg min-w-[240px] hover:border-primary/50 transition-all">
+      {/* Node card - shadcn design - extra compact */}
+      <div className="bg-card border border-border rounded-md shadow-md min-w-[140px] max-w-[160px] hover:border-primary/50 transition-all">
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border bg-muted/30">
-          <div className="flex items-center gap-2 min-w-0">
-            <Wand2 className="size-4 text-primary flex-shrink-0" />
-            <span className="text-sm font-semibold text-foreground truncate">
-              {data.label || 'Prompt Step'}
+        <div className="flex items-center justify-between gap-1 px-2 py-1 border-b border-border bg-muted/30">
+          <div className="flex items-center gap-1 min-w-0">
+            <Wand2 className="size-3 text-primary flex-shrink-0" />
+            <span className="text-[11px] font-semibold text-foreground truncate">
+              {data.label || 'Step'}
             </span>
           </div>
           
           {/* Settings popover */}
           <Popover open={isEditing} onOpenChange={setIsEditing}>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0">
-                <Settings className="size-3.5" />
+              <Button variant="ghost" size="icon" className="h-4 w-4 flex-shrink-0">
+                <Settings className="size-2.5" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-80" align="start" side="right">
@@ -126,31 +126,24 @@ export function PromptNode({ data, id }: any) {
           </Popover>
         </div>
 
-        {/* Body */}
-        <div className="px-3 py-2.5 space-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="font-mono truncate">
-              {data.promptFile ? `📄 ${data.promptFile}` : '⚠️ No prompt selected'}
-            </span>
+        {/* Body - extra compact */}
+        <div className="px-2 py-1 space-y-0.5">
+          <div className="text-[9px] text-muted-foreground truncate">
+            {data.promptFile ? `📄 ${data.promptFile}` : '⚠️ No file'}
           </div>
           {data.model && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>🤖 {data.model}</span>
-            </div>
-          )}
-          {data.description && (
-            <div className="text-xs text-muted-foreground/80 line-clamp-2 pt-1 border-t border-border/50">
-              {data.description}
+            <div className="text-[9px] text-muted-foreground truncate">
+              🤖 {data.model}
             </div>
           )}
         </div>
       </div>
 
-      {/* Output handle (connections go down) */}
+      {/* Output handle (connections go right) */}
       <Handle
         type="source"
-        position={Position.Bottom}
-        className="w-3 h-3 !bg-primary border-2 border-background"
+        position={Position.Right}
+        className="w-2 h-2 !bg-primary border border-background"
       />
     </>
   );

@@ -2,6 +2,8 @@
  * Prompt Chain utilities - YAML parsing, serialization, types
  */
 
+import yaml from 'js-yaml';
+
 export interface ChainNode {
   id: string;
   type: 'prompt';
@@ -59,145 +61,85 @@ export function parsePromptChain(content: string): ParsedChain {
   }
   
   const [, frontmatter, markdownContent] = match;
-  const metadata = parseYamlFrontmatter(frontmatter);
   
-  return {
-    metadata: { type: 'chain', ...metadata } as ChainMetadata,
-    content: markdownContent.trim()
-  };
+  try {
+    // Use js-yaml to parse the frontmatter
+    const metadata = yaml.load(frontmatter) as Partial<ChainMetadata>;
+    
+    // Ensure canvas structure exists
+    if (!metadata.canvas) {
+      metadata.canvas = { nodes: [], edges: [] };
+    }
+    
+    return {
+      metadata: { type: 'chain', ...metadata } as ChainMetadata,
+      content: markdownContent.trim()
+    };
+  } catch (error) {
+    console.error('YAML parse error:', error);
+    return {
+      metadata: {
+        type: 'chain',
+        name: 'Parse Error',
+        canvas: { nodes: [], edges: [] },
+        tags: [],
+      },
+      content: markdownContent.trim()
+    };
+  }
 }
 
 /**
- * Simple YAML parser for frontmatter (handles our specific structure)
+ * Clean metadata before serialization - remove functions and non-serializable data
  */
-function parseYamlFrontmatter(yaml: string): Partial<ChainMetadata> {
-  const lines = yaml.split('\n');
-  const result: any = {};
-  let currentKey: string | null = null;
-  let currentArray: any[] | null = null;
-  let currentObject: any = null;
-  let inArray = false;
+function cleanMetadataForSerialization(metadata: ChainMetadata): any {
+  // Deep clone and clean the metadata
+  const cleaned = JSON.parse(JSON.stringify(metadata, (key, value) => {
+    // Filter out functions and undefined values
+    if (typeof value === 'function' || value === undefined) {
+      return undefined;
+    }
+    return value;
+  }));
   
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    
-    // Key: value or Key: (for nested)
-    const keyMatch = line.match(/^(\w+):\s*(.*)$/);
-    if (keyMatch && !line.startsWith(' ')) {
-      const [, key, value] = keyMatch;
-      currentKey = key;
-      
-      if (value) {
-        // Simple value
-        result[key] = value.replace(/^["']|["']$/g, '');
-      } else {
-        // Array or object follows
-        currentArray = [];
-        result[key] = currentArray;
-        inArray = true;
-      }
-      continue;
-    }
-    
-    // Array item: - value or - key: value
-    if (trimmed.startsWith('-') && inArray && currentArray) {
-      const itemContent = trimmed.substring(1).trim();
-      const itemKeyMatch = itemContent.match(/^(\w+):\s*(.*)$/);
-      
-      if (itemKeyMatch) {
-        // Object in array
-        const [, itemKey, itemValue] = itemKeyMatch;
-        currentObject = {};
-        currentObject[itemKey] = parseValue(itemValue);
-        currentArray.push(currentObject);
-      } else {
-        // Simple value in array
-        currentArray.push(parseValue(itemContent));
-        currentObject = null;
-      }
-      continue;
-    }
-    
-    // Nested property in object
-    const nestedMatch = line.match(/^\s{2,}(\w+):\s*(.*)$/);
-    if (nestedMatch && currentObject) {
-      const [, nestedKey, nestedValue] = nestedMatch;
-      currentObject[nestedKey] = parseValue(nestedValue);
-    }
+  // Clean up node data - remove callback functions
+  if (cleaned.canvas?.nodes) {
+    cleaned.canvas.nodes = cleaned.canvas.nodes.map((node: any) => ({
+      id: node.id,
+      type: node.type,
+      position: node.position,
+      data: {
+        promptFile: node.data.promptFile,
+        label: node.data.label,
+        model: node.data.model,
+        description: node.data.description,
+      },
+    }));
   }
   
-  return result;
-}
-
-function parseValue(value: string): any {
-  const trimmed = value.trim().replace(/^["']|["']$/g, '');
-  
-  // Try to parse as number
-  if (/^-?\d+\.?\d*$/.test(trimmed)) {
-    return parseFloat(trimmed);
-  }
-  
-  // Try to parse as boolean
-  if (trimmed === 'true') return true;
-  if (trimmed === 'false') return false;
-  
-  // Try to parse as object
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return trimmed;
-    }
-  }
-  
-  return trimmed;
+  return cleaned;
 }
 
 /**
  * Serialize chain metadata to YAML frontmatter + markdown
  */
 export function serializePromptChain(metadata: ChainMetadata, content: string): string {
-  const yaml = serializeYaml(metadata);
-  return `---\n${yaml}---\n${content}`;
-}
-
-function serializeYaml(obj: any, indent = 0): string {
-  const spaces = '  '.repeat(indent);
-  let result = '';
-  
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined || value === null) continue;
+  try {
+    // Clean metadata before serialization
+    const cleanedMetadata = cleanMetadataForSerialization(metadata);
     
-    if (Array.isArray(value)) {
-      result += `${spaces}${key}:\n`;
-      for (const item of value) {
-        if (typeof item === 'object' && item !== null) {
-          const itemYaml = serializeYaml(item, indent + 1);
-          const lines = itemYaml.split('\n').filter(l => l.trim());
-          if (lines.length > 0) {
-            result += `${spaces}  - ${lines[0].trim()}\n`;
-            for (let i = 1; i < lines.length; i++) {
-              result += `${spaces}    ${lines[i].trim()}\n`;
-            }
-          }
-        } else {
-          result += `${spaces}  - ${item}\n`;
-        }
-      }
-    } else if (typeof value === 'object' && value !== null) {
-      result += `${spaces}${key}:\n`;
-      result += serializeYaml(value, indent + 1);
-    } else if (typeof value === 'string') {
-      result += `${spaces}${key}: "${value}"\n`;
-    } else {
-      result += `${spaces}${key}: ${value}\n`;
-    }
+    // Use js-yaml to serialize
+    const yamlStr = yaml.dump(cleanedMetadata, {
+      indent: 2,
+      lineWidth: -1, // Don't wrap lines
+      noRefs: true,  // Don't use references
+      sortKeys: false, // Keep original key order
+    });
+    return `---\n${yamlStr}---\n${content}`;
+  } catch (error) {
+    console.error('YAML serialization error:', error);
+    throw error;
   }
-  
-  return result;
 }
 
 /**

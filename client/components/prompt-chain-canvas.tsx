@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback } from "react";
-import { Canvas } from "@/components/ui/canvas";
-import { Background, Controls, MiniMap, BackgroundVariant } from "reactflow";
-import { applyNodeChanges, applyEdgeChanges, addEdge } from "reactflow";
+import { useCallback, useEffect } from "react";
+import { Canvas } from "@/components/ai-elements/canvas";
+import { Connection } from "@/components/ai-elements/connection";
+import { Edge } from "@/components/ai-elements/edge";
+import { Background, Controls, BackgroundVariant } from "@xyflow/react";
+import { applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
 import { Plus, PlayCircle, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PromptNode } from "@/components/chain-nodes/prompt-node";
@@ -15,6 +17,11 @@ import {
 
 const nodeTypes = {
   prompt: PromptNode,
+};
+
+const edgeTypes = {
+  default: Edge.Animated,
+  smoothstep: Edge.Animated,
 };
 
 const defaultEdgeOptions = {
@@ -34,7 +41,7 @@ interface PromptChainCanvasProps {
 export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasProps) {
   // Handle node position/selection changes
   const onNodesChange = useCallback((changes: any) => {
-    const updatedNodes = applyNodeChanges(changes, chain.canvas.nodes);
+    const updatedNodes = applyNodeChanges(changes, chain.canvas?.nodes || []);
     onChainUpdate({
       ...chain,
       canvas: { ...chain.canvas, nodes: updatedNodes },
@@ -43,7 +50,7 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
 
   // Handle edge changes (deletions, selections)
   const onEdgesChange = useCallback((changes: any) => {
-    const updatedEdges = applyEdgeChanges(changes, chain.canvas.edges);
+    const updatedEdges = applyEdgeChanges(changes, chain.canvas?.edges || []);
     onChainUpdate({
       ...chain,
       canvas: { ...chain.canvas, edges: updatedEdges },
@@ -54,7 +61,7 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
   const onConnect = useCallback((connection: any) => {
     const newEdges = addEdge(
       { ...connection, ...defaultEdgeOptions },
-      chain.canvas.edges
+      chain.canvas?.edges || []
     );
     onChainUpdate({
       ...chain,
@@ -64,16 +71,17 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
 
   // Add new prompt node to canvas
   const addNode = useCallback(() => {
+    const nodes = chain.canvas?.nodes || [];
     const newNode: ChainNode = {
       id: `node-${Date.now()}`,
       type: 'prompt',
       data: {
         promptFile: '',
-        label: `Step ${chain.canvas.nodes.length + 1}`,
+        label: `Step ${nodes.length + 1}`,
         model: 'gpt-4',
         description: '',
         onUpdate: (nodeId: string, newData: any) => {
-          const updatedNodes = chain.canvas.nodes.map(n =>
+          const updatedNodes = (chain.canvas?.nodes || []).map(n =>
             n.id === nodeId ? { ...n, data: newData } : n
           );
           onChainUpdate({
@@ -83,8 +91,8 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
         },
       },
       position: {
-        x: 100 + (chain.canvas.nodes.length * 50),
-        y: 150 + (chain.canvas.nodes.length * 50),
+        x: 100 + (nodes.length * 50),
+        y: 150 + (nodes.length * 50),
       },
     };
 
@@ -92,18 +100,18 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
       ...chain,
       canvas: {
         ...chain.canvas,
-        nodes: [...chain.canvas.nodes, newNode],
+        nodes: [...nodes, newNode],
       },
     });
   }, [chain, onChainUpdate]);
 
   // Inject update handler into all nodes
-  const nodesWithHandlers = chain.canvas.nodes.map(node => ({
+  const nodesWithHandlers = (chain.canvas?.nodes || []).map(node => ({
     ...node,
     data: {
       ...node.data,
       onUpdate: (nodeId: string, newData: any) => {
-        const updatedNodes = chain.canvas.nodes.map(n =>
+        const updatedNodes = (chain.canvas?.nodes || []).map(n =>
           n.id === nodeId ? { ...n, data: newData } : n
         );
         onChainUpdate({
@@ -114,43 +122,88 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
     },
   }));
 
-  const hasNodes = chain.canvas.nodes.length > 0;
+  const hasNodes = (chain.canvas?.nodes || []).length > 0;
+
+  // Ensure edges have proper format for React Flow rendering
+  const edgesForCanvas = (chain.canvas?.edges || []).map(edge => ({
+    id: edge.id || `${edge.source}-${edge.target}`,
+    source: edge.source,
+    target: edge.target,
+    style: {
+      stroke: '#6b7280',
+      strokeWidth: 2,
+    },
+  }));
+
+  // Debug logging for connections
+  useEffect(() => {
+    console.log('🔗 Canvas Rendering Debug:', {
+      nodeCount: nodesWithHandlers.length,
+      edgeCount: edgesForCanvas.length,
+      nodes: nodesWithHandlers.map(n => ({ 
+        id: n.id, 
+        type: n.type,
+        hasHandles: true,
+      })),
+      edges: edgesForCanvas.map(e => ({ 
+        id: e.id, 
+        source: e.source, 
+        target: e.target,
+        type: e.type,
+        animated: e.animated,
+      })),
+      rawEdges: chain.canvas?.edges,
+    });
+  }, [nodesWithHandlers, edgesForCanvas, chain.canvas?.edges]);
+
+  // Debug when connection is made
+  const onConnectDebug = useCallback((connection: any) => {
+    console.log('🔗 Connection Made:', connection);
+    const newEdges = addEdge(
+      { ...connection, ...defaultEdgeOptions },
+      chain.canvas?.edges || []
+    );
+    console.log('🔗 New Edges Array:', newEdges);
+    onChainUpdate({
+      ...chain,
+      canvas: { ...chain.canvas, edges: newEdges },
+    });
+  }, [chain, onChainUpdate]);
 
   return (
     <div className="relative w-full h-full">
-      {/* React Flow Canvas */}
+      {/* AI Elements Canvas with Connection component */}
       <Canvas
         nodes={nodesWithHandlers}
-        edges={chain.canvas.edges}
+        edges={edgesForCanvas}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
+        onConnect={onConnectDebug}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
+        connectionLineComponent={Connection}
         fitView={hasNodes}
-        className="bg-background"
+        defaultViewport={{ x: 0, y: 0, zoom: 0.75 }}
+        minZoom={0.3}
+        maxZoom={1.5}
+        fitViewOptions={{
+          padding: 0.2,
+          maxZoom: 0.85,
+        }}
       >
-        {/* Dot grid background */}
+        {/* Override default background with visible dots */}
         <Background
           variant={BackgroundVariant.Dots}
           gap={20}
-          size={1}
-          color="hsl(var(--muted-foreground) / 0.15)"
+          size={2}
+          color="#666666"
         />
         
         {/* Zoom/pan controls */}
         <Controls 
           className="bg-card border border-border rounded-lg shadow-lg"
           showInteractive={false}
-        />
-        
-        {/* Minimap */}
-        <MiniMap
-          className="bg-card border border-border rounded-lg shadow-lg"
-          maskColor="hsl(var(--background) / 0.8)"
-          nodeColor="hsl(var(--primary))"
-          pannable
-          zoomable
         />
       </Canvas>
 
@@ -190,7 +243,7 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
       {/* Node count indicator */}
       {hasNodes && (
         <div className="absolute bottom-4 left-4 z-10 bg-card border border-border rounded-lg shadow-lg px-3 py-1.5 text-xs text-muted-foreground">
-          {chain.canvas.nodes.length} step{chain.canvas.nodes.length !== 1 ? 's' : ''} · {chain.canvas.edges.length} connection{chain.canvas.edges.length !== 1 ? 's' : ''}
+          {(chain.canvas?.nodes || []).length} step{(chain.canvas?.nodes || []).length !== 1 ? 's' : ''} · {(chain.canvas?.edges || []).length} connection{(chain.canvas?.edges || []).length !== 1 ? 's' : ''}
         </div>
       )}
     </div>
