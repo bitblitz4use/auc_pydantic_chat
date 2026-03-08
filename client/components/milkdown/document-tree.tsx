@@ -24,7 +24,7 @@ import {
   Trash2,
   ChevronRight,
   Folder,
-  FolderOpen,
+  FilePlus,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -38,7 +38,7 @@ interface Document {
 interface DocumentTreeProps {
   currentDocument: string;
   onSelectDocument: (docName: string) => void;
-  onCreateNew: () => void;
+  onCreateNew: (folderPath?: string) => void;
 }
 
 // Organize flat documents into folders by their FULL parent path
@@ -388,6 +388,11 @@ export function DocumentTree({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56">
+          <ContextMenuItem onSelect={() => onCreateNew(folderPath)}>
+            <FilePlus />
+            <span>Add document</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => startRename(folderPath)}>
             <Edit />
             <span>Rename</span>
@@ -406,7 +411,7 @@ export function DocumentTree({
   };
 
   // Render a file with context menu and rename support
-  const renderFile = (path: string, name: string, isNew = false) => {
+  const renderFile = (path: string, name: string) => {
     const isRenaming = renamingPath === path;
 
     return (
@@ -419,7 +424,7 @@ export function DocumentTree({
             <FileTreeFile
               path={path}
               name={name}
-              icon={<FileText className={`size-4 ${isNew ? 'text-amber-500' : 'text-muted-foreground'}`} />}
+              icon={<FileText className="size-4 text-muted-foreground" />}
             >
               {isRenaming ? (
                 <div className="flex items-center gap-1 w-full" onClick={(e) => e.stopPropagation()}>
@@ -483,7 +488,7 @@ export function DocumentTree({
             <FolderPlus size={14} />
           </button>
           <button
-            onClick={onCreateNew}
+            onClick={() => onCreateNew()}
             title="New document"
             className="p-1 rounded hover:bg-accent transition-colors"
           >
@@ -511,11 +516,6 @@ export function DocumentTree({
               defaultExpanded={new Set(allFolders)}
               className="border-0 bg-transparent p-0"
             >
-              {/* Show current document if not in list (new document) */}
-              {!documents.find(d => d.name === selectedPath) && selectedPath && 
-                renderFile(selectedPath, `${selectedPath} (new)`, true)
-              }
-              
               {/* Top-level folders - SORTED ALPHABETICALLY (subfolders rendered recursively) */}
               {topLevelFolders.sort().map((folder) => renderFolder(folder, folder))}
               

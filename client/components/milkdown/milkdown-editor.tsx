@@ -341,9 +341,10 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       try {
         const currentEditor = get();
         const collabService = collabServiceRef.current;
+        const ydoc = ydocRef.current;
         
         // Verify editor and service are still valid
-        if (!currentEditor || !collabService) return;
+        if (!currentEditor || !collabService || !ydoc) return;
         
         currentEditor.action((ctx) => {
           collabService
@@ -352,6 +353,39 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
           collabConnectedRef.current = true; // Mark as connected
           
           console.log("✅ CollabService connected");
+          
+          // Initialize empty documents with placeholder to trigger S3 save
+          const fragment = ydoc.getXmlFragment('prosemirror');
+          if (fragment.length === 0) {
+            console.log("📝 Initializing empty document with placeholder");
+            
+            // Get editor view and insert a space character
+            // This triggers Y.js update -> onChange -> S3 save
+            const view = ctx.get(editorViewCtx);
+            const tr = view.state.tr.insertText(' ', 1);
+            view.dispatch(tr);
+            
+            // Auto-select the space so user can just start typing
+            setTimeout(() => {
+              try {
+                const selectTr = view.state.tr.setSelection(
+                  TextSelection.create(view.state.doc, 1, 2)
+                );
+                view.dispatch(selectTr);
+                console.log("✅ Empty document initialized and ready");
+              } catch (err) {
+                // Ignore selection errors
+                console.warn("Selection warning (safe to ignore):", err);
+              }
+            }, 50);
+            
+            // Refresh document list after save completes
+            // Wait for debounce (2s) + save time + buffer
+            setTimeout(() => {
+              loadDocuments();
+              console.log("🔄 Document list refreshed after save");
+            }, 3000);
+          }
         });
       } catch (error) {
         console.error("❌ Failed to connect CollabService:", error);
@@ -378,11 +412,19 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
     localStorage.setItem("active-document", docName);
   }, []);
 
-  // Create new document
-  const createNewDocument = useCallback(() => {
-    const newName = prompt("Enter document name:");
-    if (newName && newName.trim()) {
-      switchDocument(newName.trim());
+  // Create new document - optionally in a specific folder
+  const createNewDocument = useCallback((folderPath?: string) => {
+    const promptMessage = folderPath 
+      ? `New document in "${folderPath}/" - Enter filename:`
+      : "Enter document name:";
+    
+    const fileName = prompt(promptMessage);
+    if (fileName && fileName.trim()) {
+      // Construct full path: folder/filename (folder path is automatic, not editable)
+      const fullPath = folderPath 
+        ? `${folderPath}/${fileName.trim()}`
+        : fileName.trim();
+      switchDocument(fullPath);
       // No timeout needed - onSynced will refresh automatically
     }
   }, [switchDocument]);
