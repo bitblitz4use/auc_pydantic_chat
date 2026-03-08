@@ -10,12 +10,20 @@ import { loadDocumentFromS3 } from '../utils/documentManager.js';
 const router = express.Router();
 
 /**
- * GET /api/ai/export/:documentName
+ * GET /api/ai/export
  * Export document as Markdown for AI processing
+ * Query parameter: documentName (required)
  */
-router.get('/export/:documentName', async (req, res) => {
+router.get('/export', async (req, res) => {
   try {
-    const { documentName } = req.params;
+    const documentName = req.query.documentName;
+    
+    if (!documentName) {
+      return res.status(400).json({ 
+        error: 'Missing required query parameter: documentName'
+      });
+    }
+    
     console.log(`🤖 AI Export requested for: ${documentName}`);
     
     // Try live document first, fallback to S3
@@ -59,15 +67,14 @@ router.get('/export/:documentName', async (req, res) => {
     console.error('❌ Export error:', error);
     res.status(500).json({ 
       error: 'Failed to export document',
-      message: error.message,
-      documentName: req.params.documentName,
+      message: error.message
     });
   }
 });
 
 /**
- * POST /api/ai/import/:documentName
- * Body: Raw markdown (Content-Type: text/markdown or text/plain)
+ * POST /api/ai/import
+ * Body: { documentName: string, markdown: string }
  * Headers: X-AI-Model, X-AI-Prompt, X-AI-Change-Id (optional)
  * 
  * Production-ready implementation:
@@ -75,14 +82,13 @@ router.get('/export/:documentName', async (req, res) => {
  * - Ensures Hocuspocus hooks fire for proper broadcasting
  * - Handles both connected and disconnected document states
  */
-router.post('/import/:documentName', async (req, res) => {
+router.post('/import', async (req, res) => {
   try {
-    const { documentName } = req.params;
-    const markdown = req.body;
+    const { documentName, markdown } = req.body;
     
-    if (typeof markdown !== 'string' || !markdown.trim()) {
+    if (!documentName || typeof markdown !== 'string' || !markdown.trim()) {
       return res.status(400).json({ 
-        error: 'Send raw markdown with Content-Type: text/markdown or text/plain'
+        error: 'Missing required fields: documentName and markdown content'
       });
     }
     
@@ -95,7 +101,6 @@ router.post('/import/:documentName', async (req, res) => {
     };
     
     // Use AI provider approach - AI connects as a collaborator
-    // This triggers all Hocuspocus hooks and awareness propagation
     console.log('🤖 AI connecting as collaborator...');
     
     const result = await applyAIChangesAsCollaborator(documentName, markdown, metadata);
@@ -114,19 +119,25 @@ router.post('/import/:documentName', async (req, res) => {
     console.error('❌ Import error:', error);
     res.status(500).json({ 
       error: 'Failed to import',
-      message: error.message,
-      documentName: req.params.documentName
+      message: error.message
     });
   }
 });
 
 /**
- * GET /api/ai/changes/:documentName
+ * GET /api/ai/changes
  * Get all active AI changes for a document
+ * Query parameter: documentName (required)
  */
-router.get('/changes/:documentName', async (req, res) => {
+router.get('/changes', async (req, res) => {
   try {
-    const { documentName } = req.params;
+    const documentName = req.query.documentName;
+    
+    if (!documentName) {
+      return res.status(400).json({ 
+        error: 'Missing required query parameter: documentName'
+      });
+    }
     
     const liveDoc = getLiveDocument(documentName);
     if (!liveDoc) {
@@ -167,12 +178,19 @@ router.get('/changes/:documentName', async (req, res) => {
 });
 
 /**
- * POST /api/ai/reject/:documentName/:changeId
+ * POST /api/ai/reject
  * Reject an AI change - undoes it on the server and broadcasts to all clients
+ * Body: { documentName: string, changeId: string }
  */
-router.post('/reject/:documentName/:changeId', async (req, res) => {
+router.post('/reject', async (req, res) => {
   try {
-    const { documentName, changeId } = req.params;
+    const { documentName, changeId } = req.body;
+    
+    if (!changeId || !documentName) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: documentName and changeId'
+      });
+    }
     
     console.log(`❌ Reject request: ${documentName} / ${changeId}`);
     
@@ -204,7 +222,6 @@ router.post('/reject/:documentName/:changeId', async (req, res) => {
     }
     
     // CRDT-compliant reject: Restore previous state for this specific change
-    // This is done by re-applying the before content
     if (!change.beforeContent) {
       return res.status(400).json({ 
         error: 'No previous content available',
@@ -224,16 +241,12 @@ router.post('/reject/:documentName/:changeId', async (req, res) => {
     }
     
     // Apply previous document
-    // Note: This is a full restore for this change's context
-    // In a true CRDT implementation, we'd track Y.RelativePositions
-    // and delete only the specific insertions, but markdown editing
-    // makes full-doc replacement the pragmatic choice
     const fragment = liveDoc.getXmlFragment('prosemirror');
     
     liveDoc.transact(() => {
       fragment.delete(0, fragment.length);
       prosemirrorToYXmlFragment(previousDoc, fragment);
-    }, 'reject-ai'); // Use distinct origin
+    }, 'reject-ai');
     
     console.log(`✅ Content restored (rejected change: ${changeId})`);
     
@@ -266,12 +279,19 @@ router.post('/reject/:documentName/:changeId', async (req, res) => {
 });
 
 /**
- * POST /api/ai/accept/:documentName/:changeId
+ * POST /api/ai/accept
  * Accept an AI change - marks it as accepted
+ * Body: { documentName: string, changeId: string }
  */
-router.post('/accept/:documentName/:changeId', async (req, res) => {
+router.post('/accept', async (req, res) => {
   try {
-    const { documentName, changeId } = req.params;
+    const { documentName, changeId } = req.body;
+    
+    if (!changeId || !documentName) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: documentName and changeId'
+      });
+    }
     
     console.log(`✅ Accept request: ${documentName} / ${changeId}`);
     

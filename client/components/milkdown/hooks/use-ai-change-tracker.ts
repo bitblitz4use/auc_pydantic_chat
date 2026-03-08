@@ -209,8 +209,12 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
     console.log('✅ Accepting AI change:', changeId);
     
     try {
-      const response = await fetch(`http://127.0.0.1:3001/api/ai/accept/${documentName}/${changeId}`, {
-        method: 'POST'
+      const response = await fetch(`http://127.0.0.1:3001/api/ai/accept`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ documentName, changeId })
       });
       
       const result = await response.json();
@@ -237,8 +241,12 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
     console.log('❌ Rejecting AI change:', changeId);
     
     try {
-      const response = await fetch(`http://127.0.0.1:3001/api/ai/reject/${documentName}/${changeId}`, {
-        method: 'POST'
+      const response = await fetch(`http://127.0.0.1:3001/api/ai/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ documentName, changeId })
       });
       
       const result = await response.json();

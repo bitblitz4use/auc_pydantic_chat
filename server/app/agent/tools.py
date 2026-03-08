@@ -4,6 +4,7 @@ from typing import Optional
 import httpx
 import uuid
 import logging
+from urllib.parse import quote
 
 from app.agent.schema import DocumentContext
 
@@ -18,13 +19,13 @@ async def get_document_content(
     
     If document_name is not provided, uses the current_document from context.
     """
-    # Use document_name from parameter, or fall back to context
     doc_name = document_name or ctx.deps.current_document
     
     if not doc_name:
         return "Error: No document specified. Please provide a document name or ensure a document is active in write mode."
     
-    url = f"{ctx.deps.hocuspocus_url}/api/ai/export/{doc_name}"
+    # Use query parameter instead of path
+    url = f"{ctx.deps.hocuspocus_url}/api/ai/export?documentName={quote(doc_name)}"
     
     logger.info(f"🔍 Tool called: get_document_content('{doc_name}')")
     logger.info(f"📡 Requesting: {url}")
@@ -70,13 +71,12 @@ async def update_document_content(
     
     If document_name is not provided, uses the current_document from context.
     """
-    # Use document_name from parameter, or fall back to context
     doc_name = document_name or ctx.deps.current_document
     
     if not doc_name:
         return "Error: No document specified. Please provide a document name or ensure a document is active in write mode."
     
-    url = f"{ctx.deps.hocuspocus_url}/api/ai/import/{doc_name}"
+    url = f"{ctx.deps.hocuspocus_url}/api/ai/import"
     
     logger.info(f"🔍 Tool called: update_document_content('{doc_name}')")
     logger.info(f"📡 Requesting: {url}")
@@ -86,16 +86,21 @@ async def update_document_content(
     logger.info(f"🆔 Generated change ID: {change_id}")
     
     headers = {
-        "Content-Type": "text/markdown",
+        "Content-Type": "application/json",
         "X-AI-Model": ctx.deps.model_name,
         "X-AI-Prompt": change_description or "AI-assisted edit",
         "X-AI-Change-Id": change_id
     }
     
+    body = {
+        "documentName": doc_name,
+        "markdown": markdown_content
+    }
+    
     try:
         response = await ctx.deps.http_client.post(
             url, 
-            content=markdown_content,
+            json=body,
             headers=headers
         )
         logger.info(f"✅ Response status: {response.status_code}")
@@ -138,14 +143,12 @@ async def get_source_content(
     
     Returns the full markdown content of the source document.
     """
-    # Use source_id from parameter, or fall back to context
     src_id = source_id or ctx.deps.current_source
     
     if not src_id:
         return "Error: No source specified. Please provide a source ID or ensure a source is selected in summarize mode."
     
     # Get source markdown from the sources API
-    # API base URL is typically http://localhost:8000 (different from hocuspocus_url)
     api_base = "http://localhost:8000"
     url = f"{api_base}/api/sources/{src_id}/markdown"
     
@@ -160,7 +163,6 @@ async def get_source_content(
         markdown_content = response.text
         logger.info(f"✅ Received {len(markdown_content)} characters of markdown")
         
-        # Return the content - similar to get_document_content pattern
         return f"Source document content (source_id: {src_id}):\n\n{markdown_content}"
         
     except httpx.ConnectError as e:
