@@ -4,7 +4,8 @@ import { useCallback } from "react";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Connection } from "@/components/ai-elements/connection";
 import { Edge } from "@/components/ai-elements/edge";
-import { Background, Controls, BackgroundVariant } from "@xyflow/react";
+import { Controls } from "@/components/ai-elements/controls";
+import { Background, BackgroundVariant } from "@xyflow/react";
 import { applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
 import { Plus, PlayCircle, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -78,17 +79,8 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
       data: {
         promptFile: '',
         label: `Step ${nodes.length + 1}`,
-        model: 'gpt-4',
+        model: '',
         description: '',
-        onUpdate: (nodeId: string, newData: any) => {
-          const updatedNodes = (chain.canvas?.nodes || []).map(n =>
-            n.id === nodeId ? { ...n, data: newData } : n
-          );
-          onChainUpdate({
-            ...chain,
-            canvas: { ...chain.canvas, nodes: updatedNodes },
-          });
-        },
       },
       position: {
         x: 100 + (nodes.length * 50),
@@ -105,7 +97,7 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
     });
   }, [chain, onChainUpdate]);
 
-  // Inject update handler into all nodes
+  // Inject update and delete handlers into all nodes
   const nodesWithHandlers = (chain.canvas?.nodes || []).map(node => ({
     ...node,
     data: {
@@ -117,6 +109,17 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         onChainUpdate({
           ...chain,
           canvas: { ...chain.canvas, nodes: updatedNodes },
+        });
+      },
+      onDelete: (nodeId: string) => {
+        const updatedNodes = (chain.canvas?.nodes || []).filter(n => n.id !== nodeId);
+        // Also remove connected edges
+        const updatedEdges = (chain.canvas?.edges || []).filter(
+          e => e.source !== nodeId && e.target !== nodeId
+        );
+        onChainUpdate({
+          ...chain,
+          canvas: { ...chain.canvas, nodes: updatedNodes, edges: updatedEdges },
         });
       },
     },
@@ -149,6 +152,8 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         defaultEdgeOptions={defaultEdgeOptions}
         connectionLineComponent={Connection}
         fitView={hasNodes}
+        panOnDrag={true}
+        selectionOnDrag={false}
         defaultViewport={{ x: 0, y: 0, zoom: 0.75 }}
         minZoom={0.3}
         maxZoom={1.5}
@@ -167,7 +172,6 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         
         {/* Zoom/pan controls */}
         <Controls 
-          className="bg-card border border-border rounded-lg shadow-lg"
           showInteractive={false}
         />
       </Canvas>
@@ -202,13 +206,6 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
               </ol>
             </AlertDescription>
           </Alert>
-        </div>
-      )}
-
-      {/* Node count indicator */}
-      {hasNodes && (
-        <div className="absolute bottom-4 left-4 z-10 bg-card border border-border rounded-lg shadow-lg px-3 py-1.5 text-xs text-muted-foreground">
-          {(chain.canvas?.nodes || []).length} step{(chain.canvas?.nodes || []).length !== 1 ? 's' : ''} · {(chain.canvas?.edges || []).length} connection{(chain.canvas?.edges || []).length !== 1 ? 's' : ''}
         </div>
       )}
     </div>

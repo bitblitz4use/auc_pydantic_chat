@@ -1,8 +1,8 @@
 "use client";
 
 import { Handle, Position } from "@xyflow/react";
-import { Wand2, Settings } from "lucide-react";
-import { useState } from "react";
+import { Wand2, Settings, Trash2 } from "lucide-react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -19,9 +19,72 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import { listStorageObjects } from "@/lib/storage";
+import { Spinner } from "@/components/ui/spinner";
+import { apiUrl } from "@/lib/config";
+
+interface ModelInfo {
+  id: string;
+  name: string;
+  chef: string;
+  chefSlug: string;
+  providers: string[];
+}
 
 export function PromptNode({ data, id }: any) {
   const [isEditing, setIsEditing] = useState(false);
+  const [promptFiles, setPromptFiles] = useState<string[]>([]);
+  const [loadingPrompts, setLoadingPrompts] = useState(false);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  // Fetch available prompt files when popover opens
+  useEffect(() => {
+    if (isEditing && promptFiles.length === 0) {
+      const fetchPrompts = async () => {
+        try {
+          setLoadingPrompts(true);
+          const files = await listStorageObjects("prompts", false, false);
+          const fileNames = files.map(f => f.name.replace('prompts/', ''));
+          setPromptFiles(fileNames);
+        } catch (error) {
+          console.error("Error fetching prompts:", error);
+        } finally {
+          setLoadingPrompts(false);
+        }
+      };
+      fetchPrompts();
+    }
+  }, [isEditing]);
+
+  // Fetch available models from API
+  useEffect(() => {
+    if (isEditing && models.length === 0) {
+      const fetchModels = async () => {
+        try {
+          setLoadingModels(true);
+          const response = await fetch(apiUrl.providers());
+          if (response.ok) {
+            const data = await response.json();
+            setModels(data.models || []);
+          }
+        } catch (error) {
+          console.error("Error fetching models:", error);
+        } finally {
+          setLoadingModels(false);
+        }
+      };
+      fetchModels();
+    }
+  }, [isEditing]);
+
+  const handleDelete = () => {
+    if (confirm(`Delete step "${data.label || 'Step'}"?`)) {
+      data.onDelete?.(id);
+      setIsEditing(false);
+    }
+  };
 
   return (
     <>
@@ -71,15 +134,35 @@ export function PromptNode({ data, id }: any) {
                   <Label htmlFor={`prompt-${id}`} className="text-xs font-medium">
                     Prompt File
                   </Label>
-                  <Input
-                    id={`prompt-${id}`}
-                    defaultValue={data.promptFile}
-                    onChange={(e) => {
-                      data.onUpdate?.(id, { ...data, promptFile: e.target.value });
-                    }}
-                    placeholder="prompt-name.md"
-                    className="h-8 font-mono text-xs"
-                  />
+                  {loadingPrompts ? (
+                    <div className="flex items-center justify-center h-8 border rounded-md w-full">
+                      <Spinner className="size-4" />
+                    </div>
+                  ) : (
+                    <Select
+                      value={data.promptFile || ""}
+                      onValueChange={(value) => {
+                        data.onUpdate?.(id, { ...data, promptFile: value });
+                      }}
+                    >
+                      <SelectTrigger id={`prompt-${id}`} className="h-8 font-mono text-xs w-full">
+                        <SelectValue placeholder="Select a prompt file..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {promptFiles.length === 0 ? (
+                          <SelectItem value="_empty" disabled>
+                            No prompts available
+                          </SelectItem>
+                        ) : (
+                          promptFiles.map((file) => (
+                            <SelectItem key={file} value={file} className="font-mono text-xs">
+                              {file}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     From prompts/ folder
                   </p>
@@ -89,22 +172,41 @@ export function PromptNode({ data, id }: any) {
                   <Label htmlFor={`model-${id}`} className="text-xs font-medium">
                     AI Model
                   </Label>
-                  <Select
-                    defaultValue={data.model || 'gpt-4'}
-                    onValueChange={(value) => {
-                      data.onUpdate?.(id, { ...data, model: value });
-                    }}
-                  >
-                    <SelectTrigger id={`model-${id}`} className="h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="gpt-4">GPT-4</SelectItem>
-                      <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                      <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
-                      <SelectItem value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  {loadingModels ? (
+                    <div className="flex items-center justify-center h-8 border rounded-md w-full">
+                      <Spinner className="size-4" />
+                    </div>
+                  ) : (
+                    <Select
+                      value={data.model || (models.length > 0 ? models[0].id : '')}
+                      onValueChange={(value) => {
+                        data.onUpdate?.(id, { ...data, model: value });
+                      }}
+                    >
+                      <SelectTrigger id={`model-${id}`} className="h-8 w-full">
+                        <SelectValue placeholder="Select a model..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {models.length === 0 ? (
+                          <SelectItem value="_empty" disabled>
+                            No models available
+                          </SelectItem>
+                        ) : (
+                          models.map((model) => (
+                            <SelectItem key={model.id} value={model.id}>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {model.chef}
+                                </span>
+                                <span>·</span>
+                                <span>{model.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -121,6 +223,19 @@ export function PromptNode({ data, id }: any) {
                     className="h-16 text-xs resize-none"
                   />
                 </div>
+
+                <Separator />
+
+                {/* Delete button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete Step
+                </Button>
               </div>
             </PopoverContent>
           </Popover>
@@ -133,7 +248,7 @@ export function PromptNode({ data, id }: any) {
           </div>
           {data.model && (
             <div className="text-[9px] text-muted-foreground truncate">
-              🤖 {data.model}
+              🤖 {models.find(m => m.id === data.model)?.name || data.model}
             </div>
           )}
         </div>
