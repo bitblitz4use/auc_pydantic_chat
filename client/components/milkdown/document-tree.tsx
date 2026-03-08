@@ -22,6 +22,9 @@ import {
   FolderPlus,
   Edit,
   Trash2,
+  ChevronRight,
+  Folder,
+  FolderOpen,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -103,6 +106,7 @@ export function DocumentTree({
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const loadDocuments = useCallback(async () => {
@@ -144,9 +148,7 @@ export function DocumentTree({
   );
 
   // Start renaming
-  const startRename = useCallback((path: string, e?: React.MouseEvent) => {
-    e?.preventDefault();
-    e?.stopPropagation();
+  const startRename = useCallback((path: string) => {
     setRenamingPath(path);
     setRenameValue(path.split("/").pop() || path);
   }, []);
@@ -198,11 +200,8 @@ export function DocumentTree({
     setRenameValue("");
   }, []);
 
-  // Delete document
-  const deleteDocument = useCallback(async (path: string, e?: React.MouseEvent) => {
-    e?.preventDefault();
-    e?.stopPropagation();
-    
+  // Delete document or folder
+  const deleteDocument = useCallback(async (path: string) => {
     if (!confirm(`Delete "${path}"?`)) return;
 
     try {
@@ -220,7 +219,7 @@ export function DocumentTree({
       await loadDocuments();
     } catch (error) {
       console.error("Failed to delete:", error);
-      alert("Failed to delete document");
+      alert("Failed to delete");
     }
   }, [loadDocuments, currentDocument]);
 
@@ -313,9 +312,23 @@ export function DocumentTree({
   // Get only top-level folders (for rendering - children will be rendered recursively)
   const topLevelFolders = allFolders.filter(f => !f.includes('/'));
 
+  // Toggle folder expansion
+  const toggleFolder = useCallback((folderPath: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderPath)) {
+        next.delete(folderPath);
+      } else {
+        next.add(folderPath);
+      }
+      return next;
+    });
+  }, []);
+
   // Recursive function to render a folder and its subfolders
   const renderFolder = (folderPath: string, folderName: string): JSX.Element => {
     const isRenaming = renamingPath === folderPath;
+    const isExpanded = expandedFolders.has(folderPath);
     
     // Get direct child folders (folders whose parent is this folder)
     const childFolders = allFolders.filter(f => {
@@ -338,30 +351,51 @@ export function DocumentTree({
             onDragOver={handleDragOver}
             onDrop={(e) => handleDrop(folderPath, e)}
           >
-            <FileTreeFolder path={folderPath} name={folderName}>
-              {/* Render child folders recursively */}
-              {childFolders.map(childPath => {
-                const childName = childPath.split('/').pop() || childPath;
-                return renderFolder(childPath, childName);
-              })}
-              
-              {/* Render child documents */}
-              {childDocs.map((doc) => {
-                const fullPath = `${folderPath}/${doc.name}`;
-                return renderFile(fullPath, doc.name);
-              })}
-            </FileTreeFolder>
+            {isRenaming ? (
+              // Inline rename UI for folder - matching FileTreeFile design
+              <div className="flex items-center gap-1 px-2 py-1">
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                <Folder className="size-4 text-blue-500" />
+                <Input
+                  ref={renameInputRef}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") finishRename();
+                    if (e.key === "Escape") cancelRename();
+                    e.stopPropagation();
+                  }}
+                  onBlur={finishRename}
+                  className="h-6 px-1 text-sm flex-1"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+            ) : (
+              <FileTreeFolder path={folderPath} name={folderName}>
+                {/* Render child folders recursively */}
+                {childFolders.map(childPath => {
+                  const childName = childPath.split('/').pop() || childPath;
+                  return renderFolder(childPath, childName);
+                })}
+                
+                {/* Render child documents */}
+                {childDocs.map((doc) => {
+                  const fullPath = `${folderPath}/${doc.name}`;
+                  return renderFile(fullPath, doc.name);
+                })}
+              </FileTreeFolder>
+            )}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56">
-          <ContextMenuItem onClick={(e) => startRename(folderPath, e as any)}>
+          <ContextMenuItem onSelect={() => startRename(folderPath)}>
             <Edit />
             <span>Rename</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem 
             variant="destructive"
-            onClick={(e) => deleteDocument(folderPath, e as any)}
+            onSelect={() => deleteDocument(folderPath)}
           >
             <Trash2 />
             <span>Delete</span>
@@ -410,14 +444,14 @@ export function DocumentTree({
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56">
-          <ContextMenuItem onClick={(e) => startRename(path, e as any)}>
+          <ContextMenuItem onSelect={() => startRename(path)}>
             <Edit />
             <span>Rename</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem 
             variant="destructive"
-            onClick={(e) => deleteDocument(path, e as any)}
+            onSelect={() => deleteDocument(path)}
           >
             <Trash2 />
             <span>Delete</span>
