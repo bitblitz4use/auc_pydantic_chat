@@ -83,7 +83,7 @@ export function DocumentTree({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border p-3 bg-card">
+      <div className="flex items-center justify-between border-b border-border px-3 bg-card h-12">
         <h3 className="text-sm font-semibold">Documents</h3>
         <div className="flex items-center gap-1">
           <button

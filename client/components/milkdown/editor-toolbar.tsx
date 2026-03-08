@@ -116,7 +116,7 @@ export const EditorToolbar = memo(({
   };
 
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 shadow-sm">
+    <div className="flex items-center gap-1 px-3 h-12">
       {/* Sidebar Toggle Button */}
       {onToggleSidebar && (
         <ToolbarButton
