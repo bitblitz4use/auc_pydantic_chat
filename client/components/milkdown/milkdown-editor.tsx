@@ -23,6 +23,7 @@ import { useEditorCommands } from "./hooks/use-editor-commands";
 import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
 import { DocumentTree } from "./document-tree";
 import { ResourceSelectorDialog } from "@/components/ui/resource-selector-dialog";
+import { SaveTemplateDialog } from "./save-template-dialog";
 import { Layout, FileText } from "lucide-react";
 
 // Import AI highlight styles
@@ -31,6 +32,7 @@ import "./styles/ai-highlights.css";
 // Import API config
 import { apiUrl } from "@/lib/config";
 import { useTemplateSelector } from "@/hooks/use-template-selector";
+import { extractTags } from "@/lib/utils";
 
 // Helper function to render Lucide icons as SVG strings
 const renderIcon = (iconType: string, size = 16) => {
@@ -227,6 +229,11 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   // Use template selector hook
   const templateSelector = useTemplateSelector();
 
+  // Save template dialog state
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateMarkdown, setTemplateMarkdown] = useState("");
+  const [availableTemplateTags, setAvailableTemplateTags] = useState<string[]>([]);
+
   // Create editor - this will recreate when connection status changes
   const { get, loading } = useEditor((root) => {
     const ydoc = ydocRef.current;
@@ -386,6 +393,22 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   // Sidebar collapse state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  // Handle save as template
+  const handleSaveAsTemplate = useCallback(() => {
+    const markdown = commands.getMarkdown();
+    if (!markdown) {
+      console.warn('Failed to get markdown content');
+      return;
+    }
+
+    // Get available tags from existing templates
+    const tags = extractTags(templateSelector.templates);
+    setAvailableTemplateTags(tags);
+
+    setTemplateMarkdown(markdown);
+    setSaveTemplateOpen(true);
+  }, [commands, templateSelector.templates]);
+
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex-1 overflow-hidden px-4 pt-4 pb-4">
@@ -422,6 +445,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
                 isSidebarCollapsed={isSidebarCollapsed}
                 onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                 onOpenTemplateSelector={() => templateSelector.setOpen(true)}
+                onSaveAsTemplate={handleSaveAsTemplate}
               />
             </div>
 
@@ -458,6 +482,14 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         emptyText="No templates found."
         loadingText="Loading templates..."
         groupHeading="Templates"
+      />
+
+      {/* Save Template Dialog */}
+      <SaveTemplateDialog
+        open={saveTemplateOpen}
+        onOpenChange={setSaveTemplateOpen}
+        markdown={templateMarkdown}
+        availableTags={availableTemplateTags}
       />
     </div>
   );

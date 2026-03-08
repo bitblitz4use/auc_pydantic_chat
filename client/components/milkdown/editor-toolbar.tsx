@@ -20,6 +20,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Layout,
+  Save,
 } from 'lucide-react';
 import { AIChangesButton } from './ai-changes-button';
 import { AIChange } from './hooks/use-ai-change-tracker';
@@ -54,6 +55,7 @@ interface EditorToolbarProps {
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   onOpenTemplateSelector?: () => void;
+  onSaveAsTemplate?: () => void;
 }
 
 interface ToolbarButtonProps {
@@ -102,6 +104,7 @@ export const EditorToolbar = memo(({
   isSidebarCollapsed = false,
   onToggleSidebar,
   onOpenTemplateSelector,
+  onSaveAsTemplate,
 }: EditorToolbarProps) => {
   // Get status dot color based on connection status
   const getStatusColor = () => {
@@ -258,11 +261,20 @@ export const EditorToolbar = memo(({
         title="Horizontal rule"
         icon={<Minus size={16} />}
       />
+
+      <ToolbarDivider />
+
       <ToolbarButton
         onClick={() => onOpenTemplateSelector?.()}
         disabled={disabled}
         title="Insert template (Ctrl+T)"
         icon={<Layout size={16} />}
+      />
+      <ToolbarButton
+        onClick={() => onSaveAsTemplate?.()}
+        disabled={disabled}
+        title="Save as template"
+        icon={<Save size={16} />}
       />
 
       {/* AI Changes Tooltip Button - Right aligned */}

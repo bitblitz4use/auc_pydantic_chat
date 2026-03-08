@@ -14,6 +14,7 @@ import {
 import { callCommand } from '@milkdown/kit/utils';
 import { undo, redo, undoDepth, redoDepth } from 'prosemirror-history';
 import { clipboardPlugin } from '@milkdown/kit/plugin/clipboard';
+import { defaultMarkdownSerializer } from 'prosemirror-markdown';
 
 export interface EditorCommands {
   // Headings
@@ -43,6 +44,9 @@ export interface EditorCommands {
   
   // Template insertion
   insertTemplate: (markdown: string) => void;
+  
+  // Get markdown
+  getMarkdown: () => string | null;
 }
 
 export function useEditorCommands(getEditor: () => Editor | undefined): EditorCommands {
@@ -351,6 +355,51 @@ export function useEditorCommands(getEditor: () => Editor | undefined): EditorCo
         
         view.dom.dispatchEvent(pasteEvent);
       });
+    }, [getEditor]),
+
+    // Get markdown
+    getMarkdown: useCallback(() => {
+      const editor = getEditor();
+      if (!editor) return null;
+      
+      let markdown: string | null = null;
+      
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        
+        // Use clipboard API to get properly serialized markdown
+        // Select all content temporarily
+        const { state, dispatch } = view;
+        const allSelection = state.selection.constructor.create(
+          state.doc,
+          0,
+          state.doc.content.size
+        );
+        
+        // Create a temporary selection transaction
+        const tr = state.tr.setSelection(allSelection as any);
+        dispatch(tr);
+        
+        // Trigger copy event to get markdown via clipboard plugin
+        const copyEvent = new ClipboardEvent('copy', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: new DataTransfer(),
+        });
+        
+        view.dom.dispatchEvent(copyEvent);
+        
+        // Get the markdown from clipboard
+        const clipboardText = copyEvent.clipboardData?.getData('text/plain');
+        markdown = clipboardText || null;
+        
+        // Restore original selection
+        const originalSelection = state.selection;
+        const restoreTr = view.state.tr.setSelection(originalSelection);
+        view.dispatch(restoreTr);
+      });
+      
+      return markdown;
     }, [getEditor]),
 
     canUndo,
