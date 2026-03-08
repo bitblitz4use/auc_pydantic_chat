@@ -1133,12 +1133,22 @@ body[data-scroll-locked] {
     color: var(--card-foreground);
   }
 
-  /* Alternating row colors for better readability */
+  /* Alternating row colors for better readability - only affect background, not text */
   .milkdown tr:nth-child(even) td,
   .milkdown-editor-root tr:nth-child(even) td,
   .milkdown .ProseMirror tr:nth-child(even) td {
     background-color: var(--muted);
-    opacity: 0.3;
+    /* Removed opacity to prevent text color from being affected */
+  }
+
+  /* Ensure text color is consistent across all rows - override any opacity effects */
+  .milkdown tr:nth-child(even) td,
+  .milkdown-editor-root tr:nth-child(even) td,
+  .milkdown .ProseMirror tr:nth-child(even) td,
+  .milkdown tr:nth-child(even) td *,
+  .milkdown-editor-root tr:nth-child(even) td *,
+  .milkdown .ProseMirror tr:nth-child(even) td * {
+    color: var(--card-foreground) !important;
   }
 
   /* Dark mode - ensure borders are visible */
@@ -1157,12 +1167,22 @@ body[data-scroll-locked] {
     border-color: var(--border);
   }
 
-  /* Hover effect for table rows */
+  /* Hover effect for table rows - ensure text stays visible */
   .milkdown tbody tr:hover,
   .milkdown-editor-root tbody tr:hover,
   .milkdown .ProseMirror tbody tr:hover {
     background-color: var(--accent);
     opacity: 0.5;
+  }
+
+  /* Ensure text color remains visible on hover */
+  .milkdown tbody tr:hover td,
+  .milkdown-editor-root tbody tr:hover td,
+  .milkdown .ProseMirror tbody tr:hover td,
+  .milkdown tbody tr:hover td *,
+  .milkdown-editor-root tbody tr:hover td *,
+  .milkdown .ProseMirror tbody tr:hover td * {
+    color: var(--card-foreground) !important;
   }
 
   /* ========================================
@@ -1177,6 +1197,9 @@ body[data-scroll-locked] {
     --crepe-color-hover: var(--accent);
     --crepe-color-selected: var(--accent);
     --crepe-shadow-1: var(--shadow-md);
+    /* Add text color variable for table cells */
+    --crepe-color-text: var(--card-foreground);
+    --crepe-color-on-surface: var(--card-foreground);
   }
 
   /* Table block handles - Match shadcn button styling */
@@ -1256,15 +1279,99 @@ body[data-scroll-locked] {
     background-color: var(--primary);
   }
 
-  /* Selected cell outline */
+  /* Selected cell outline - ensure text color is maintained */
   .milkdown .milkdown-table-block th:has(.ProseMirror-selectednode),
   .milkdown .milkdown-table-block td:has(.ProseMirror-selectednode) {
     outline-color: var(--primary);
+    color: var(--card-foreground) !important;
+  }
+
+  /* Ensure all content inside selected cells maintains proper color */
+  .milkdown .milkdown-table-block th:has(.ProseMirror-selectednode) *,
+  .milkdown .milkdown-table-block td:has(.ProseMirror-selectednode) *,
+  .milkdown .milkdown-table-block th:has(.ProseMirror-selectednode) p,
+  .milkdown .milkdown-table-block td:has(.ProseMirror-selectednode) p {
+    color: var(--card-foreground) !important;
   }
 
   /* Selected cell background */
   .milkdown .milkdown-table-block .selectedCell::after {
     background-color: var(--primary);
+  }
+
+  /* Ensure selectedCell maintains text color */
+  .milkdown .milkdown-table-block .selectedCell,
+  .milkdown .milkdown-table-block .selectedCell *,
+  .milkdown .milkdown-table-block .selectedCell p {
+    color: var(--card-foreground) !important;
+  }
+
+  /* Table block cells - ensure text color uses theme variable */
+  .milkdown .milkdown-table-block table th,
+  .milkdown .milkdown-table-block table td,
+  .milkdown .milkdown-table-block table th *,
+  .milkdown .milkdown-table-block table td * {
+    color: var(--crepe-color-text, var(--card-foreground)) !important;
+  }
+
+  /* Selected cells in table block - override any dark text */
+  .milkdown .milkdown-table-block .selectedCell,
+  .milkdown .milkdown-table-block .selectedCell *,
+  .milkdown .milkdown-table-block th.selectedCell,
+  .milkdown .milkdown-table-block td.selectedCell {
+    color: var(--crepe-color-text, var(--card-foreground)) !important;
+  }
+
+  /* Additional rules for cells with selection outline/border (selected but not focused) */
+  .milkdown .milkdown-table-block th[style*="outline"],
+  .milkdown .milkdown-table-block td[style*="outline"],
+  .milkdown .milkdown-table-block th[class*="selected"],
+  .milkdown .milkdown-table-block td[class*="selected"],
+  .milkdown table th[style*="outline"],
+  .milkdown table td[style*="outline"],
+  .milkdown-editor-root table th[style*="outline"],
+  .milkdown-editor-root table td[style*="outline"],
+  .milkdown .ProseMirror table th[style*="outline"],
+  .milkdown .ProseMirror table td[style*="outline"] {
+    color: var(--card-foreground) !important;
+  }
+
+  /* Ensure all content in cells with selection indicators maintains proper color */
+  .milkdown .milkdown-table-block th[style*="outline"] *,
+  .milkdown .milkdown-table-block td[style*="outline"] *,
+  .milkdown .milkdown-table-block th[class*="selected"] *,
+  .milkdown .milkdown-table-block td[class*="selected"] *,
+  .milkdown table th[style*="outline"] *,
+  .milkdown table td[style*="outline"] *,
+  .milkdown-editor-root table th[style*="outline"] *,
+  .milkdown-editor-root table td[style*="outline"] *,
+  .milkdown .ProseMirror table th[style*="outline"] *,
+  .milkdown .ProseMirror table td[style*="outline"] * {
+    color: var(--card-foreground) !important;
+  }
+
+  /* Comprehensive rule: any table cell should maintain text color */
+  .milkdown .milkdown-table-block th,
+  .milkdown .milkdown-table-block td,
+  .milkdown table th,
+  .milkdown table td,
+  .milkdown-editor-root table th,
+  .milkdown-editor-root table td,
+  .milkdown .ProseMirror table th,
+  .milkdown .ProseMirror table td {
+    color: var(--card-foreground) !important;
+  }
+
+  /* Ensure all content inside any table cell maintains proper color */
+  .milkdown .milkdown-table-block th *,
+  .milkdown .milkdown-table-block td *,
+  .milkdown table th *,
+  .milkdown table td *,
+  .milkdown-editor-root table th *,
+  .milkdown-editor-root table td *,
+  .milkdown .ProseMirror table th *,
+  .milkdown .ProseMirror table td * {
+    color: var(--card-foreground) !important;
   }
 
   /* Drag preview */
@@ -1286,6 +1393,46 @@ body[data-scroll-locked] {
   .dark .milkdown .milkdown-table-block .add-button {
     background-color: var(--card) !important;
     border-color: var(--border);
+  }
+
+  /* Focused/active table cells - ensure text is always visible */
+  .milkdown .milkdown-table-block th:focus,
+  .milkdown .milkdown-table-block td:focus,
+  .milkdown .milkdown-table-block th:focus-within,
+  .milkdown .milkdown-table-block td:focus-within,
+  .milkdown table th:focus,
+  .milkdown table td:focus,
+  .milkdown table th:focus-within,
+  .milkdown table td:focus-within,
+  .milkdown-editor-root table th:focus,
+  .milkdown-editor-root table td:focus,
+  .milkdown-editor-root table th:focus-within,
+  .milkdown-editor-root table td:focus-within,
+  .milkdown .ProseMirror table th:focus,
+  .milkdown .ProseMirror table td:focus,
+  .milkdown .ProseMirror table th:focus-within,
+  .milkdown .ProseMirror table td:focus-within {
+    color: var(--card-foreground) !important;
+  }
+
+  /* Ensure all content inside focused cells maintains proper color */
+  .milkdown .milkdown-table-block th:focus *,
+  .milkdown .milkdown-table-block td:focus *,
+  .milkdown .milkdown-table-block th:focus-within *,
+  .milkdown .milkdown-table-block td:focus-within *,
+  .milkdown table th:focus *,
+  .milkdown table td:focus *,
+  .milkdown table th:focus-within *,
+  .milkdown table td:focus-within *,
+  .milkdown-editor-root table th:focus *,
+  .milkdown-editor-root table td:focus *,
+  .milkdown-editor-root table th:focus-within *,
+  .milkdown-editor-root table td:focus-within *,
+  .milkdown .ProseMirror table th:focus *,
+  .milkdown .ProseMirror table td:focus *,
+  .milkdown .ProseMirror table th:focus-within *,
+  .milkdown .ProseMirror table td:focus-within * {
+    color: var(--card-foreground) !important;
   }
 
   /* ========================================
