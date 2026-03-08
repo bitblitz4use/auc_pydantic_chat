@@ -4,11 +4,12 @@ import { MilkdownEditor } from "@/components/milkdown/milkdown-editor";
 import { PromptsView } from "@/components/prompts-view";
 import { TemplatesView } from "@/components/templates-view";
 import { SourcesView } from "@/components/sources-view";
+import { ChainsView } from "@/components/chains-view";
 import { ToolbarButton } from "@/components/ui/toolbar-button";
 import { useState } from "react";
-import { Settings, FileText, Wand2, Layout, Database } from "lucide-react";
+import { Settings, FileText, Wand2, Layout, Database, Network } from "lucide-react";
 
-type ContentView = "editor" | "prompts" | "templates" | "sources";
+type ContentView = "editor" | "prompts" | "chains" | "templates" | "sources";
 
 export function RightPanelContent() {
   const [activeView, setActiveView] = useState<ContentView>("editor");
@@ -28,6 +29,12 @@ export function RightPanelContent() {
           isActive={activeView === "prompts"}
           onClick={() => setActiveView("prompts")}
           title="Prompts"
+        />
+        <ToolbarButton
+          icon={Network}
+          isActive={activeView === "chains"}
+          onClick={() => setActiveView("chains")}
+          title="Chains"
         />
         <ToolbarButton
           icon={Layout}
@@ -62,6 +69,7 @@ export function RightPanelContent() {
         >
           {activeView === "editor" && <MilkdownEditor />}
           {activeView === "prompts" && <PromptsView />}
+          {activeView === "chains" && <ChainsView />}
           {activeView === "templates" && <TemplatesView />}
           {activeView === "sources" && <SourcesView />}
         </div>
