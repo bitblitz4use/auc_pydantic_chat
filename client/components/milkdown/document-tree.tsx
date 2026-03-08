@@ -138,13 +138,36 @@ export function DocumentTree({
     }
   }, [renamingPath]);
 
+  // Toggle folder expansion
+  const toggleFolder = useCallback((folderPath: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderPath)) {
+        next.delete(folderPath);
+      } else {
+        next.add(folderPath);
+      }
+      return next;
+    });
+  }, []);
+
   const handleSelect = useCallback(
     (path: string) => {
       if (renamingPath) return; // Don't select while renaming
+      
+      // CRITICAL FIX: Prevent folders from being selected as documents
+      // Check if this path is a folder (not a document)
+      const foldersSet = buildFolderTree(documents);
+      if (foldersSet.has(path)) {
+        // This is a folder - only toggle expansion, don't open as document
+        toggleFolder(path);
+        return;
+      }
+      
       setSelectedPath(path);
       onSelectDocument(path);
     },
-    [onSelectDocument, renamingPath]
+    [onSelectDocument, renamingPath, documents, toggleFolder]
   );
 
   // Start renaming
@@ -311,19 +334,6 @@ export function DocumentTree({
   
   // Get only top-level folders (for rendering - children will be rendered recursively)
   const topLevelFolders = allFolders.filter(f => !f.includes('/'));
-
-  // Toggle folder expansion
-  const toggleFolder = useCallback((folderPath: string) => {
-    setExpandedFolders(prev => {
-      const next = new Set(prev);
-      if (next.has(folderPath)) {
-        next.delete(folderPath);
-      } else {
-        next.add(folderPath);
-      }
-      return next;
-    });
-  }, []);
 
   // Recursive function to render a folder and its subfolders
   const renderFolder = (folderPath: string, folderName: string): JSX.Element => {
