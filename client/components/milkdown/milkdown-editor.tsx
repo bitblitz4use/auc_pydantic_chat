@@ -21,6 +21,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import { EditorToolbar } from "./editor-toolbar";
 import { useEditorCommands } from "./hooks/use-editor-commands";
 import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
+import { DocumentTree } from "./document-tree";
 
 // Import AI highlight styles
 import "./styles/ai-highlights.css";
@@ -355,14 +356,30 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   // Get editor commands hook
   const commands = useEditorCommands(get);
 
+  // Sidebar collapse state
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Scrollable Editor Container with Toolbar Inside */}
       <div className="flex-1 overflow-hidden px-4 pt-4 pb-4">
-        <div className="editor-scrollbar h-full overflow-auto rounded-lg border border-border bg-card">
-          <div className="relative min-h-full">
-            {/* Floating Toolbar - Sticky within scroll container */}
-            <div className="sticky top-0 z-10 bg-card/95 backdrop-blur-sm p-2">
+        <div className="h-full rounded-lg border border-border bg-card flex overflow-hidden">
+          {/* Document Tree Sidebar - Fixed position, scrollable */}
+          <div
+            className={`border-r border-border flex-shrink-0 overflow-auto transition-all duration-300 ${
+              isSidebarCollapsed ? "w-0" : "w-64"
+            }`}
+          >
+            <DocumentTree
+              currentDocument={currentDocumentName}
+              onSelectDocument={switchDocument}
+              onCreateNew={createNewDocument}
+            />
+          </div>
+
+          {/* Editor Area - Fixed toolbar + scrollable content */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Fixed Toolbar - Always visible */}
+            <div className="flex-shrink-0 border-b border-border bg-card p-2">
               <EditorToolbar
                 commands={commands}
                 disabled={connectionStatus !== "synced" || loading}
@@ -375,18 +392,16 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
                 onAcceptAI={aiTracker.acceptAIChange}
                 onRejectAI={aiTracker.rejectAIChange}
                 connectionStatus={connectionStatus}
-                currentDocumentName={currentDocumentName}
-                availableDocuments={availableDocuments}
-                isLoadingDocuments={isLoadingDocuments}
-                onSwitchDocument={switchDocument}
-                onCreateNew={createNewDocument}
-                onRefresh={loadDocuments}
+                isSidebarCollapsed={isSidebarCollapsed}
+                onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               />
             </div>
 
-            {/* Editor Content - Starts right after toolbar */}
-            <div className="milkdown-editor-root p-4">
-              <Milkdown />
+            {/* Scrollable Editor Content */}
+            <div className="flex-1 overflow-auto editor-scrollbar">
+              <div className="milkdown-editor-root p-4">
+                <Milkdown />
+              </div>
             </div>
           </div>
         </div>

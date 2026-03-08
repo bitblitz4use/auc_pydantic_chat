@@ -17,8 +17,8 @@ import {
   Type,
   Undo2,
   Redo2,
-  RefreshCw,
-  FilePlus,
+  PanelLeftClose,
+  PanelLeft,
 } from 'lucide-react';
 import { AIChangesButton } from './ai-changes-button';
 import { AIChange } from './hooks/use-ai-change-tracker';
@@ -36,12 +36,6 @@ const FONT_FAMILIES = [
   { value: 'Arial, sans-serif', label: 'Arial' },
 ];
 
-interface Document {
-  name: string;
-  size: number;
-  lastModified: Date;
-}
-
 interface EditorToolbarProps {
   commands: EditorCommands;
   disabled?: boolean;
@@ -54,14 +48,10 @@ interface EditorToolbarProps {
   onRedoAI?: () => void;
   onAcceptAI?: (changeId: string) => void;
   onRejectAI?: (changeId: string) => void;
-  // Document management props
+  // Connection and sidebar props
   connectionStatus?: ConnectionStatus;
-  currentDocumentName: string;
-  availableDocuments: Document[];
-  isLoadingDocuments?: boolean;
-  onSwitchDocument: (docName: string) => void;
-  onCreateNew: () => void;
-  onRefresh: () => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 interface ToolbarButtonProps {
@@ -107,12 +97,8 @@ export const EditorToolbar = memo(({
   onAcceptAI,
   onRejectAI,
   connectionStatus,
-  currentDocumentName,
-  availableDocuments,
-  isLoadingDocuments = false,
-  onSwitchDocument,
-  onCreateNew,
-  onRefresh,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }: EditorToolbarProps) => {
   // Get status dot color based on connection status
   const getStatusColor = () => {
@@ -131,7 +117,16 @@ export const EditorToolbar = memo(({
 
   return (
     <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5 shadow-sm">
-      {/* Connection Status Dot - First element */}
+      {/* Sidebar Toggle Button */}
+      {onToggleSidebar && (
+        <ToolbarButton
+          onClick={onToggleSidebar}
+          title={isSidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+          icon={isSidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+        />
+      )}
+
+      {/* Connection Status Dot */}
       {connectionStatus && (
         <div
           className={`h-2 w-2 rounded-full ${getStatusColor()}`}
@@ -144,41 +139,6 @@ export const EditorToolbar = memo(({
         />
       )}
 
-      {/* Document Switcher - Second element */}
-      <select
-        value={currentDocumentName}
-        onChange={(e) => onSwitchDocument(e.target.value)}
-        className="rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary h-8 min-w-[120px]"
-        disabled={disabled}
-        title="Select document"
-      >
-        {availableDocuments.map((doc) => (
-          <option key={doc.name} value={doc.name}>
-            {doc.name}
-          </option>
-        ))}
-        {!availableDocuments.find((d) => d.name === currentDocumentName) && (
-          <option value={currentDocumentName}>{currentDocumentName} (new)</option>
-        )}
-      </select>
-
-      {/* Refresh Button - Third element */}
-      <ToolbarButton
-        onClick={onRefresh}
-        disabled={disabled || isLoadingDocuments}
-        title="Refresh documents"
-        icon={<RefreshCw size={16} className={isLoadingDocuments ? "animate-spin" : ""} />}
-      />
-
-      {/* New Document Button - Fourth element */}
-      <ToolbarButton
-        onClick={onCreateNew}
-        disabled={disabled}
-        title="Create new document"
-        icon={<FilePlus size={16} />}
-      />
-
-      {/* Vertical Divider before Undo/Redo */}
       <ToolbarDivider />
 
       {/* Undo/Redo */}
