@@ -1,13 +1,12 @@
 "use client";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { TagSelector } from "@/components/ui/tag-selector";
-import { Spinner } from "@/components/ui/spinner";
 import { Network } from "lucide-react";
+import { LoadingButton } from "@/components/common/loading-button";
+import { Button } from "@/components/ui/button";
 import type { ChainMetadata } from "@/lib/prompt-chains";
 
 interface ChainMetadataDialogProps {
@@ -105,16 +104,13 @@ export function ChainMetadataDialog({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={onSave} disabled={saving}>
-            {saving ? (
-              <>
-                <Spinner className="mr-2 size-4" />
-                Saving...
-              </>
-            ) : (
-              isNew ? 'Create Chain' : 'Save Changes'
-            )}
-          </Button>
+          <LoadingButton 
+            loading={saving} 
+            loadingText="Saving..." 
+            onClick={onSave}
+          >
+            {isNew ? 'Create Chain' : 'Save Changes'}
+          </LoadingButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

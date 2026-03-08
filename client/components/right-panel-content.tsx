@@ -4,7 +4,7 @@ import { MilkdownEditor } from "@/components/milkdown/milkdown-editor";
 import { PromptsView } from "@/components/prompts-view";
 import { TemplatesView } from "@/components/templates-view";
 import { SourcesView } from "@/components/sources-view";
-import { ChainsView } from "@/components/chains-view";
+import { ChainsView } from "@/components/chains/chains-view";
 import { ToolbarButton } from "@/components/ui/toolbar-button";
 import { useState } from "react";
 import { Settings, FileText, Wand2, Layout, Database, Network } from "lucide-react";

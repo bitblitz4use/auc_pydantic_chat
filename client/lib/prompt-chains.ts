@@ -12,6 +12,7 @@ export interface ChainNode {
     label: string;
     model?: string;
     description?: string;
+    onUpdate?: (nodeId: string, newData: any) => void;
   };
   position: { x: number; y: number };
 }

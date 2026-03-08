@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Connection } from "@/components/ai-elements/connection";
 import { Edge } from "@/components/ai-elements/edge";
@@ -8,7 +8,7 @@ import { Background, Controls, BackgroundVariant } from "@xyflow/react";
 import { applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
 import { Plus, PlayCircle, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PromptNode } from "@/components/chain-nodes/prompt-node";
+import { PromptNode } from "@/components/chains/nodes/prompt-node";
 import type { ChainMetadata, ChainNode } from "@/lib/prompt-chains";
 import {
   Alert,
@@ -33,12 +33,12 @@ const defaultEdgeOptions = {
   type: 'smoothstep',
 };
 
-interface PromptChainCanvasProps {
+interface ChainCanvasProps {
   chain: ChainMetadata;
   onChainUpdate: (updated: ChainMetadata) => void;
 }
 
-export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasProps) {
+export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
   // Handle node position/selection changes
   const onNodesChange = useCallback((changes: any) => {
     const updatedNodes = applyNodeChanges(changes, chain.canvas?.nodes || []);
@@ -135,41 +135,6 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
     },
   }));
 
-  // Debug logging for connections
-  useEffect(() => {
-    console.log('🔗 Canvas Rendering Debug:', {
-      nodeCount: nodesWithHandlers.length,
-      edgeCount: edgesForCanvas.length,
-      nodes: nodesWithHandlers.map(n => ({ 
-        id: n.id, 
-        type: n.type,
-        hasHandles: true,
-      })),
-      edges: edgesForCanvas.map(e => ({ 
-        id: e.id, 
-        source: e.source, 
-        target: e.target,
-        type: e.type,
-        animated: e.animated,
-      })),
-      rawEdges: chain.canvas?.edges,
-    });
-  }, [nodesWithHandlers, edgesForCanvas, chain.canvas?.edges]);
-
-  // Debug when connection is made
-  const onConnectDebug = useCallback((connection: any) => {
-    console.log('🔗 Connection Made:', connection);
-    const newEdges = addEdge(
-      { ...connection, ...defaultEdgeOptions },
-      chain.canvas?.edges || []
-    );
-    console.log('🔗 New Edges Array:', newEdges);
-    onChainUpdate({
-      ...chain,
-      canvas: { ...chain.canvas, edges: newEdges },
-    });
-  }, [chain, onChainUpdate]);
-
   return (
     <div className="relative w-full h-full">
       {/* AI Elements Canvas with Connection component */}
@@ -178,7 +143,7 @@ export function PromptChainCanvas({ chain, onChainUpdate }: PromptChainCanvasPro
         edges={edgesForCanvas}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
-        onConnect={onConnectDebug}
+        onConnect={onConnect}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
