@@ -22,12 +22,15 @@ import { EditorToolbar } from "./editor-toolbar";
 import { useEditorCommands } from "./hooks/use-editor-commands";
 import { useAIChangeTracker } from "./hooks/use-ai-change-tracker";
 import { DocumentTree } from "./document-tree";
+import { ResourceSelectorDialog } from "@/components/ui/resource-selector-dialog";
+import { Layout, FileText } from "lucide-react";
 
 // Import AI highlight styles
 import "./styles/ai-highlights.css";
 
 // Import API config
 import { apiUrl } from "@/lib/config";
+import { useTemplateSelector } from "@/hooks/use-template-selector";
 
 // Helper function to render Lucide icons as SVG strings
 const renderIcon = (iconType: string, size = 16) => {
@@ -94,6 +97,24 @@ const exitListPlugin = $prose(() => {
           }
         }
 
+        return false;
+      },
+    },
+  });
+});
+
+// Custom plugin to handle Ctrl+T shortcut for template insertion
+const templateShortcutPlugin = (onOpenTemplateSelector: () => void) => $prose(() => {
+  return new Plugin({
+    key: new PluginKey('templateShortcut'),
+    props: {
+      handleKeyDown(view, event) {
+        // Check for Ctrl+T (or Cmd+T on Mac)
+        if ((event.ctrlKey || event.metaKey) && event.key === 't' && !event.shiftKey && !event.altKey) {
+          event.preventDefault();
+          onOpenTemplateSelector();
+          return true;
+        }
         return false;
       },
     },
@@ -203,6 +224,9 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
   // Use AI change tracker hook
   const aiTracker = useAIChangeTracker(ydocRef.current, currentDocumentName);
 
+  // Use template selector hook
+  const templateSelector = useTemplateSelector();
+
   // Create editor - this will recreate when connection status changes
   const { get, loading } = useEditor((root) => {
     const ydoc = ydocRef.current;
@@ -239,7 +263,8 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
         .use(clipboard)
         .use(history)
         .use(block)
-        .use(exitListPlugin);
+        .use(exitListPlugin)
+        .use(templateShortcutPlugin(() => templateSelector.setOpen(true)));
     }
 
     console.log("✅ Creating collaborative editor");
@@ -283,7 +308,8 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
       .use(history)
       .use(collab)
       .use(block)
-      .use(exitListPlugin);
+      .use(exitListPlugin)
+      .use(templateShortcutPlugin(() => templateSelector.setOpen(true)));
   }, [connectionStatus]); // Only recreate when connection status changes
 
   // Connect CollabService after editor is ready
@@ -395,6 +421,7 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
                 connectionStatus={connectionStatus}
                 isSidebarCollapsed={isSidebarCollapsed}
                 onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                onOpenTemplateSelector={() => templateSelector.setOpen(true)}
               />
             </div>
 
@@ -407,6 +434,31 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
           </div>
         </div>
       </div>
+
+      {/* Template Selector Dialog */}
+      <ResourceSelectorDialog
+        open={templateSelector.open}
+        onOpenChange={templateSelector.setOpen}
+        title="Insert Template"
+        description="Choose a template to insert at cursor position"
+        items={templateSelector.templates}
+        loading={templateSelector.loading}
+        onSelect={(template) => 
+          templateSelector.handleTemplateSelect(
+            template.name, 
+            (markdown) => commands.insertTemplate(markdown)
+          )
+        }
+        renderItem={(template) => ({
+          key: template.name,
+          label: template.name.replace("templates/", ""),
+          icon: <Layout className="size-4" />,
+        })}
+        searchPlaceholder="Search templates..."
+        emptyText="No templates found."
+        loadingText="Loading templates..."
+        groupHeading="Templates"
+      />
     </div>
   );
 }

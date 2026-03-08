@@ -13,6 +13,7 @@ import {
 } from '@milkdown/kit/preset/commonmark';
 import { callCommand } from '@milkdown/kit/utils';
 import { undo, redo, undoDepth, redoDepth } from 'prosemirror-history';
+import { clipboardPlugin } from '@milkdown/kit/plugin/clipboard';
 
 export interface EditorCommands {
   // Headings
@@ -39,6 +40,9 @@ export interface EditorCommands {
   
   // Font family
   setFontFamily: (fontFamily: string) => void;
+  
+  // Template insertion
+  insertTemplate: (markdown: string) => void;
 }
 
 export function useEditorCommands(getEditor: () => Editor | undefined): EditorCommands {
@@ -324,6 +328,29 @@ export function useEditorCommands(getEditor: () => Editor | undefined): EditorCo
       } catch (error) {
         console.error('Failed to set font family:', error);
       }
+    }, [getEditor]),
+
+    // Template insertion
+    insertTemplate: useCallback((markdown: string) => {
+      const editor = getEditor();
+      if (!editor) return;
+      
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        
+        // Simulate a paste event with markdown content
+        // This uses the clipboard plugin's logic which handles schema correctly
+        const clipboardData = new DataTransfer();
+        clipboardData.setData('text/plain', markdown);
+        
+        const pasteEvent = new ClipboardEvent('paste', {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        });
+        
+        view.dom.dispatchEvent(pasteEvent);
+      });
     }, [getEditor]),
 
     canUndo,

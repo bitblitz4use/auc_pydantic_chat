@@ -19,6 +19,7 @@ import {
   Redo2,
   PanelLeftClose,
   PanelLeft,
+  Layout,
 } from 'lucide-react';
 import { AIChangesButton } from './ai-changes-button';
 import { AIChange } from './hooks/use-ai-change-tracker';
@@ -52,6 +53,7 @@ interface EditorToolbarProps {
   connectionStatus?: ConnectionStatus;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  onOpenTemplateSelector?: () => void;
 }
 
 interface ToolbarButtonProps {
@@ -99,6 +101,7 @@ export const EditorToolbar = memo(({
   connectionStatus,
   isSidebarCollapsed = false,
   onToggleSidebar,
+  onOpenTemplateSelector,
 }: EditorToolbarProps) => {
   // Get status dot color based on connection status
   const getStatusColor = () => {
@@ -254,6 +257,12 @@ export const EditorToolbar = memo(({
         disabled={disabled}
         title="Horizontal rule"
         icon={<Minus size={16} />}
+      />
+      <ToolbarButton
+        onClick={() => onOpenTemplateSelector?.()}
+        disabled={disabled}
+        title="Insert template (Ctrl+T)"
+        icon={<Layout size={16} />}
       />
 
       {/* AI Changes Tooltip Button - Right aligned */}
