@@ -21,6 +21,9 @@ const liveDocuments = new Map();
 // Store undo managers for each document (for AI change rejection)
 const undoManagers = new Map();
 
+// Store connections for broadcasting
+const documentConnections = new Map();
+
 export const hocuspocusServer = new Server({
   name: "hocuspocus-server",
   port: 1234,
@@ -30,10 +33,25 @@ export const hocuspocusServer = new Server({
   
   async onConnect(data) {
     console.log('🔮 Client connected to document:', data.documentName);
+    
+    // Track connections for broadcasting
+    if (!documentConnections.has(data.documentName)) {
+      documentConnections.set(data.documentName, new Set());
+    }
+    documentConnections.get(data.documentName).add(data.connection);
   },
   
   async onDisconnect(data) {
     console.log('👋 Client disconnected from document:', data.documentName);
+    
+    // Remove connection
+    const connections = documentConnections.get(data.documentName);
+    if (connections) {
+      connections.delete(data.connection);
+      if (connections.size === 0) {
+        documentConnections.delete(data.documentName);
+      }
+    }
   },
 
   async onChange(data) {
@@ -90,5 +108,14 @@ export function getLiveDocument(documentName) {
 export function getUndoManager(documentName) {
   return undoManagers.get(documentName);
 }
+
+// Export function to get connections for a document
+export function getDocumentConnections(documentName) {
+  const connections = documentConnections.get(documentName);
+  return connections ? Array.from(connections) : [];
+}
+
+// Export the server instance for broadcasting
+export { hocuspocusServer as server };
 
 export { s3Extension };

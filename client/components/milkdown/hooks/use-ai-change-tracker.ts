@@ -11,10 +11,19 @@ export interface AIChange {
 }
 
 /**
- * Hook to track AI changes with proper undo/redo
- * Production-ready: Server-side undo for proper broadcasting
+ * Hook to track AI changes with proper undo/redo and persistence
+ * 
+ * Production improvements implemented:
+ * - Persisted metadata survives page reloads (stored in __persistedMetadata Y.Map)
+ * - Proper UndoManager cleanup to prevent memory leaks
+ * - Observes both changeHistory and persistedMeta for accurate state
+ * - Enhanced error handling with user feedback
  */
-export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
+export function useAIChangeTracker(
+  ydoc: Y.Doc | null, 
+  documentName?: string,
+  getEditor?: () => any
+) {
   const [changes, setChanges] = useState<AIChange[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -36,6 +45,11 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
     console.log('✅ UndoManager initialized');
     
     return () => {
+      // Properly destroy UndoManager to prevent memory leaks
+      if (undoManagerRef.current) {
+        undoManagerRef.current.destroy();
+        console.log('🧹 UndoManager destroyed');
+      }
       undoManagerRef.current = null;
     };
   }, [ydoc]);
@@ -50,6 +64,7 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
     }
     
     const changeHistory = ydoc.getMap('aiChangeHistory');
+    const persistedMeta = ydoc.getMap('__persistedMetadata');
     
     const updateChanges = () => {
       const changeEntries: AIChange[] = [];
@@ -58,12 +73,16 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
         // Skip metadata keys
         if (key.startsWith('__')) return;
         
+        // Read persisted status if available (overrides in-memory)
+        const persistedStatus = persistedMeta.get(`change_${key}_status`);
+        const actualStatus = persistedStatus || value.status || 'pending';
+        
         changeEntries.push({
           id: key,
           timestamp: value.timestamp,
           model: value.model,
           prompt: value.prompt,
-          status: value.status || 'pending',
+          status: actualStatus,
           undoable: value.undoable
         });
       });
@@ -94,11 +113,13 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
     // Initial load
     updateChanges();
     
-    // Listen for changes
+    // Listen for changes in both locations
     changeHistory.observe(updateChanges);
+    persistedMeta.observe(updateChanges);
     
     return () => {
       changeHistory.unobserve(updateChanges);
+      persistedMeta.unobserve(updateChanges);
     };
   }, [ydoc]);
   
@@ -217,6 +238,11 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
         body: JSON.stringify({ documentName, changeId })
       });
       
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
@@ -226,11 +252,14 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
       }
     } catch (error) {
       console.error('❌ Accept request failed:', error);
+      // Show error to user (could be enhanced with toast notification)
+      alert(`Failed to accept change: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, [documentName]);
   
   /**
-   * Reject AI change - calls server API to undo and mark as rejected
+   * Reject AI change - undos the editor transaction and marks as rejected
+   * NEW ARCHITECTURE: AI changes are ProseMirror transactions, so we use editor undo
    */
   const rejectAIChange = useCallback(async (changeId: string) => {
     if (!documentName) {
@@ -240,6 +269,31 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
     
     console.log('❌ Rejecting AI change:', changeId);
     
+    // First, undo the change locally using editor's undo
+    if (getEditor) {
+      try {
+        const editor = getEditor();
+        if (editor) {
+          // Dynamic import for types
+          const { editorViewCtx } = require('@milkdown/kit/core');
+          const { undo } = require('prosemirror-history');
+          
+          editor.action((ctx: any) => {
+            const view = ctx.get(editorViewCtx);
+            const { state, dispatch } = view;
+            
+            // Use ProseMirror's built-in undo
+            undo(state, dispatch);
+          });
+          
+          console.log('✅ Editor undo performed');
+        }
+      } catch (error) {
+        console.error('❌ Editor undo failed:', error);
+      }
+    }
+    
+    // Then notify server to mark as rejected
     try {
       const response = await fetch(`http://127.0.0.1:3001/api/ai/reject`, {
         method: 'POST',
@@ -249,18 +303,24 @@ export function useAIChangeTracker(ydoc: Y.Doc | null, documentName?: string) {
         body: JSON.stringify({ documentName, changeId })
       });
       
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {
-        console.log('✅ Change rejected and undone on server');
-        console.log('📡 Undo broadcasted to all clients');
+        console.log('✅ Change marked as rejected on server');
       } else {
         console.error('❌ Reject failed:', result.error);
       }
     } catch (error) {
       console.error('❌ Reject request failed:', error);
+      // Show error to user (could be enhanced with toast notification)
+      alert(`Failed to reject change: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [documentName]);
+  }, [documentName, getEditor]);
   
   return {
     changes,

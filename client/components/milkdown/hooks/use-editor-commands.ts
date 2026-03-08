@@ -53,23 +53,25 @@ export function useEditorCommands(getEditor: () => Editor | undefined): EditorCo
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
-  // Poll undo/redo state using prosemirror-history depth functions
+  // Event-driven undo/redo state tracking (no polling)
   useEffect(() => {
-    const interval = setInterval(() => {
-      const editor = getEditor();
-      if (!editor) {
-        setCanUndo(false);
-        setCanRedo(false);
-        return;
-      }
+    const editor = getEditor();
+    if (!editor) {
+      setCanUndo(false);
+      setCanRedo(false);
+      return;
+    }
 
+    let isMounted = true;
+
+    const checkUndoRedoState = () => {
+      if (!isMounted) return;
+      
       try {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           const { state } = view;
           
-          // Use prosemirror-history's depth functions
-          // These reliably report available undo/redo stacks
           setCanUndo(undoDepth(state) > 0);
           setCanRedo(redoDepth(state) > 0);
         });
@@ -78,9 +80,47 @@ export function useEditorCommands(getEditor: () => Editor | undefined): EditorCo
         setCanUndo(false);
         setCanRedo(false);
       }
-    }, 200); // Check every 200ms
+    };
 
-    return () => clearInterval(interval);
+    // Initial check
+    checkUndoRedoState();
+
+    // Listen to editor events instead of polling
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      
+      const handleTransaction = () => {
+        if (isMounted) {
+          // Use requestAnimationFrame to batch updates
+          requestAnimationFrame(checkUndoRedoState);
+        }
+      };
+      
+      // Store handler reference for cleanup
+      (view.dom as any)._undoRedoHandler = handleTransaction;
+      
+      view.dom.addEventListener('input', handleTransaction);
+      view.dom.addEventListener('keydown', handleTransaction);
+    });
+
+    return () => {
+      isMounted = false;
+      
+      // Cleanup event listeners
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const handler = (view.dom as any)._undoRedoHandler;
+          if (handler) {
+            view.dom.removeEventListener('input', handler);
+            view.dom.removeEventListener('keydown', handler);
+            delete (view.dom as any)._undoRedoHandler;
+          }
+        });
+      } catch (error) {
+        // Ignore cleanup errors (editor may be destroyed)
+      }
+    };
   }, [getEditor]);
 
   const executeCommand = useCallback((commandKey: string, payload?: any) => {

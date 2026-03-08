@@ -3,7 +3,7 @@ from pydantic_ai import Agent
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 from app.agent.schema import DocumentContext, TaskMode
-from app.agent.tools import get_document_content, update_document_content, get_source_content
+from app.agent.tools import get_document_content, update_document_content, get_source_content, apply_document_edits
 from app.agent.tool_wrappers import smart_update_document_content
 from app.agent.prompts import ASK_SYSTEM_PROMPT, WRITE_SYSTEM_PROMPT, SUMMARIZE_SYSTEM_PROMPT
 from app.providers import create_model, parse_model_id
@@ -32,12 +32,10 @@ def create_ask_agent(provider: str, model_name: str) -> Agent:
 
 def create_write_agent(provider: str, model_name: str) -> Agent:
     """
-    Create document editing agent with smart document tools.
+    Create document editing agent with structured edit tool.
     
-    The smart_update_document_content wrapper automatically:
-    - Reads current document content before any update
-    - Logs changes being made
-    - Ensures full context is available
+    Uses apply_document_edits which forces AI to output structured operations
+    instead of rewriting the whole document.
     
     Args:
         provider: Provider slug (e.g., "openai", "ollama")
@@ -51,7 +49,8 @@ def create_write_agent(provider: str, model_name: str) -> Agent:
         model,
         deps_type=DocumentContext,
         tools=[
-            smart_update_document_content,  # Smart wrapper that auto-reads before writing
+            apply_document_edits,  # NEW: Structured edits (primary)
+            get_document_content,  # For reading current content
             duckduckgo_search_tool(),
         ],
         system_prompt=WRITE_SYSTEM_PROMPT,
@@ -122,7 +121,8 @@ document_agent = Agent(
     default_model,
     deps_type=DocumentContext,
     tools=[
-        smart_update_document_content,  # Smart wrapper for automatic read-before-write
+        apply_document_edits,  # NEW: Primary tool (structured edits)
+        get_document_content,  # For reading
         duckduckgo_search_tool(),
     ],
     system_prompt=WRITE_SYSTEM_PROMPT,

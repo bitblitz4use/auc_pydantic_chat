@@ -10,12 +10,13 @@ import { collab, collabServiceCtx, CollabService } from "@milkdown/plugin-collab
 import { block } from "@milkdown/kit/plugin/block";
 import { tableBlock, tableBlockConfig } from "@milkdown/kit/component/table-block";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
-import { $prose } from "@milkdown/kit/utils";
+import { $prose, insert, insertPos, replaceRange } from "@milkdown/kit/utils";
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
+import { defaultMarkdownParser } from "prosemirror-markdown";
 
 // Import new components
 import { EditorToolbar } from "./editor-toolbar";
@@ -223,9 +224,6 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
     };
   }, [currentDocumentName, loadDocuments]);
 
-  // Use AI change tracker hook
-  const aiTracker = useAIChangeTracker(ydocRef.current, currentDocumentName);
-
   // Use template selector hook
   const templateSelector = useTemplateSelector();
 
@@ -431,6 +429,113 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
 
   // Get editor commands hook
   const commands = useEditorCommands(get);
+
+  // Use AI change tracker hook (needs editor's get function)
+  const aiTracker = useAIChangeTracker(ydocRef.current, currentDocumentName, get);
+
+  // Handle AI suggestions from server (Yjs-native approach with incremental operations)
+  useEffect(() => {
+    const ydoc = ydocRef.current;
+    const editor = get();
+    
+    if (!ydoc || !editor) return;
+    
+    console.log('📡 Setting up AI operations observer (Yjs-native incremental)');
+    
+    // Observe the __aiSuggestions Map for new suggestions
+    const suggestions = ydoc.getMap('__aiSuggestions');
+    
+    const handleSuggestionChange = (event: any) => {
+      event.changes.keys.forEach((change: any, key: string) => {
+        if (change.action === 'add' || change.action === 'update') {
+          const suggestion = suggestions.get(key);
+          
+          if (suggestion && suggestion.type === 'ai-operations' && !suggestion.applied) {
+            console.log('🤖 Received AI operations:', suggestion.changeId, `(${suggestion.operations.length} ops)`);
+            applyAIOperations(suggestion.operations, suggestion.changeId, suggestion.metadata);
+            
+            // Mark as applied and clean up
+            suggestions.set(key, { ...suggestion, applied: true });
+            setTimeout(() => suggestions.delete(key), 1000);
+          }
+        }
+      });
+    };
+    
+    const applyAIOperations = (operations: any[], changeId: string, metadata: any) => {
+      try {
+        console.log(`📝 Applying ${operations.length} AI operations using append strategy...`);
+        
+        // Get current document info for logging
+        let docSize = 0;
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          docSize = view.state.doc.content.size;
+          console.log(`📏 Current document size: ${docSize} positions`);
+        });
+        
+        // Sort operations to maintain order (though we're appending, keep original order)
+        const sortedOps = [...operations].sort((a, b) => (a.pos || 0) - (b.pos || 0));
+        
+        for (const op of sortedOps) {
+          try {
+            if (op.type === 'insert') {
+              console.log(`  ✓ Appending insert content: "${op.content.substring(0, 50)}..."`);
+              
+              // Use insert() which appends at cursor/end - most reliable approach
+              // Add spacing before content for readability
+              editor.action(insert('\n\n' + op.content));
+              
+              console.log(`  → Content appended successfully`);
+              
+            } else if (op.type === 'replace') {
+              console.log(`  ✓ Appending replace content: "${op.content.substring(0, 50)}..."`);
+              // For replace operations in append mode, just add the new content
+              editor.action(insert('\n\n' + op.content));
+              console.log(`  → Replace content appended (original content remains)`);
+              
+            } else if (op.type === 'delete') {
+              console.warn(`  ⚠️ Delete operation skipped in append mode (content not removed)`);
+              // Delete operations don't make sense in append-only mode
+            }
+          } catch (opError) {
+            console.error(`❌ Failed to append operation:`, op, opError);
+          }
+        }
+        
+        console.log('✅ All AI operations appended successfully');
+        
+        // Store metadata in Yjs for tracking
+        const changeHistory = ydoc.getMap('aiChangeHistory');
+        const persistedMeta = ydoc.getMap('__persistedMetadata');
+        
+        changeHistory.set(changeId, {
+          id: changeId,
+          timestamp: Date.now(),
+          model: metadata?.model || 'unknown',
+          prompt: metadata?.prompt || '',
+          summary: metadata?.summary || 'AI changes',
+          status: 'pending',
+          undoable: true
+        });
+        
+        persistedMeta.set(`change_${changeId}_status`, 'pending');
+        persistedMeta.set(`change_${changeId}_timestamp`, Date.now());
+        
+        console.log('✅ AI change metadata stored');
+        
+      } catch (error) {
+        console.error('❌ Failed to apply AI operations:', error);
+      }
+    };
+    
+    // Start observing
+    suggestions.observe(handleSuggestionChange);
+    
+    return () => {
+      suggestions.unobserve(handleSuggestionChange);
+    };
+  }, [get, ydocRef.current]);
 
   // Sidebar collapse state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);

@@ -1,9 +1,9 @@
 import express from 'express';
+import crypto from 'crypto';
 import { yjsToMarkdown } from '../utils/markdownConverter.js';
-import { applyAIChangesAsCollaborator } from '../utils/aiProvider.js';
-import { getLiveDocument, getUndoManager } from '../config/hocuspocus.js';
-import { prosemirrorToYXmlFragment } from 'y-prosemirror';
-import { defaultMarkdownParser } from 'prosemirror-markdown';
+import { getLiveDocument, getUndoManager, getDocumentConnections } from '../config/hocuspocus.js';
+import { yXmlFragmentToProseMirrorRootNode, prosemirrorToYXmlFragment } from 'y-prosemirror';
+import { defaultMarkdownParser, defaultMarkdownSerializer, schema } from 'prosemirror-markdown';
 import * as Y from 'yjs';
 import { loadDocumentFromS3 } from '../utils/documentManager.js';
 
@@ -73,53 +73,81 @@ router.get('/export', async (req, res) => {
 });
 
 /**
- * POST /api/ai/import
+ * POST /api/ai/suggest
+ * Broadcast AI operations to connected clients (CLIENT-SIDE APPLICATION)
  * Body: { 
  *   documentName: string, 
- *   markdown: string,
- *   metadata?: { model: string, prompt: string, changeId: string }
+ *   operations: Array<{type, pos, content, length?, description}>,
+ *   metadata?: { model: string, prompt: string, summary: string, changeId: string }
  * }
  * 
- * Production-ready implementation:
- * - Uses Yjs relative positions for stable change tracking
- * - Ensures Hocuspocus hooks fire for proper broadcasting
- * - Handles both connected and disconnected document states
+ * NEW ARCHITECTURE (Incremental Operations):
+ * - Server receives position-based operations (insert/replace/delete)
+ * - Writes operations to Y.Map
+ * - Yjs automatically syncs to all connected clients
+ * - Clients observe the Map and apply operations incrementally
+ * - Sends ONLY changed snippets, not full document
+ * - Works WITH the CRDT framework (no custom WebSocket protocol needed)
  */
-router.post('/import', async (req, res) => {
+router.post('/suggest', async (req, res) => {
   try {
-    const { documentName, markdown, metadata = {} } = req.body;
+    const { documentName, operations, metadata = {} } = req.body;
     
-    if (!documentName || typeof markdown !== 'string' || !markdown.trim()) {
+    if (!documentName || !operations || !Array.isArray(operations)) {
       return res.status(400).json({ 
-        error: 'Missing required fields: documentName and markdown content'
+        error: 'Missing required fields: documentName and operations array'
       });
     }
     
-    console.log(`🤖 AI Import: ${documentName}`);
+    console.log(`🤖 AI Suggest: Broadcasting ${operations.length} operations via Yjs for ${documentName}`);
     
-    // Use AI provider approach - AI connects as a collaborator
-    console.log('🤖 AI connecting as collaborator...');
+    // Get live document
+    const liveDoc = getLiveDocument(documentName);
     
-    const result = await applyAIChangesAsCollaborator(documentName, markdown, metadata);
+    if (!liveDoc) {
+      return res.status(404).json({ 
+        error: 'Document not loaded',
+        hint: 'Open the document in the editor first',
+        documentName
+      });
+    }
     
-    console.log(`✅ Applied: ${result.changeId} (AI disconnected)`);
+    // Generate changeId if not provided
+    const changeId = metadata.changeId || `ai-${crypto.randomBytes(8).toString('hex')}`;
+    
+    // Write operations to Yjs Map - this automatically broadcasts to all clients
+    const suggestions = liveDoc.getMap('__aiSuggestions');
+    suggestions.set(changeId, {
+      type: 'ai-operations',
+      changeId,
+      operations: operations,  // Array of position-based operations
+      metadata: {
+        ...metadata,
+        changeId,
+        timestamp: Date.now()
+      },
+      applied: false
+    });
+    
+    console.log(`✅ AI operations written to Yjs (auto-broadcast to all clients)`);
     
     res.json({
       success: true,
+      changeId,
       documentName,
-      changeId: result.changeId,
-      changesApplied: result.changesApplied,
-      broadcast: 'as-collaborator'
+      operationCount: operations.length,
+      approach: 'yjs-native-operations'
     });
     
   } catch (error) {
-    console.error('❌ Import error:', error);
+    console.error('❌ Suggest error:', error);
     res.status(500).json({ 
-      error: 'Failed to import',
+      error: 'Failed to broadcast operations',
       message: error.message
     });
   }
 });
+
 
 /**
  * GET /api/ai/changes
@@ -176,8 +204,13 @@ router.get('/changes', async (req, res) => {
 
 /**
  * POST /api/ai/reject
- * Reject an AI change - undoes it on the server and broadcasts to all clients
+ * Reject an AI change - with CLIENT-SIDE application, just mark as rejected
  * Body: { documentName: string, changeId: string }
+ * 
+ * NEW ARCHITECTURE:
+ * - Client applies changes via ProseMirror transactions
+ * - Client can undo via editor's built-in undo (Ctrl+Z)
+ * - This endpoint just marks the change as rejected in metadata
  */
 router.post('/reject', async (req, res) => {
   try {
@@ -189,7 +222,7 @@ router.post('/reject', async (req, res) => {
       });
     }
     
-    console.log(`❌ Reject request: ${documentName} / ${changeId}`);
+    console.log(`❌ Reject request (metadata only): ${documentName} / ${changeId}`);
     
     const liveDoc = getLiveDocument(documentName);
     if (!liveDoc) {
@@ -202,6 +235,7 @@ router.post('/reject', async (req, res) => {
     
     // Get change metadata
     const changeHistory = liveDoc.getMap('aiChangeHistory');
+    const persistedMeta = liveDoc.getMap('__persistedMetadata');
     const change = changeHistory.get(changeId);
     
     if (!change) {
@@ -218,52 +252,32 @@ router.post('/reject', async (req, res) => {
       });
     }
     
-    // CRDT-compliant reject: Restore previous state for this specific change
-    if (!change.beforeContent) {
-      return res.status(400).json({ 
-        error: 'No previous content available',
-        hint: 'This change cannot be rejected (before content missing)'
-      });
-    }
-    
-    console.log('🔄 CRDT reject: Restoring content from before this AI change...');
-    console.log(`   Operations in this change: ${change.operations?.length || 0}`);
-    console.log(`   Before: ${change.beforeContent.length} chars`);
-    
-    // Parse the previous markdown
-    const previousDoc = defaultMarkdownParser.parse(change.beforeContent);
-    
-    if (!previousDoc) {
-      return res.status(500).json({ error: 'Failed to parse previous content' });
-    }
-    
-    // Apply previous document
-    const fragment = liveDoc.getXmlFragment('prosemirror');
-    
+    // Mark as rejected in metadata only
+    // The actual undo should be done client-side via editor undo
     liveDoc.transact(() => {
-      fragment.delete(0, fragment.length);
-      prosemirrorToYXmlFragment(previousDoc, fragment);
-    }, 'reject-ai');
+      const updated = {
+        ...change,
+        status: 'rejected',
+        rejectedAt: Date.now(),
+        rejectionMethod: 'client-side-undo',
+        undoable: false
+      };
+      changeHistory.set(changeId, updated);
+      
+      // Persist rejection
+      persistedMeta.set(`change_${changeId}_status`, 'rejected');
+      persistedMeta.set(`change_${changeId}_rejectedAt`, Date.now());
+    }, 'reject-metadata');
     
-    console.log(`✅ Content restored (rejected change: ${changeId})`);
-    
-    // Mark as rejected
-    const updated = {
-      ...change,
-      status: 'rejected',
-      rejectedAt: Date.now(),
-      undoable: false
-    };
-    
-    changeHistory.set(changeId, updated);
-    
-    console.log(`✅ Change rejected: ${changeId}`);
-    console.log('📡 Reverted state broadcasted to all clients');
+    console.log(`✅ Change marked as rejected: ${changeId}`);
+    console.log('ℹ️  Client should undo via editor (Ctrl+Z)');
     
     res.json({
       success: true,
       changeId,
-      status: 'rejected'
+      status: 'rejected',
+      method: 'client-side-undo',
+      hint: 'Use editor undo (Ctrl+Z) to revert the change'
     });
     
   } catch (error) {
@@ -277,7 +291,7 @@ router.post('/reject', async (req, res) => {
 
 /**
  * POST /api/ai/accept
- * Accept an AI change - marks it as accepted
+ * Accept an AI change - marks it as accepted and persists to S3
  * Body: { documentName: string, changeId: string }
  */
 router.post('/accept', async (req, res) => {
@@ -301,6 +315,7 @@ router.post('/accept', async (req, res) => {
     }
     
     const changeHistory = liveDoc.getMap('aiChangeHistory');
+    const persistedMeta = liveDoc.getMap('__persistedMetadata');
     const change = changeHistory.get(changeId);
     
     if (!change) {
@@ -310,16 +325,22 @@ router.post('/accept', async (req, res) => {
       });
     }
     
-    // Mark as accepted
-    const updated = {
-      ...change,
-      status: 'accepted',
-      acceptedAt: Date.now()
-    };
+    // Update in transaction so it's saved to S3
+    liveDoc.transact(() => {
+      // Update in-memory history
+      const updated = {
+        ...change,
+        status: 'accepted',
+        acceptedAt: Date.now()
+      };
+      changeHistory.set(changeId, updated);
+      
+      // Update persisted metadata (survives reload)
+      persistedMeta.set(`change_${changeId}_status`, 'accepted');
+      persistedMeta.set(`change_${changeId}_acceptedAt`, Date.now());
+    }, 'accept-ai');
     
-    changeHistory.set(changeId, updated);
-    
-    console.log(`✅ Change accepted: ${changeId}`);
+    console.log(`✅ Change accepted: ${changeId} (persisted to S3)`);
     
     res.json({
       success: true,
