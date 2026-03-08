@@ -38,7 +38,7 @@ interface DocumentTreeProps {
   onCreateNew: () => void;
 }
 
-// Organize flat documents into folders
+// Organize flat documents into folders by their FULL parent path
 function organizeDocuments(documents: Document[]) {
   const tree: Record<string, Document[]> = { root: [] };
 
@@ -48,9 +48,12 @@ function organizeDocuments(documents: Document[]) {
     
     const parts = doc.name.split("/");
     if (parts.length > 1) {
-      const folder = parts[0];
-      if (!tree[folder]) tree[folder] = [];
-      tree[folder].push({ ...doc, name: parts.slice(1).join("/") });
+      // Get the full parent path (everything except the filename)
+      const parentPath = parts.slice(0, -1).join("/");
+      const fileName = parts[parts.length - 1];
+      
+      if (!tree[parentPath]) tree[parentPath] = [];
+      tree[parentPath].push({ ...doc, name: fileName });
     } else {
       tree.root.push(doc);
     }
