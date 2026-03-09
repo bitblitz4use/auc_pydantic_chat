@@ -7,13 +7,40 @@ import { SourcesView } from "@/components/sources-view";
 import { ChainsView } from "@/components/chains/chains-view";
 import { ToolbarButton } from "@/components/ui/toolbar-button";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { FileText, Wand2, Layout, Database, Network } from "lucide-react";
 
 type ContentView = "editor" | "prompts" | "chains" | "templates" | "sources";
 
+const RIGHT_PANEL_VIEW_KEY = "right-panel-view";
+const VIEWS: ContentView[] = ["editor", "prompts", "chains", "templates", "sources"];
+
+function getStoredView(): ContentView {
+  if (typeof window === "undefined") return "editor";
+  try {
+    const stored = window.localStorage.getItem(RIGHT_PANEL_VIEW_KEY);
+    if (stored && VIEWS.includes(stored as ContentView)) return stored as ContentView;
+  } catch {
+    // ignore
+  }
+  return "editor";
+}
+
 export function RightPanelContent() {
   const [activeView, setActiveView] = useState<ContentView>("editor");
+
+  useEffect(() => {
+    setActiveView(getStoredView());
+  }, []);
+
+  const setView = useCallback((view: ContentView) => {
+    setActiveView(view);
+    try {
+      window.localStorage.setItem(RIGHT_PANEL_VIEW_KEY, view);
+    } catch {
+      // ignore quota / private mode
+    }
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -22,31 +49,31 @@ export function RightPanelContent() {
         <ToolbarButton
           icon={FileText}
           isActive={activeView === "editor"}
-          onClick={() => setActiveView("editor")}
+          onClick={() => setView("editor")}
           title="Editor"
         />
         <ToolbarButton
           icon={Wand2}
           isActive={activeView === "prompts"}
-          onClick={() => setActiveView("prompts")}
+          onClick={() => setView("prompts")}
           title="Prompts"
         />
         <ToolbarButton
           icon={Network}
           isActive={activeView === "chains"}
-          onClick={() => setActiveView("chains")}
+          onClick={() => setView("chains")}
           title="Chains"
         />
         <ToolbarButton
           icon={Layout}
           isActive={activeView === "templates"}
-          onClick={() => setActiveView("templates")}
+          onClick={() => setView("templates")}
           title="Templates"
         />
         <ToolbarButton
           icon={Database}
           isActive={activeView === "sources"}
-          onClick={() => setActiveView("sources")}
+          onClick={() => setView("sources")}
           title="Sources"
         />
         

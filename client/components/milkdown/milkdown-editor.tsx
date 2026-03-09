@@ -124,6 +124,19 @@ const templateShortcutPlugin = (onOpenTemplateSelector: () => void) => $prose(()
   });
 });
 
+const ACTIVE_DOCUMENT_KEY = "active-document";
+
+function getStoredActiveDocument(): string {
+  if (typeof window === "undefined") return "shared-document";
+  try {
+    const stored = localStorage.getItem(ACTIVE_DOCUMENT_KEY);
+    if (stored && stored.trim()) return stored.trim();
+  } catch {
+    // ignore
+  }
+  return "shared-document";
+}
+
 // Props for the editor component
 interface MilkdownEditorProps {
   documentName?: string; // Optional: if not provided, will use default or prompt
@@ -131,7 +144,9 @@ interface MilkdownEditorProps {
 
 function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorProps) {
   const [connectionStatus, setConnectionStatus] = useState<"disconnected" | "connecting" | "connected" | "synced">("disconnected");
-  const [currentDocumentName, setCurrentDocumentName] = useState<string>(propDocumentName || "shared-document");
+  const [currentDocumentName, setCurrentDocumentName] = useState<string>(
+    () => propDocumentName ?? getStoredActiveDocument()
+  );
   const [availableDocuments, setAvailableDocuments] = useState<Array<{ name: string; size: number; lastModified: Date }>>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   
