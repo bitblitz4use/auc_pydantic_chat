@@ -123,11 +123,17 @@ function cleanMetadataForSerialization(metadata: ChainMetadata): any {
   // Clean up node data - remove callback functions
   if (cleaned.canvas?.nodes) {
     cleaned.canvas.nodes = cleaned.canvas.nodes.map((node: any) => {
+      // Persist current dimensions (from style, or from React Flow's width/height/measured after resize)
+      const style: Record<string, unknown> = { ...(node.style || {}) };
+      const w = node.width ?? node.measured?.width;
+      const h = node.height ?? node.measured?.height;
+      if (w != null) style.width = w;
+      if (h != null) style.height = h;
       const baseNode = {
         id: node.id,
         type: node.type,
         position: node.position,
-        ...(node.style && { style: node.style }),
+        ...(Object.keys(style).length > 0 && { style }),
       };
       
       if (node.type === 'prompt') {

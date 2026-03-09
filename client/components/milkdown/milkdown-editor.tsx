@@ -596,10 +596,13 @@ function MilkdownEditorInner({ documentName: propDocumentName }: MilkdownEditorP
               />
             </div>
 
-            {/* Scrollable Editor Content */}
-            <div className="flex-1 overflow-auto editor-scrollbar">
-              <div className="milkdown-editor-root p-4">
-                <Milkdown />
+            {/* Scrollable Editor Content - "desk" surface */}
+            <div className="flex-1 overflow-auto editor-scrollbar bg-[var(--editor-desk)]">
+              {/* A4-style paper card */}
+              <div className="editor-paper mx-auto my-6 min-h-[80vh] w-full max-w-[210mm] rounded-sm px-8 py-10 shadow-[var(--editor-paper-shadow)] bg-[var(--editor-paper)]">
+                <div className="milkdown-editor-root">
+                  <Milkdown />
+                </div>
               </div>
             </div>
           </div>

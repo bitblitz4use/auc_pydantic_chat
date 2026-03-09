@@ -55,6 +55,9 @@
   --shadow-lg: 0px 1px 2px 0px hsl(0 0% 0% / 0.18), 0px 4px 6px -1px hsl(0 0% 0% / 0.18);
   --shadow-xl: 0px 1px 2px 0px hsl(0 0% 0% / 0.18), 0px 8px 10px -1px hsl(0 0% 0% / 0.18);
   --shadow-2xl: 0px 1px 2px 0px hsl(0 0% 0% / 0.45);
+  --editor-desk: oklch(0.94 0 0);
+  --editor-paper: oklch(1 0 0);
+  --editor-paper-shadow: 0 2px 8px oklch(0 0 0 / 0.08), 0 8px 24px oklch(0 0 0 / 0.06);
 }
 .dark {
   --background: oklch(0 0 0);
@@ -88,6 +91,9 @@
   --sidebar-accent-foreground: oklch(1 0 0);
   --sidebar-border: oklch(0.32 0 0);
   --sidebar-ring: oklch(0.72 0 0);
+  --editor-desk: oklch(0.12 0 0);
+  --editor-paper: oklch(0.18 0 0);
+  --editor-paper-shadow: 0 2px 12px oklch(0 0 0 / 0.4), 0 8px 32px oklch(0 0 0 / 0.25);
 }
 
 @theme inline {
@@ -855,6 +861,17 @@ body[data-scroll-locked] {
   .milkdown .editor {
     @apply min-h-full bg-card;
     background-color: var(--card) !important;
+  }
+
+  /* Paper area: editor content uses paper background */
+  .editor-paper .milkdown-editor-root,
+  .editor-paper .milkdown-editor-root > *,
+  .editor-paper .milkdown,
+  .editor-paper .milkdown .editor,
+  .editor-paper .milkdown .ProseMirror,
+  .editor-paper .milkdown .editor-content,
+  .editor-paper .crepe-editor {
+    background-color: var(--editor-paper) !important;
   }
 
   /* Customize Milkdown editor colors to match theme */
