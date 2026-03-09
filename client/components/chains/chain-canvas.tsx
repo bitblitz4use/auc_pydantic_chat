@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Connection } from "@/components/ai-elements/connection";
 import { Edge } from "@/components/ai-elements/edge";
 import { Controls } from "@/components/ai-elements/controls";
-import { Background, BackgroundVariant } from "@xyflow/react";
+import { Background, BackgroundVariant, ControlButton } from "@xyflow/react";
 import { applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
-import { Plus, PlayCircle, Info, MessageSquare } from "lucide-react";
+import { Plus, PlayCircle, Info, MessageSquare, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PromptNode } from "@/components/chains/nodes/prompt-node";
 import { AnnotationNode } from "@/components/chains/nodes/annotation-node";
@@ -42,6 +42,24 @@ interface ChainCanvasProps {
 }
 
 export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      containerRef.current.requestFullscreen();
+    }
+  }, []);
+
   // Handle node position/selection changes
   const onNodesChange = useCallback((changes: any) => {
     const updatedNodes = applyNodeChanges(changes, chain.canvas?.nodes || []);
@@ -172,7 +190,7 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
   }));
 
   return (
-    <div className="relative w-full h-full">
+    <div ref={containerRef} className="relative w-full h-full">
       {/* AI Elements Canvas with Connection component */}
       <Canvas
         nodes={nodesWithHandlers}
@@ -204,9 +222,19 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         />
         
         {/* Zoom/pan controls */}
-        <Controls 
-          showInteractive={false}
-        />
+        <Controls showInteractive={false}>
+          <ControlButton
+            onClick={toggleFullscreen}
+            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="size-4" />
+            ) : (
+              <Maximize2 className="size-4" />
+            )}
+          </ControlButton>
+        </Controls>
       </Canvas>
 
       {/* Floating toolbar */}
