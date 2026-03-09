@@ -75,7 +75,7 @@ export function TagSelector({
         {tags.map((tag) => (
           <div
             key={tag}
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-sm"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-sm text-foreground"
           >
             <Tag className="size-3 text-muted-foreground" />
             <span className="font-medium">{tag}</span>
@@ -110,7 +110,7 @@ export function TagSelector({
               <button
                 key={tag}
                 type="button"
-                className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent flex items-center gap-2"
+                className="w-full rounded-sm px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent flex items-center gap-2"
                 onClick={() => handleAddTag(tag)}
               >
                 <Tag className="size-3 text-muted-foreground" />
@@ -126,7 +126,7 @@ export function TagSelector({
             <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover p-1 shadow-md">
               <button
                 type="button"
-                className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className="w-full rounded-sm px-2 py-1.5 text-left text-sm text-foreground hover:bg-accent"
                 onClick={() => handleAddTag(inputValue)}
               >
                 Create "{inputValue.trim()}"

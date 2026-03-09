@@ -84,11 +84,11 @@ export function AnnotationNode({ data, selected, id }: any) {
               setIsEditingComment(false);
             }}
             autoFocus
-            className="text-xs min-h-[60px] bg-white/50 dark:bg-gray-800/50 resize-none nopan"
+            className="text-xs min-h-[60px] bg-muted/50 resize-none nopan"
           />
         ) : (
           <p 
-            className="text-xs text-amber-800 dark:text-amber-200 whitespace-pre-wrap cursor-text min-h-[60px]"
+            className="text-xs text-muted-foreground whitespace-pre-wrap cursor-text min-h-[60px]"
             onClick={() => setIsEditingComment(true)}
           >
             {data.comment || 'Click to add comment...'}

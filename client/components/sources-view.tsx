@@ -366,7 +366,7 @@ export function SourcesView() {
                           {source.tags.map((tag) => (
                             <span
                               key={tag}
-                              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs"
+                              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
                             >
                               <Tag className="size-3 text-muted-foreground" />
                               {tag}

@@ -12,7 +12,7 @@ import {
 export default function Home() {
   return (
     <PromptInputProvider>
-      <div className="h-screen bg-black">
+      <div className="h-screen bg-background">
         <ResizablePanelGroup orientation="horizontal">
           <ResizablePanel defaultSize={50} minSize={30}>
             <ChatInterface />

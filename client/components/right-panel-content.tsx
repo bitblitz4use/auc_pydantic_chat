@@ -6,8 +6,9 @@ import { TemplatesView } from "@/components/templates-view";
 import { SourcesView } from "@/components/sources-view";
 import { ChainsView } from "@/components/chains/chains-view";
 import { ToolbarButton } from "@/components/ui/toolbar-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useState } from "react";
-import { Settings, FileText, Wand2, Layout, Database, Network } from "lucide-react";
+import { FileText, Wand2, Layout, Database, Network } from "lucide-react";
 
 type ContentView = "editor" | "prompts" | "chains" | "templates" | "sources";
 
@@ -15,9 +16,9 @@ export function RightPanelContent() {
   const [activeView, setActiveView] = useState<ContentView>("editor");
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-background">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-3">
         <ToolbarButton
           icon={FileText}
           isActive={activeView === "editor"}
@@ -51,18 +52,13 @@ export function RightPanelContent() {
         
         {/* Spacer */}
         <div className="flex-1" />
-        
-        {/* Settings button */}
-        <ToolbarButton
-          icon={Settings}
-          isActive={false}
-          onClick={() => {}}
-          title="Settings"
-        />
+
+        {/* Theme toggle (dark / light) */}
+        <ThemeToggle />
       </div>
 
       {/* Content Area with Animation */}
-      <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 overflow-hidden relative bg-background">
         <div
           key={activeView}
           className="h-full w-full animate-in fade-in-0 slide-in-from-right-4 duration-300"
