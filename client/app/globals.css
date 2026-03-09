@@ -903,6 +903,9 @@ body[data-scroll-locked] {
     background-color: var(--card) !important;
     color: var(--card-foreground) !important;
     padding-top: 0.25rem !important;
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+    padding-bottom: 2rem !important;
     font-family: var(--editor-font-family, var(--font-text, "Inter", ui-sans-serif, system-ui, sans-serif)) !important;
   }
 
