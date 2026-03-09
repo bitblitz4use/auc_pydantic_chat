@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useReactFlow } from "@xyflow/react";
-import { ChevronLeft, ChevronRight, X, Save, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Save, FileText, Trash2, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { getFileContent, updateFileContent, getFileTags, listStorageObjects } from "@/lib/storage";
@@ -13,6 +13,26 @@ import { cn } from "@/lib/utils";
 import { Plus } from "lucide-react";
 import { useAppDialog } from "@/components/app-dialog-provider";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { apiUrl } from "@/lib/config";
+
+interface ModelInfo {
+  id: string;
+  name: string;
+  chef: string;
+  chefSlug: string;
+  providers: string[];
+}
 
 export interface ChainStepPanelProps {
   activeNodeId: string | null;
@@ -20,6 +40,8 @@ export interface ChainStepPanelProps {
   chain: ChainMetadata;
   onActiveNodeChange: (nodeId: string | null) => void;
   onUpdateNodePromptFile?: (nodeId: string, promptFile: string) => void;
+  onUpdateNodeData?: (nodeId: string, data: Record<string, unknown>) => void;
+  onDeleteNode?: (nodeId: string) => void;
 }
 
 const MIN_TEXTAREA_HEIGHT = 140;
@@ -105,8 +127,10 @@ export function ChainStepPanelContent({
   chain,
   onActiveNodeChange,
   onUpdateNodePromptFile,
+  onUpdateNodeData,
+  onDeleteNode,
 }: ChainStepPanelProps) {
-  const { alert } = useAppDialog();
+  const { alert, confirm } = useAppDialog();
   const [content, setContent] = useState("");
   const [originalContent, setOriginalContent] = useState("");
   const [fileTags, setFileTags] = useState<string[]>([]);
@@ -116,6 +140,10 @@ export function ChainStepPanelContent({
   const [saving, setSaving] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [promptFiles, setPromptFiles] = useState<string[]>([]);
+  const [loadingPrompts, setLoadingPrompts] = useState(false);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   const nodes = chain.canvas?.nodes ?? [];
   const activeNode = activeNodeId
@@ -127,6 +155,38 @@ export function ChainStepPanelContent({
   const stepLabel = activeNode?.type === "prompt" ? (activeNode.data?.label as string) ?? "Step" : "";
   const canPrev = currentIndex > 0;
   const canNext = currentIndex >= 0 && currentIndex < orderedStepIds.length - 1;
+
+  // Fetch prompt files and models when panel is open (for Settings tab)
+  useEffect(() => {
+    if (!activeNodeId) return;
+    const fetchPrompts = async () => {
+      try {
+        setLoadingPrompts(true);
+        const files = await listStorageObjects("prompts", false, false);
+        setPromptFiles(files.map((f) => f.name.replace("prompts/", "")));
+      } catch (e) {
+        console.warn("Failed to fetch prompts:", e);
+      } finally {
+        setLoadingPrompts(false);
+      }
+    };
+    const fetchModels = async () => {
+      try {
+        setLoadingModels(true);
+        const response = await fetch(apiUrl.providers());
+        if (response.ok) {
+          const data = await response.json();
+          setModels(data.models || []);
+        }
+      } catch (e) {
+        console.warn("Failed to fetch models:", e);
+      } finally {
+        setLoadingModels(false);
+      }
+    };
+    fetchPrompts();
+    fetchModels();
+  }, [activeNodeId]);
 
   const loadPrompt = useCallback(async () => {
     if (!promptFile) {
@@ -221,6 +281,24 @@ export function ChainStepPanelContent({
 
   const handleClose = () => onActiveNodeChange(null);
 
+  const handleDeleteStep = async () => {
+    if (!activeNodeId || !onDeleteNode) return;
+    if (await confirm(`Delete step "${stepLabel}"?`)) {
+      onDeleteNode(activeNodeId);
+    }
+  };
+
+  const updateNodeData = (partial: Record<string, unknown>) => {
+    if (!activeNodeId || !onUpdateNodeData || !activeNode?.data) return;
+    onUpdateNodeData(activeNodeId, { ...activeNode.data, ...partial });
+  };
+
+  // Settings tab only shows for prompt nodes; cast to prompt node data shape
+  const promptNodeData =
+    activeNode?.type === "prompt"
+      ? (activeNode.data as { label?: string; promptFile?: string; model?: string; description?: string })
+      : null;
+
   if (!activeNodeId) return null;
 
   return (
@@ -272,107 +350,227 @@ export function ChainStepPanelContent({
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col min-h-0 p-3 gap-2 overflow-auto">
-        {!promptFile ? (
-          <div className="flex flex-col gap-3 py-2">
-            <p className="text-sm text-muted-foreground text-center">
-              No prompt linked. Create one below or pick one in step settings (⚙️).
-            </p>
+      <Tabs defaultValue="settings" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <TabsList className="shrink-0 mx-3 mt-2 w-[calc(100%-1.5rem)]">
+          <TabsTrigger value="settings" className="flex-1">
+            <Settings className="size-3.5 mr-1.5" />
+            Settings
+          </TabsTrigger>
+          <TabsTrigger value="prompt" className="flex-1">
+            <FileText className="size-3.5 mr-1.5" />
+            Prompt
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="settings" className="flex-1 min-h-0 overflow-auto p-3 mt-2 data-[state=inactive]:hidden flex flex-col">
+          <div className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">Filename</label>
+              <Label htmlFor="panel-label" className="text-xs font-medium">
+                Step Name
+              </Label>
               <Input
-                value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
-                placeholder="prompt-name.md"
-                className="font-mono text-sm"
+                id="panel-label"
+                value={promptNodeData?.label ?? ""}
+                onChange={(e) => updateNodeData({ label: e.target.value })}
+                placeholder="e.g., Research Phase"
+                className="h-8"
               />
             </div>
-            <div className="shrink-0">
-              <TagSelector tags={fileTags} availableTags={availableTags} onChange={setFileTags} />
-            </div>
-            <div className="flex-1 min-h-[100px]">
-              <AutoGrowTextarea
-                value={content}
-                onChange={setContent}
-                placeholder="Prompt content..."
-                className={cn(
-                  "w-full min-h-[100px] resize-none font-mono text-sm overflow-y-auto",
-                  "border border-input rounded-md px-3 py-2"
-                )}
-              />
-            </div>
-            <Button
-              size="sm"
-              onClick={handleCreatePrompt}
-              disabled={creating || !onUpdateNodePromptFile}
-              className="w-full"
-            >
-              {creating ? (
-                <>
-                  <Spinner className="mr-2 size-4" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 size-4" />
-                  Create prompt
-                </>
-              )}
-            </Button>
-          </div>
-        ) : (
-          <>
-            <div className="text-xs font-mono text-muted-foreground truncate shrink-0" title={promptFile}>
-              📄 {promptFile}
-            </div>
-            {!loading && (
-              <div className="shrink-0">
-                <TagSelector
-                  tags={fileTags}
-                  availableTags={availableTags}
-                  onChange={setFileTags}
-                />
-              </div>
-            )}
-            <div className="shrink-0 min-h-[120px]">
-              {loading ? (
-                <div className="flex items-center justify-center min-h-[140px]">
-                  <Spinner className="size-6" />
+            <div className="space-y-1.5">
+              <Label htmlFor="panel-prompt" className="text-xs font-medium">
+                Prompt File
+              </Label>
+              {loadingPrompts ? (
+                <div className="flex items-center justify-center h-8 border rounded-md w-full">
+                  <Spinner className="size-4" />
                 </div>
               ) : (
+                <Select
+                  value={promptNodeData?.promptFile || ""}
+                  onValueChange={(value) => updateNodeData({ promptFile: value })}
+                >
+                  <SelectTrigger id="panel-prompt" className="h-8 font-mono text-xs w-full">
+                    <SelectValue placeholder="Select a prompt file..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {promptFiles.length === 0 ? (
+                      <SelectItem value="_empty" disabled>
+                        No prompts available
+                      </SelectItem>
+                    ) : (
+                      promptFiles.map((file) => (
+                        <SelectItem key={file} value={file} className="font-mono text-xs">
+                          {file}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
+              <p className="text-xs text-muted-foreground">From prompts/ folder</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="panel-model" className="text-xs font-medium">
+                AI Model
+              </Label>
+              {loadingModels ? (
+                <div className="flex items-center justify-center h-8 border rounded-md w-full">
+                  <Spinner className="size-4" />
+                </div>
+              ) : (
+                <Select
+                  value={promptNodeData?.model || ""}
+                  onValueChange={(value) => updateNodeData({ model: value })}
+                >
+                  <SelectTrigger id="panel-model" className="h-8 w-full">
+                    <SelectValue placeholder="Select a model..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.length === 0 ? (
+                      <SelectItem value="_empty" disabled>
+                        No models available
+                      </SelectItem>
+                    ) : (
+                      models.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">{model.chef}</span>
+                            <span>·</span>
+                            <span>{model.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="panel-desc" className="text-xs font-medium">
+                Description (optional)
+              </Label>
+              <Textarea
+                id="panel-desc"
+                value={promptNodeData?.description ?? ""}
+                onChange={(e) => updateNodeData({ description: e.target.value })}
+                placeholder="What does this step do?"
+                className="h-16 text-xs resize-none"
+              />
+            </div>
+            <Separator />
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={handleDeleteStep}
+              disabled={!onDeleteNode}
+            >
+              <Trash2 className="mr-2 size-4" />
+              Delete Step
+            </Button>
+          </div>
+        </TabsContent>
+        <TabsContent value="prompt" className="flex-1 flex flex-col min-h-0 overflow-auto p-3 mt-2 data-[state=inactive]:hidden">
+          {!promptFile ? (
+            <div className="flex flex-col gap-3 py-2">
+              <p className="text-sm text-muted-foreground text-center">
+                No prompt linked. Create one below or pick one in the Settings tab.
+              </p>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground">Filename</label>
+                <Input
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="prompt-name.md"
+                  className="font-mono text-sm"
+                />
+              </div>
+              <div className="shrink-0">
+                <TagSelector tags={fileTags} availableTags={availableTags} onChange={setFileTags} />
+              </div>
+              <div className="flex-1 min-h-[100px]">
                 <AutoGrowTextarea
                   value={content}
                   onChange={setContent}
                   placeholder="Prompt content..."
                   className={cn(
-                    "w-full min-h-[140px] resize-none font-mono text-sm overflow-y-auto",
-                    "border border-input rounded-md"
+                    "w-full min-h-[100px] resize-none font-mono text-sm overflow-y-auto",
+                    "border border-input rounded-md px-3 py-2"
                   )}
                 />
-              )}
-            </div>
-            <div className="flex justify-end gap-2 shrink-0 pt-1">
+              </div>
               <Button
                 size="sm"
-                onClick={handleSave}
-                disabled={saving || !hasChanges || loading}
+                onClick={handleCreatePrompt}
+                disabled={creating || !onUpdateNodePromptFile}
+                className="w-full"
               >
-                {saving ? (
+                {creating ? (
                   <>
                     <Spinner className="mr-2 size-4" />
-                    Saving...
+                    Creating...
                   </>
                 ) : (
                   <>
-                    <Save className="mr-2 size-4" />
-                    Save
+                    <Plus className="mr-2 size-4" />
+                    Create prompt
                   </>
                 )}
               </Button>
             </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <div className="text-xs font-mono text-muted-foreground truncate shrink-0" title={promptFile}>
+                📄 {promptFile}
+              </div>
+              {!loading && (
+                <div className="shrink-0">
+                  <TagSelector
+                    tags={fileTags}
+                    availableTags={availableTags}
+                    onChange={setFileTags}
+                  />
+                </div>
+              )}
+              <div className="shrink-0 min-h-[120px]">
+                {loading ? (
+                  <div className="flex items-center justify-center min-h-[140px]">
+                    <Spinner className="size-6" />
+                  </div>
+                ) : (
+                  <AutoGrowTextarea
+                    value={content}
+                    onChange={setContent}
+                    placeholder="Prompt content..."
+                    className={cn(
+                      "w-full min-h-[140px] resize-none font-mono text-sm overflow-y-auto",
+                      "border border-input rounded-md"
+                    )}
+                  />
+                )}
+              </div>
+              <div className="flex justify-end gap-2 shrink-0 pt-1">
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={saving || !hasChanges || loading}
+                >
+                  {saving ? (
+                    <>
+                      <Spinner className="mr-2 size-4" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="mr-2 size-4" />
+                      Save
+                    </>
+                  )}
+                </Button>
+              </div>
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -191,6 +191,31 @@ export function ChainCanvas({ chain, onChainUpdate, onSaveChain, saving = false 
     [chain, onChainUpdate]
   );
 
+  const handleUpdateNodeData = useCallback(
+    (nodeId: string, newData: Record<string, unknown>) => {
+      const updatedNodes = (chain.canvas?.nodes || []).map((n) =>
+        n.id === nodeId ? { ...n, data: newData } : n
+      );
+      onChainUpdate({ ...chain, canvas: { ...chain.canvas, nodes: updatedNodes } });
+    },
+    [chain, onChainUpdate]
+  );
+
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      const updatedNodes = (chain.canvas?.nodes || []).filter((n) => n.id !== nodeId);
+      const updatedEdges = (chain.canvas?.edges || []).filter(
+        (e) => e.source !== nodeId && e.target !== nodeId
+      );
+      onChainUpdate({
+        ...chain,
+        canvas: { ...chain.canvas, nodes: updatedNodes, edges: updatedEdges },
+      });
+      setActiveNodeId((current) => (current === nodeId ? null : current));
+    },
+    [chain, onChainUpdate]
+  );
+
   // Inject update, delete, and isActive into all nodes
   const nodesWithHandlers = (chain.canvas?.nodes || []).map((node) => ({
     ...node,
@@ -234,7 +259,7 @@ export function ChainCanvas({ chain, onChainUpdate, onSaveChain, saving = false 
   }));
 
   return (
-    <div ref={containerRef} className="relative w-full h-full">
+    <div ref={containerRef} className="relative w-full h-full bg-background">
       {/* AI Elements Canvas with Connection component */}
       <Canvas
         nodes={nodesWithHandlers}
@@ -263,7 +288,7 @@ export function ChainCanvas({ chain, onChainUpdate, onSaveChain, saving = false 
           variant={BackgroundVariant.Dots}
           gap={20}
           size={2}
-          color="#666666"
+          color="var(--muted-foreground)"
         />
         <Controls showInteractive={false}>
           <ControlButton
@@ -291,6 +316,8 @@ export function ChainCanvas({ chain, onChainUpdate, onSaveChain, saving = false 
             chain={chain}
             onActiveNodeChange={setActiveNodeId}
             onUpdateNodePromptFile={handleUpdateNodePromptFile}
+            onUpdateNodeData={handleUpdateNodeData}
+            onDeleteNode={handleDeleteNode}
           />
         </div>
       )}
@@ -348,7 +375,7 @@ export function ChainCanvas({ chain, onChainUpdate, onSaveChain, saving = false 
               <p className="font-medium">Build Your Prompt Chain</p>
               <ol className="text-sm space-y-1 list-decimal list-inside">
                 <li>Click "Add Step" to create prompt nodes</li>
-                <li>Click the ⚙️ icon to configure each step</li>
+                <li>Click a step to configure it in the panel</li>
                 <li>Drag from bottom ● to top ● to connect steps</li>
                 <li>Press Delete/Backspace to remove nodes or edges</li>
               </ol>

@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useFullscreenElement } from "@/hooks/use-fullscreen-element";
 
 export interface ConfirmOptions {
   title?: string;
@@ -47,6 +48,9 @@ export function useAppDialog(): AppDialogContextValue {
 export function AppDialogProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<DialogState>(null);
   const resolveRef = useRef<(value: boolean) => void>();
+  const fullscreenElement = useFullscreenElement();
+  const dialogContainer =
+    fullscreenElement ?? (typeof document !== "undefined" ? document.body : undefined);
 
   const alert = useCallback((message: string, title?: string) => {
     return new Promise<void>((resolve) => {
@@ -97,7 +101,11 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
     <AppDialogContext.Provider value={{ alert, confirm }}>
       {children}
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent showCloseButton={false} className="sm:max-w-md">
+        <DialogContent
+          showCloseButton={false}
+          className="sm:max-w-md"
+          container={dialogContainer}
+        >
           {state && (
             <>
               <DialogHeader>
