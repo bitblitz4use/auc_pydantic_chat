@@ -16,6 +16,7 @@ import {
 import { TagSelector } from "@/components/ui/tag-selector";
 import { updateFileContent } from "@/lib/storage";
 import { ensureMdExtension } from "@/lib/utils";
+import { useAppDialog } from "@/components/app-dialog-provider";
 
 interface SaveTemplateDialogProps {
   open: boolean;
@@ -30,13 +31,14 @@ export function SaveTemplateDialog({
   markdown,
   availableTags,
 }: SaveTemplateDialogProps) {
+  const { alert } = useAppDialog();
   const [fileName, setFileName] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     if (!fileName.trim()) {
-      alert("Please enter a filename");
+      await alert("Please enter a filename");
       return;
     }
 
@@ -53,7 +55,7 @@ export function SaveTemplateDialog({
       onOpenChange(false);
     } catch (error) {
       console.error("Error saving template:", error);
-      alert("Failed to save template");
+      await alert("Failed to save template");
     } finally {
       setSaving(false);
     }

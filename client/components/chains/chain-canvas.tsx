@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@/components/ai-elements/canvas";
 import { Connection } from "@/components/ai-elements/connection";
 import { Edge } from "@/components/ai-elements/edge";
 import { Controls } from "@/components/ai-elements/controls";
 import { Background, BackgroundVariant, ControlButton } from "@xyflow/react";
 import { applyNodeChanges, applyEdgeChanges, addEdge } from "@xyflow/react";
-import { Plus, PlayCircle, Info, MessageSquare, Maximize2, Minimize2 } from "lucide-react";
+import { Plus, PlayCircle, Info, MessageSquare, Maximize2, Minimize2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { PromptNode } from "@/components/chains/nodes/prompt-node";
 import { AnnotationNode } from "@/components/chains/nodes/annotation-node";
+import { FitViewOnActiveNode, FitViewOnFullscreenChange, ChainStepPanelContent } from "@/components/chains/chain-step-panel";
 import type { ChainMetadata, ChainNode } from "@/lib/prompt-chains";
 import {
   Alert,
@@ -39,11 +41,29 @@ const defaultEdgeOptions = {
 interface ChainCanvasProps {
   chain: ChainMetadata;
   onChainUpdate: (updated: ChainMetadata) => void;
+  onSaveChain?: () => void;
+  saving?: boolean;
 }
 
-export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
+export function ChainCanvas({ chain, onChainUpdate, onSaveChain, saving = false }: ChainCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+
+  const orderedStepIds = useMemo(() => {
+    const nodes = chain.canvas?.nodes ?? [];
+    return nodes
+      .filter((n): n is ChainNode & { type: "prompt" } => n.type === "prompt")
+      .sort((a, b) => a.position.x - b.position.x)
+      .map((n) => n.id);
+  }, [chain.canvas?.nodes]);
+
+  // Clear active node when it no longer exists in the chain (e.g. after delete or switch chain)
+  useEffect(() => {
+    if (!activeNodeId) return;
+    const exists = (chain.canvas?.nodes ?? []).some((n) => n.id === activeNodeId);
+    if (!exists) setActiveNodeId(null);
+  }, [activeNodeId, chain.canvas?.nodes]);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
@@ -59,6 +79,11 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
       containerRef.current.requestFullscreen();
     }
   }, []);
+
+  const handleSaveClick = useCallback(async () => {
+    if (!onSaveChain) return;
+    await onSaveChain();
+  }, [onSaveChain]);
 
   // Handle node position/selection changes
   const onNodesChange = useCallback((changes: any) => {
@@ -148,13 +173,32 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
     });
   }, [chain, onChainUpdate]);
 
-  // Inject update and delete handlers into all nodes
-  const nodesWithHandlers = (chain.canvas?.nodes || []).map(node => ({
+  const onNodeClick = useCallback((_: unknown, node: { id: string; type?: string }) => {
+    if (node.type === "prompt") {
+      setActiveNodeId((prev) => (prev === node.id ? null : node.id));
+    }
+  }, []);
+
+  const handleUpdateNodePromptFile = useCallback(
+    (nodeId: string, promptFile: string) => {
+      const updatedNodes = (chain.canvas?.nodes || []).map((n) =>
+        n.id === nodeId && n.type === "prompt"
+          ? { ...n, data: { ...n.data, promptFile } }
+          : n
+      );
+      onChainUpdate({ ...chain, canvas: { ...chain.canvas, nodes: updatedNodes } });
+    },
+    [chain, onChainUpdate]
+  );
+
+  // Inject update, delete, and isActive into all nodes
+  const nodesWithHandlers = (chain.canvas?.nodes || []).map((node) => ({
     ...node,
     data: {
       ...node.data,
+      isActive: activeNodeId === node.id,
       onUpdate: (nodeId: string, newData: any) => {
-        const updatedNodes = (chain.canvas?.nodes || []).map(n =>
+        const updatedNodes = (chain.canvas?.nodes || []).map((n) =>
           n.id === nodeId ? { ...n, data: newData } : n
         );
         onChainUpdate({
@@ -163,15 +207,15 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         });
       },
       onDelete: (nodeId: string) => {
-        const updatedNodes = (chain.canvas?.nodes || []).filter(n => n.id !== nodeId);
-        // Also remove connected edges
+        const updatedNodes = (chain.canvas?.nodes || []).filter((n) => n.id !== nodeId);
         const updatedEdges = (chain.canvas?.edges || []).filter(
-          e => e.source !== nodeId && e.target !== nodeId
+          (e) => e.source !== nodeId && e.target !== nodeId
         );
         onChainUpdate({
           ...chain,
           canvas: { ...chain.canvas, nodes: updatedNodes, edges: updatedEdges },
         });
+        if (activeNodeId === nodeId) setActiveNodeId(null);
       },
     },
   }));
@@ -198,6 +242,7 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
@@ -220,8 +265,6 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
           size={2}
           color="#666666"
         />
-        
-        {/* Zoom/pan controls */}
         <Controls showInteractive={false}>
           <ControlButton
             onClick={toggleFullscreen}
@@ -235,9 +278,24 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
             )}
           </ControlButton>
         </Controls>
+        <FitViewOnActiveNode activeNodeId={activeNodeId} />
+        <FitViewOnFullscreenChange />
       </Canvas>
 
-      {/* Floating toolbar */}
+      {/* Step panel: outside React Flow so it doesn't break edges/controls */}
+      {activeNodeId && (
+        <div className="absolute bottom-4 right-4 z-10">
+          <ChainStepPanelContent
+            activeNodeId={activeNodeId}
+            orderedStepIds={orderedStepIds}
+            chain={chain}
+            onActiveNodeChange={setActiveNodeId}
+            onUpdateNodePromptFile={handleUpdateNodePromptFile}
+          />
+        </div>
+      )}
+
+      {/* Floating toolbar - left */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
         <Button onClick={addNode} size="sm" className="shadow-lg">
           <Plus className="mr-2 size-4" />
@@ -256,6 +314,30 @@ export function ChainCanvas({ chain, onChainUpdate }: ChainCanvasProps) {
           </Button>
         )}
       </div>
+
+      {/* Floating toolbar - right: Save Chain */}
+      {onSaveChain && (
+        <div className="absolute top-4 right-4 z-10">
+          <Button
+            onClick={handleSaveClick}
+            disabled={saving}
+            size="sm"
+            className="shadow-lg"
+          >
+            {saving ? (
+              <>
+                <Spinner className="mr-2 size-4" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 size-4" />
+                Save Chain
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Empty state instructions */}
       {!hasNodes && (

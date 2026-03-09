@@ -1,5 +1,8 @@
+"use client";
+
 import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Y from 'yjs';
+import { useAppDialog } from '@/components/app-dialog-provider';
 
 export interface AIChange {
   id: string;
@@ -24,6 +27,7 @@ export function useAIChangeTracker(
   documentName?: string,
   getEditor?: () => any
 ) {
+  const { alert } = useAppDialog();
   const [changes, setChanges] = useState<AIChange[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -253,9 +257,9 @@ export function useAIChangeTracker(
     } catch (error) {
       console.error('❌ Accept request failed:', error);
       // Show error to user (could be enhanced with toast notification)
-      alert(`Failed to accept change: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      await alert(`Failed to accept change: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [documentName]);
+  }, [documentName, alert]);
   
   /**
    * Reject AI change - undos the editor transaction and marks as rejected
@@ -318,9 +322,9 @@ export function useAIChangeTracker(
     } catch (error) {
       console.error('❌ Reject request failed:', error);
       // Show error to user (could be enhanced with toast notification)
-      alert(`Failed to reject change: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      await alert(`Failed to reject change: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [documentName, getEditor]);
+  }, [documentName, getEditor, alert]);
   
   return {
     changes,

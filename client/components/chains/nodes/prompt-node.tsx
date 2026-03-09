@@ -23,6 +23,8 @@ import { Separator } from "@/components/ui/separator";
 import { listStorageObjects } from "@/lib/storage";
 import { Spinner } from "@/components/ui/spinner";
 import { apiUrl } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import { useAppDialog } from "@/components/app-dialog-provider";
 
 interface ModelInfo {
   id: string;
@@ -33,6 +35,7 @@ interface ModelInfo {
 }
 
 export function PromptNode({ data, id }: any) {
+  const { confirm } = useAppDialog();
   const [isEditing, setIsEditing] = useState(false);
   const [promptFiles, setPromptFiles] = useState<string[]>([]);
   const [loadingPrompts, setLoadingPrompts] = useState(false);
@@ -79,8 +82,8 @@ export function PromptNode({ data, id }: any) {
     }
   }, [isEditing]);
 
-  const handleDelete = () => {
-    if (confirm(`Delete step "${data.label || 'Step'}"?`)) {
+  const handleDelete = async () => {
+    if (await confirm(`Delete step "${data.label || 'Step'}"?`)) {
       data.onDelete?.(id);
       setIsEditing(false);
     }
@@ -95,8 +98,13 @@ export function PromptNode({ data, id }: any) {
         className="w-2 h-2 !bg-primary border border-background"
       />
 
-      {/* Node card - shadcn design - extra compact */}
-      <div className="bg-card border border-border rounded-md shadow-md min-w-[140px] max-w-[160px] hover:border-primary/50 transition-all">
+      {/* Node card - shadcn design - extra compact; ring when active (panel open) */}
+      <div
+        className={cn(
+          "bg-card border border-border rounded-md shadow-md min-w-[140px] max-w-[160px] hover:border-primary/50 transition-all",
+          data.isActive && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+        )}
+      >
         {/* Header */}
         <div className="flex items-center justify-between gap-1 px-2 py-1 border-b border-border bg-muted/30">
           <div className="flex items-center gap-1 min-w-0">

@@ -29,6 +29,7 @@ import {
 } from "@/lib/storage";
 import { TagSelector } from "@/components/ui/tag-selector";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useAppDialog } from "@/components/app-dialog-provider";
 import { cn, extractFileName, ensureMdExtension, arraysEqual, extractTags } from "@/lib/utils";
 
 interface FileManagerViewProps {
@@ -48,6 +49,7 @@ export function FileManagerView({
   emptyStateTitle,
   emptyStateDescription,
 }: FileManagerViewProps) {
+  const { alert, confirm } = useAppDialog();
   const [objects, setObjects] = useState<StorageObject[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -129,7 +131,7 @@ export function FileManagerView({
       setOriginalFileName(fileName);
     } catch (error) {
       console.error("Error loading file content:", error);
-      alert("Failed to load file content");
+      await alert("Failed to load file content");
       setDialogOpen(false);
     } finally {
       setLoadingContent(false);
@@ -139,7 +141,7 @@ export function FileManagerView({
   const handleSave = async () => {
     if (isNewFile) {
       if (!newFileName.trim()) {
-        alert("Please enter a filename");
+        await alert("Please enter a filename");
         return;
       }
       const fileName = ensureMdExtension(newFileName);
@@ -154,7 +156,7 @@ export function FileManagerView({
         setDialogOpen(false);
       } catch (error) {
         console.error("Error creating file:", error);
-        alert("Failed to create file");
+        await alert("Failed to create file");
       } finally {
         setSaving(false);
       }
@@ -189,7 +191,7 @@ export function FileManagerView({
         setDialogOpen(false);
       } catch (error) {
         console.error("Error saving file:", error);
-        alert("Failed to save file");
+        await alert("Failed to save file");
       } finally {
         setSaving(false);
       }
@@ -212,7 +214,7 @@ export function FileManagerView({
       await fetchFiles();
     } catch (error) {
       console.error("Error uploading file:", error);
-      alert("Failed to upload file");
+      await alert("Failed to upload file");
     } finally {
       setUploading(false);
       if (fileInputRef.current) {
@@ -224,14 +226,14 @@ export function FileManagerView({
   const handleDelete = async (objectName: string, event: React.MouseEvent) => {
     event.stopPropagation();
     const fileName = extractFileName(objectName, folder);
-    if (!confirm(`Delete ${fileName}?`)) return;
+    if (!(await confirm(`Delete ${fileName}?`))) return;
 
     try {
       await deleteFile(objectName);
       await fetchFiles();
     } catch (error) {
       console.error("Error deleting file:", error);
-      alert("Failed to delete file");
+      await alert("Failed to delete file");
     }
   };
 

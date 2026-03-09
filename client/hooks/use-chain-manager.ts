@@ -3,12 +3,14 @@
 import { useState, useCallback } from "react";
 import { getFileContent, updateFileContent, deleteFile, type StorageObject } from "@/lib/storage";
 import { parsePromptChain, serializePromptChain, type ParsedChain } from "@/lib/prompt-chains";
+import { useAppDialog } from "@/components/app-dialog-provider";
 
 /**
  * Hook to manage chain operations: expand, update, save, delete
  * Handles all chain-specific business logic
  */
 export function useChainManager(refetch: () => Promise<void>) {
+  const { alert, confirm } = useAppDialog();
   const [expandedChainId, setExpandedChainId] = useState<string | null>(null);
   const [loadingChainId, setLoadingChainId] = useState<string | null>(null);
   const [chainData, setChainData] = useState<Map<string, ParsedChain>>(new Map());
@@ -33,14 +35,14 @@ export function useChainManager(refetch: () => Promise<void>) {
         setExpandedChainId(chainId);
       } catch (error) {
         console.error("Error loading chain:", error);
-        alert("Failed to load chain");
+        await alert("Failed to load chain");
       } finally {
         setLoadingChainId(null);
       }
     } else {
       setExpandedChainId(chainId);
     }
-  }, [expandedChainId, chainData]);
+  }, [expandedChainId, chainData, alert]);
 
   const handleChainUpdate = useCallback((chainId: string, updatedParsed: ParsedChain) => {
     setChainData(prev => new Map(prev).set(chainId, updatedParsed));
@@ -57,16 +59,16 @@ export function useChainManager(refetch: () => Promise<void>) {
       await refetch();
     } catch (error) {
       console.error("Error saving chain:", error);
-      alert("Failed to save chain");
+      await alert("Failed to save chain");
     } finally {
       setSaving(false);
     }
-  }, [chainData, refetch]);
+  }, [chainData, refetch, alert]);
 
   const handleDeleteChain = useCallback(async (objectName: string, event: React.MouseEvent) => {
     event.stopPropagation();
     const fileName = objectName.replace('chains/', '');
-    if (!confirm(`Delete "${fileName}"?`)) return;
+    if (!(await confirm(`Delete "${fileName}"?`))) return;
 
     try {
       await deleteFile(objectName);
@@ -81,9 +83,9 @@ export function useChainManager(refetch: () => Promise<void>) {
       await refetch();
     } catch (error) {
       console.error("Error deleting chain:", error);
-      alert("Failed to delete chain");
+      await alert("Failed to delete chain");
     }
-  }, [expandedChainId, refetch]);
+  }, [expandedChainId, refetch, alert, confirm]);
 
   return {
     expandedChainId,

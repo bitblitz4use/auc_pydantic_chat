@@ -6,13 +6,15 @@ import { useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useAppDialog } from "@/components/app-dialog-provider";
 
 export function AnnotationNode({ data, selected, id }: any) {
+  const { confirm } = useAppDialog();
   const [isEditingComment, setIsEditingComment] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
-  const handleDelete = () => {
-    if (confirm(`Delete note "${data.title || 'Note'}"?`)) {
+  const handleDelete = async () => {
+    if (await confirm(`Delete note "${data.title || 'Note'}"?`)) {
       data.onDelete?.(id);
     }
   };

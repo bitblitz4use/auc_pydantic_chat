@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Network, Edit, Trash2, ChevronDown, Save } from "lucide-react";
+import { Network, Edit, Trash2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,10 +18,12 @@ import { FileActions } from "@/components/common/file-actions";
 import { useFileList } from "@/hooks/use-file-list";
 import { useTagFilter } from "@/hooks/use-tag-filter";
 import { useChainManager } from "@/hooks/use-chain-manager";
+import { useAppDialog } from "@/components/app-dialog-provider";
 import { cn } from "@/lib/utils";
 import { Tag } from "lucide-react";
 
 export function ChainsView() {
+  const { alert } = useAppDialog();
   const { items: chains, loading, availableTags, refetch } = useFileList("chains");
   const { selectedTags, filteredItems, toggleTag, clearTags } = useTagFilter(
     chains,
@@ -103,7 +105,7 @@ export function ChainsView() {
       setMetadataEditChain(null);
     } catch (error) {
       console.error("Error saving chain metadata:", error);
-      alert("Failed to save chain");
+      await alert("Failed to save chain");
     }
   };
 
@@ -117,7 +119,7 @@ export function ChainsView() {
       await refetch();
     } catch (error) {
       console.error("Error uploading chain:", error);
-      alert("Failed to upload chain");
+      await alert("Failed to upload chain");
     } finally {
       setUploading(false);
       if (fileInputRef.current) {
@@ -293,29 +295,9 @@ export function ChainsView() {
                                         metadata: updated,
                                       });
                                     }}
+                                    onSaveChain={() => handleSaveChain(chainId)}
+                                    saving={saving}
                                   />
-                                </div>
-                                <div className="p-4 border-t border-border bg-muted/10 flex items-center justify-between">
-                                  <div className="text-sm text-muted-foreground">
-                                    {parsed.metadata.canvas?.nodes?.filter((n: any) => n.type === 'prompt').length || 0} steps · {parsed.metadata.canvas?.edges?.length || 0} connections
-                                  </div>
-                                  <Button
-                                    onClick={() => handleSaveChain(chainId)}
-                                    disabled={saving}
-                                    size="sm"
-                                  >
-                                    {saving ? (
-                                      <>
-                                        <Spinner className="mr-2 size-4" />
-                                        Saving...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Save className="mr-2 size-4" />
-                                        Save Chain
-                                      </>
-                                    )}
-                                  </Button>
                                 </div>
                               </>
                             ) : null}

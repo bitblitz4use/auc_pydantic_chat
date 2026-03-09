@@ -14,6 +14,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { apiUrl } from "@/lib/config";
+import { useAppDialog } from "@/components/app-dialog-provider";
 import { 
   FileText, 
   Loader2, 
@@ -100,6 +101,7 @@ export function DocumentTree({
   onSelectDocument,
   onCreateNew,
 }: DocumentTreeProps) {
+  const { alert, confirm } = useAppDialog();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPath, setSelectedPath] = useState(currentDocument);
@@ -211,11 +213,11 @@ export function DocumentTree({
       }
     } catch (error) {
       console.error("Failed to rename:", error);
-      alert("Failed to rename document");
+      await alert("Failed to rename document");
     } finally {
       setRenamingPath(null);
     }
-  }, [renamingPath, renameValue, loadDocuments, currentDocument, onSelectDocument]);
+  }, [renamingPath, renameValue, loadDocuments, currentDocument, onSelectDocument, alert]);
 
   // Cancel renaming
   const cancelRename = useCallback(() => {
@@ -225,7 +227,7 @@ export function DocumentTree({
 
   // Delete document or folder
   const deleteDocument = useCallback(async (path: string) => {
-    if (!confirm(`Delete "${path}"?`)) return;
+    if (!(await confirm(`Delete "${path}"?`))) return;
 
     try {
       const response = await fetch(apiUrl.documentOps(path), {
@@ -242,9 +244,9 @@ export function DocumentTree({
       await loadDocuments();
     } catch (error) {
       console.error("Failed to delete:", error);
-      alert("Failed to delete");
+      await alert("Failed to delete");
     }
-  }, [loadDocuments, currentDocument]);
+  }, [loadDocuments, currentDocument, alert, confirm]);
 
   // Create new folder
   const createFolder = useCallback(async () => {
@@ -263,9 +265,9 @@ export function DocumentTree({
       await loadDocuments();
     } catch (error) {
       console.error("Failed to create folder:", error);
-      alert("Failed to create folder");
+      await alert("Failed to create folder");
     }
-  }, [loadDocuments]);
+  }, [loadDocuments, alert]);
 
   // Drag and drop handlers
   const handleDragStart = useCallback((path: string, e: React.DragEvent) => {
@@ -320,11 +322,11 @@ export function DocumentTree({
       }
     } catch (error) {
       console.error("Failed to move:", error);
-      alert("Failed to move document");
+      await alert("Failed to move document");
     } finally {
       setDraggedItem(null);
     }
-  }, [draggedItem, loadDocuments, currentDocument, onSelectDocument]);
+  }, [draggedItem, loadDocuments, currentDocument, onSelectDocument, alert]);
 
   const tree = organizeDocuments(documents);
   

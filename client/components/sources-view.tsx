@@ -29,8 +29,10 @@ import { cn, extractTags } from "@/lib/utils";
 import { ConversionProgressCard } from "@/components/ui/conversion-progress";
 import { wsManager } from "@/lib/websocket-manager";
 import { conversionStateManager } from "@/lib/conversion-state-manager";
+import { useAppDialog } from "@/components/app-dialog-provider";
 
 export function SourcesView() {
+  const { alert, confirm } = useAppDialog();
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -171,7 +173,7 @@ export function SourcesView() {
       }
     } catch (error) {
       console.error("Error loading source markdown:", error);
-      alert("Failed to load source markdown");
+      await alert("Failed to load source markdown");
       setDialogOpen(false);
     } finally {
       setLoadingContent(false);
@@ -180,7 +182,7 @@ export function SourcesView() {
 
   const handleDelete = async (sourceId: string, event: React.MouseEvent) => {
     event.stopPropagation();
-    if (!confirm(`Delete this source? This will delete both the original file and the converted markdown.`)) return;
+    if (!(await confirm(`Delete this source? This will delete both the original file and the converted markdown.`))) return;
 
     try {
       await deleteSource(sourceId);
@@ -191,7 +193,7 @@ export function SourcesView() {
       }
     } catch (error) {
       console.error("Error deleting source:", error);
-      alert("Failed to delete source");
+      await alert("Failed to delete source");
     }
   };
 
