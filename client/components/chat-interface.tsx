@@ -47,6 +47,11 @@ import { useChat } from "@ai-sdk/react";
 import { CheckIcon, GlobeIcon, FileText } from "lucide-react";
 import { SimpleChatTransport } from "@/lib/simple-chat-transport";
 import { memo, useCallback, useState, useEffect, useMemo } from "react";
+import {
+  JSXPreview,
+  JSXPreviewContent,
+  JSXPreviewError,
+} from "@/components/ai-elements/jsx-preview";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useActiveDocument } from "@/hooks/use-active-document";
 import { useModelSelection, type ModelInfo } from "@/hooks/use-model-selection";
@@ -129,6 +134,8 @@ export function ChatInterface() {
   
   // Task mode and active document/source
   const [taskMode, setTaskMode] = useState<TaskMode>("ask");
+  const [lastSentTaskMode, setLastSentTaskMode] = useState<TaskMode>("ask");
+  const [assistantModeById, setAssistantModeById] = useState<Record<string, TaskMode>>({});
   const activeDocument = useActiveDocument();
   const [activeSource, setActiveSource] = useState<string | null>(null);
   const [activeSourceName, setActiveSourceName] = useState<string | null>(null);
@@ -136,7 +143,7 @@ export function ChatInterface() {
   const sourceSelector = useSourceSelector(taskMode, activeSource);
   
   const [isInputActive, setIsInputActive] = useState(false);
-  
+
   const transport = useMemo(() => {
     return new SimpleChatTransport({
       api: apiUrl.chat(),
@@ -153,6 +160,26 @@ export function ChatInterface() {
 
     const handleSubmit = useCallback(
       async (message: PromptInputMessage) => {
+        // Context mode: server streams JSX (see server chat route); must use sendMessage so messages populate
+        if (taskMode === "context") {
+          textInput.clear();
+          setLastSentTaskMode(taskMode);
+          sendMessage(
+            {
+              text: message.text?.trim() || " ",
+              files: message.files,
+            },
+            {
+              body: {
+                model: modelSelection.selectedModel,
+                webSearch,
+                taskMode: "context",
+              },
+            }
+          );
+          return;
+        }
+
         const hasText = Boolean(message.text);
         const hasAttachments = Boolean(message.files?.length);
 
@@ -161,6 +188,9 @@ export function ChatInterface() {
         }
 
         textInput.clear();
+
+        // Record the task mode used for this send, so renderer uses the same mode for the streaming response
+        setLastSentTaskMode(taskMode);
 
           sendMessage(
             {
@@ -397,13 +427,34 @@ export function ChatInterface() {
     );
   };
 
-  // Helper function to extract text content from message (handles both old and new formats)
+  // Extract assistant/user text — AI SDK v6 UIMessage uses `parts` with { type: 'text', text }
   const getMessageText = (message: any) => {
-    if (message.content) return message.content;
-    if (message.parts) {
-      const textPart = message.parts.find((p: any) => p.type === "text");
-      return textPart?.text || "";
+    if (!message) return "";
+
+    if (Array.isArray(message.parts)) {
+      const text = message.parts
+        .map((p: any) => {
+          if (p?.type === "text" && typeof p.text === "string") return p.text;
+          return "";
+        })
+        .join("");
+      if (text) return text;
     }
+
+    if (typeof message.content === "string") return message.content;
+
+    if (Array.isArray(message.content)) {
+      const text = message.content
+        .map((p: any) => {
+          if (typeof p === "string") return p;
+          if (p?.type === "text" && typeof p.text === "string") return p.text;
+          if (p?.type === "text-delta" && typeof p.delta === "string") return p.delta;
+          return "";
+        })
+        .join("");
+      if (text) return text;
+    }
+
     return "";
   };
 
@@ -417,6 +468,23 @@ export function ChatInterface() {
     lastMessage.role === "user" || 
     (lastMessage.role === "assistant" && !getMessageText(lastMessage))
   );
+
+  // Decide if a given assistant message should be treated as context for rendering,
+  // based on the task mode at the time it was sent (to avoid UI-state drift).
+  const isContextForMessage = (message: any) =>
+    (assistantModeById[message.id] ?? (isLoading && message.id === lastMessage?.id ? lastSentTaskMode : taskMode)) === "context";
+
+  // Persist the mode used for the latest assistant message so it keeps rendering consistently after streaming
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant" && last.id && !assistantModeById[last.id]) {
+      setAssistantModeById((prev) => ({
+        ...prev,
+        [last.id]: lastSentTaskMode,
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, lastSentTaskMode]);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -437,6 +505,23 @@ export function ChatInterface() {
                       <MessageContent>
                         {message.role === "user" ? (
                           <p>{getMessageText(message)}</p>
+                        ) : isContextForMessage(message) ? (
+                          <div className="size-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                            <JSXPreview
+                              jsx={(function () {
+                                const text = getMessageText(message).trim();
+                                return text || "<div />";
+                              })()}
+                              isStreaming={
+                                (status === "submitted" || status === "streaming") &&
+                                message.id === lastMessage?.id
+                              }
+                              onError={(error) => console.error("JSX Parse Error:", error)}
+                            >
+                              <JSXPreviewContent />
+                              <JSXPreviewError />
+                            </JSXPreview>
+                          </div>
                         ) : (
                           <MessageResponse>{getMessageText(message)}</MessageResponse>
                         )}

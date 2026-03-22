@@ -10,6 +10,7 @@ class TaskMode(str, Enum):
     ASK = "ask"          # General conversation
     WRITE = "write"      # Document-focused interaction
     SUMMARIZE = "summarize"  # Source summarization
+    CONTEXT = "context"  # Context-building questions with approval
 
 
 class DocumentContext(BaseModel):

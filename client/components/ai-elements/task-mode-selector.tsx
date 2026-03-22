@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, FileEdit, FileText } from "lucide-react";
+import { MessageSquare, FileEdit, FileText, BookOpen } from "lucide-react";
 import {
   PromptInputSelect,
   PromptInputSelectContent,
@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
-export type TaskMode = "ask" | "write" | "summarize";
+export type TaskMode = "ask" | "write" | "summarize" | "context";
 
 interface TaskModeSelectorProps {
   mode: TaskMode;
@@ -52,10 +52,15 @@ export function TaskModeSelector({
               <FileEdit className="size-4 text-green-500" />
               <span className="text-xs">Write</span>
             </div>
-          ) : (
+          ) : mode === "summarize" ? (
             <div className="flex items-center gap-1.5">
               <FileText className="size-4 text-blue-500" />
               <span className="text-xs">Summarize</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <BookOpen className="size-4 text-purple-500" />
+              <span className="text-xs">Context</span>
             </div>
           )}
         </PromptInputSelectValue>
@@ -77,6 +82,12 @@ export function TaskModeSelector({
           <div className="flex items-center gap-2">
             <FileText className="size-4 text-blue-500" />
             <span>Summarize</span>
+          </div>
+        </PromptInputSelectItem>
+        <PromptInputSelectItem value="context">
+          <div className="flex items-center gap-2">
+            <BookOpen className="size-4 text-purple-500" />
+            <span>Context</span>
           </div>
         </PromptInputSelectItem>
       </PromptInputSelectContent>
