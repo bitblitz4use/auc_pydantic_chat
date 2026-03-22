@@ -5,28 +5,50 @@ import {
   JSXPreviewContent,
   JSXPreviewError,
 } from "@/components/ai-elements/jsx-preview";
+import {
+  NIS2_DIGITALE,
+  NIS2_SECTORS,
+  NIS2_SONDER,
+  type Nis2ContextAnswers,
+} from "@/lib/nis2-catalog";
 import { cn } from "@/lib/utils";
 import {
   createContext,
   memo,
   useContext,
-  useMemo,
   type ReactNode,
 } from "react";
 
-/** Structured answers for CONTEXT mode (server wizard + client toggles). */
-export type ContextAnswers = {
-  gender?: "male" | "female";
-  region?: "DE" | "AUT";
-};
+/** Per-preview flag so JsxParser can use stable `components` (same reference every render). */
+const Nis2InteractiveContext = createContext(false);
+
+function useNis2Interactive(): boolean {
+  return useContext(Nis2InteractiveContext);
+}
+
+/** NIS-2 Fragekatalog — aligned with server `nis2_logic` / `nis2_fixed_jsx`. */
+export type ContextAnswers = Nis2ContextAnswers;
 
 export type ContextWizardValue = {
+  activeStep: number;
+  canSubmitStep: boolean;
   draft: ContextAnswers;
-  toggleMale: () => void;
-  toggleFemale: () => void;
-  toggleDE: () => void;
-  toggleAUT: () => void;
   sendSelection: () => void;
+  setSector: (id: string) => void;
+  setEmployees: (v: number | null) => void;
+  setRevenueMio: (v: number | null) => void;
+  setBalanceMio: (v: number | null) => void;
+  setBoolField: (
+    field:
+      | "wesentlicheDienste"
+      | "kritischeInfrastruktur"
+      | "lieferantNis2"
+      | "beeinflusstSicherheit"
+      | "dienstleistungenEu",
+    value: boolean
+  ) => void;
+  toggleDigitale: (key: string) => void;
+  toggleSonder: (key: string) => void;
 };
 
 const ContextWizardContext = createContext<ContextWizardValue | null>(null);
@@ -47,164 +69,305 @@ export function ContextWizardProvider({
   value: ContextWizardValue;
 }) {
   return (
-    <ContextWizardContext.Provider value={value}>
-      {children}
-    </ContextWizardContext.Provider>
+    <ContextWizardContext.Provider value={value}>{children}</ContextWizardContext.Provider>
   );
 }
 
-function CtxGenderMale({ interactive }: { interactive: boolean }) {
-  const { draft, toggleMale } = useContextWizard();
+function CtxSectorGrid() {
+  const interactive = useNis2Interactive();
+  const { draft, setSector } = useContextWizard();
   if (!interactive) {
     return (
-      <span className="inline-flex rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-        Male
-      </span>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+        Sektor (nur Ansicht)
+      </div>
     );
   }
-  const pressed = draft.gender === "male";
   return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      data-state={pressed ? "on" : "off"}
-      className={cn(
-        "inline-flex rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        pressed
-          ? "bg-primary text-primary-foreground ring-2 ring-ring ring-offset-2 ring-offset-background"
-          : "bg-muted text-muted-foreground hover:bg-muted/80"
-      )}
-      onClick={toggleMale}
-    >
-      Male
-    </button>
+    <div className="mt-3 flex flex-col gap-2">
+      {NIS2_SECTORS.map((s) => {
+        const pressed = draft.sector === s.id;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            aria-pressed={pressed}
+            className={cn(
+              "rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors",
+              pressed
+                ? "border-primary bg-primary/15 ring-2 ring-ring"
+                : "border-border bg-muted/40 hover:bg-muted/70"
+            )}
+            onClick={() => setSector(s.id)}
+          >
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function CtxGenderFemale({ interactive }: { interactive: boolean }) {
-  const { draft, toggleFemale } = useContextWizard();
+function CtxNumInputs() {
+  const interactive = useNis2Interactive();
+  const { draft, setEmployees, setRevenueMio, setBalanceMio } = useContextWizard();
+  if (!interactive) {
+    return <div className="mt-3 text-xs text-muted-foreground">Größenangaben (nur Ansicht)</div>;
+  }
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="font-medium text-foreground">Anzahl Mitarbeiter</span>
+        <input
+          type="number"
+          min={0}
+          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+          value={draft.employees ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            setEmployees(v === "" ? null : Math.max(0, Math.floor(Number(v))));
+          }}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="font-medium text-foreground">Jahresumsatz (Mio. €)</span>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+          value={draft.revenueMio ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            setRevenueMio(v === "" ? null : Math.max(0, Number(v)));
+          }}
+        />
+      </label>
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="font-medium text-foreground">Jahresbilanzsumme (Mio. €)</span>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+          value={draft.balanceMio ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            setBalanceMio(v === "" ? null : Math.max(0, Number(v)));
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+function JaNeinRow({
+  label,
+  value,
+  onJa,
+  onNein,
+}: {
+  label: string;
+  value: boolean | undefined;
+  onJa: () => void;
+  onNein: () => void;
+}) {
+  const interactive = useNis2Interactive();
   if (!interactive) {
     return (
-      <span className="inline-flex rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-        Female
-      </span>
+      <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        {label}
+      </div>
     );
   }
-  const pressed = draft.gender === "female";
   return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      data-state={pressed ? "on" : "off"}
-      className={cn(
-        "inline-flex rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        pressed
-          ? "bg-primary text-primary-foreground ring-2 ring-ring ring-offset-2 ring-offset-background"
-          : "bg-muted text-muted-foreground hover:bg-muted/80"
-      )}
-      onClick={toggleFemale}
-    >
-      Female
-    </button>
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-medium text-foreground">{label}</span>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={cn(
+            "rounded-md px-3 py-1.5 text-xs font-medium",
+            value === true ? "bg-primary text-primary-foreground ring-2 ring-ring" : "bg-muted"
+          )}
+          onClick={onJa}
+        >
+          Ja
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "rounded-md px-3 py-1.5 text-xs font-medium",
+            value === false ? "bg-primary text-primary-foreground ring-2 ring-ring" : "bg-muted"
+          )}
+          onClick={onNein}
+        >
+          Nein
+        </button>
+      </div>
+    </div>
   );
 }
 
-function CtxRegionDE({ interactive }: { interactive: boolean }) {
-  const { draft, toggleDE } = useContextWizard();
+function CtxKritikalitaetToggles() {
+  const { draft, setBoolField } = useContextWizard();
+  return (
+    <div className="mt-3 flex flex-col gap-4">
+      <JaNeinRow
+        label="Erbringen Sie wesentliche oder kritische Dienstleistungen?"
+        value={draft.wesentlicheDienste}
+        onJa={() => setBoolField("wesentlicheDienste", true)}
+        onNein={() => setBoolField("wesentlicheDienste", false)}
+      />
+      <JaNeinRow
+        label="Sind Sie Teil einer kritischen Infrastruktur?"
+        value={draft.kritischeInfrastruktur}
+        onJa={() => setBoolField("kritischeInfrastruktur", true)}
+        onNein={() => setBoolField("kritischeInfrastruktur", false)}
+      />
+    </div>
+  );
+}
+
+function CtxDigitaleGrid() {
+  const interactive = useNis2Interactive();
+  const { draft, toggleDigitale } = useContextWizard();
+  const set = new Set(draft.digitaleDienste ?? []);
   if (!interactive) {
-    return (
-      <span className="inline-flex rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-        DE
-      </span>
-    );
+    return <div className="mt-3 text-xs text-muted-foreground">Digitale Dienste (nur Ansicht)</div>;
   }
-  const pressed = draft.region === "DE";
   return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      data-state={pressed ? "on" : "off"}
-      className={cn(
-        "inline-flex rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        pressed
-          ? "bg-secondary text-secondary-foreground ring-2 ring-ring ring-offset-2 ring-offset-background"
-          : "bg-muted text-muted-foreground hover:bg-muted/80"
-      )}
-      onClick={toggleDE}
-    >
-      DE
-    </button>
+    <div className="mt-3 flex flex-col gap-2">
+      {NIS2_DIGITALE.map((d) => {
+        const pressed = set.has(d.id);
+        return (
+          <button
+            key={d.id}
+            type="button"
+            aria-pressed={pressed}
+            className={cn(
+              "rounded-md border px-3 py-2 text-left text-xs transition-colors",
+              pressed
+                ? "border-secondary bg-secondary/20 ring-2 ring-ring"
+                : "border-border bg-muted/40 hover:bg-muted/70"
+            )}
+            onClick={() => toggleDigitale(d.id)}
+          >
+            {d.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function CtxRegionAUT({ interactive }: { interactive: boolean }) {
-  const { draft, toggleAUT } = useContextWizard();
+function CtxLieferketteToggles() {
+  const { draft, setBoolField } = useContextWizard();
+  return (
+    <div className="mt-3 flex flex-col gap-4">
+      <JaNeinRow
+        label="Sind Sie Lieferant für ein Unternehmen, das unter NIS2 fällt?"
+        value={draft.lieferantNis2}
+        onJa={() => setBoolField("lieferantNis2", true)}
+        onNein={() => setBoolField("lieferantNis2", false)}
+      />
+      <JaNeinRow
+        label="Beeinflussen Ihre Dienstleistungen die Sicherheit anderer Organisationen?"
+        value={draft.beeinflusstSicherheit}
+        onJa={() => setBoolField("beeinflusstSicherheit", true)}
+        onNein={() => setBoolField("beeinflusstSicherheit", false)}
+      />
+    </div>
+  );
+}
+
+function CtxEuToggle() {
+  const { draft, setBoolField } = useContextWizard();
+  return (
+    <div className="mt-3">
+      <JaNeinRow
+        label="Bieten Sie Dienstleistungen innerhalb der EU an?"
+        value={draft.dienstleistungenEu}
+        onJa={() => setBoolField("dienstleistungenEu", true)}
+        onNein={() => setBoolField("dienstleistungenEu", false)}
+      />
+    </div>
+  );
+}
+
+function CtxSonderfaelleGrid() {
+  const interactive = useNis2Interactive();
+  const { draft, toggleSonder } = useContextWizard();
+  const set = new Set(draft.sonderfaelle ?? []);
   if (!interactive) {
-    return (
-      <span className="inline-flex rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-        AUT
-      </span>
-    );
+    return <div className="mt-3 text-xs text-muted-foreground">Sonderfälle (nur Ansicht)</div>;
   }
-  const pressed = draft.region === "AUT";
   return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      data-state={pressed ? "on" : "off"}
-      className={cn(
-        "inline-flex rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        pressed
-          ? "bg-secondary text-secondary-foreground ring-2 ring-ring ring-offset-2 ring-offset-background"
-          : "bg-muted text-muted-foreground hover:bg-muted/80"
-      )}
-      onClick={toggleAUT}
-    >
-      AUT
-    </button>
+    <div className="mt-3 flex flex-col gap-2">
+      {NIS2_SONDER.map((d) => {
+        const pressed = set.has(d.id);
+        return (
+          <button
+            key={d.id}
+            type="button"
+            aria-pressed={pressed}
+            className={cn(
+              "rounded-md border px-3 py-2 text-left text-xs transition-colors",
+              pressed
+                ? "border-secondary bg-secondary/20 ring-2 ring-ring"
+                : "border-border bg-muted/40 hover:bg-muted/70"
+            )}
+            onClick={() => toggleSonder(d.id)}
+          >
+            {d.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function CtxSendSelection({ interactive }: { interactive: boolean }) {
-  const { sendSelection } = useContextWizard();
+function CtxSendSelection() {
+  const interactive = useNis2Interactive();
+  const { canSubmitStep, sendSelection } = useContextWizard();
   if (!interactive) {
     return (
       <span className="inline-flex rounded-md border border-dashed border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
-        Send selection
+        Auswahl senden
       </span>
     );
   }
   return (
     <button
       type="button"
-      className="inline-flex rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted/50"
+      disabled={!canSubmitStep}
+      className={cn(
+        "inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium",
+        canSubmitStep
+          ? "bg-background hover:bg-muted/50"
+          : "cursor-not-allowed bg-muted/50 text-muted-foreground opacity-60"
+      )}
       onClick={sendSelection}
     >
-      Send selection
+      Auswahl senden
     </button>
   );
 }
 
-/** Custom tags for server JSX strings — pass into JSXPreview `components`. */
-export function createContextJsxComponents(interactive: boolean) {
-  return {
-    CtxGenderFemale: memo(function CtxGenderFemaleWrap() {
-      return <CtxGenderFemale interactive={interactive} />;
-    }),
-    CtxGenderMale: memo(function CtxGenderMaleWrap() {
-      return <CtxGenderMale interactive={interactive} />;
-    }),
-    CtxRegionAUT: memo(function CtxRegionAUTWrap() {
-      return <CtxRegionAUT interactive={interactive} />;
-    }),
-    CtxRegionDE: memo(function CtxRegionDEWrap() {
-      return <CtxRegionDE interactive={interactive} />;
-    }),
-    CtxSendSelection: memo(function CtxSendSelectionWrap() {
-      return <CtxSendSelection interactive={interactive} />;
-    }),
-  };
-}
+/**
+ * Stable reference — required so react-jsx-parser does not remount custom components
+ * on every parent re-render (which caused controlled inputs to lose focus after one char).
+ */
+const NIS2_JSX_COMPONENTS = {
+  CtxDigitaleGrid,
+  CtxEuToggle,
+  CtxKritikalitaetToggles,
+  CtxLieferketteToggles,
+  CtxNumInputs,
+  CtxSectorGrid,
+  CtxSendSelection,
+  CtxSonderfaelleGrid,
+} as const;
 
 export const ContextAssistantJsxPreview = memo(function ContextAssistantJsxPreview({
   jsxText,
@@ -217,18 +380,16 @@ export const ContextAssistantJsxPreview = memo(function ContextAssistantJsxPrevi
   interactive: boolean;
   onError?: (error: Error) => void;
 }) {
-  const components = useMemo(
-    () => createContextJsxComponents(interactive),
-    [interactive]
-  );
   return (
     <JSXPreview
-      components={components}
+      components={NIS2_JSX_COMPONENTS}
       jsx={jsxText}
       isStreaming={isStreaming}
       onError={onError}
     >
-      <JSXPreviewContent />
+      <Nis2InteractiveContext.Provider value={interactive}>
+        <JSXPreviewContent />
+      </Nis2InteractiveContext.Provider>
       <JSXPreviewError />
     </JSXPreview>
   );

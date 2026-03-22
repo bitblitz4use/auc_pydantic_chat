@@ -11,7 +11,8 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
 from app.agents.common import DocumentContext, TaskMode
-from app.agents.context.fixed_jsx import resolve_context_jsx
+from app.agents.context.nis2_agent import create_nis2_summary_agent
+from app.agents.context.nis2_logic import build_nis2_user_prompt_de, resolve_context_mode
 from app.agents.factory import document_agent, create_agent_from_model_id
 from app.config import config, HOCUSPOCUS_URL, HTTP_TIMEOUT
 from app.providers import parse_model_id
@@ -118,14 +119,23 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     except Exception as e:
         logger.warning("⚠️ Could not collapse context messages: %s", e)
 
-    # CONTEXT: fixed JSX sample (no LLM) — Vercel AI data stream v6
+    # CONTEXT: NIS-2 wizard (JSX steps) or LLM summary in German — Vercel AI data stream v6
     if task_mode == TaskMode.CONTEXT:
-        async def event_stream():
+        kind, payload = resolve_context_mode(body_data)
+
+        provider = config.default_provider
+        model_name = config.default_model
+        if model_id:
+            try:
+                provider, model_name = parse_model_id(model_id)
+            except ValueError as e:
+                logger.warning("⚠️ Invalid model ID %r for context summary: %s", model_id, e)
+
+        async def event_stream_jsx(full_jsx: str):
             def sse_line(obj: dict) -> bytes:
                 return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode("utf-8")
 
             text_id = str(uuid.uuid4())
-            full_jsx = resolve_context_jsx(body_data)
             yield sse_line({"type": "start"})
             yield sse_line({"type": "start-step"})
             yield sse_line({"type": "text-start", "id": text_id})
@@ -141,7 +151,45 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
             yield sse_line({"type": "finish", "finishReason": "stop"})
             yield b"data: [DONE]\n\n"
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+        async def event_stream_llm(answers: dict):
+            def sse_line(obj: dict) -> bytes:
+                return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode("utf-8")
+
+            http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
+            deps = DocumentContext(
+                http_client=http_client,
+                hocuspocus_url=HOCUSPOCUS_URL,
+                model_name=f"{provider}:{model_name}",
+                current_document=None,
+                current_source=None,
+                task_mode=task_mode,
+            )
+            text_id = str(uuid.uuid4())
+            prompt = build_nis2_user_prompt_de(answers)
+            agent = create_nis2_summary_agent(provider, model_name)
+
+            yield sse_line({"type": "start"})
+            yield sse_line({"type": "start-step"})
+            yield sse_line({"type": "text-start", "id": text_id})
+
+            try:
+                result = await agent.run(prompt, deps=deps)
+                out = getattr(result, "output", None)
+                text = out if isinstance(out, str) else (str(out) if out is not None else "")
+                for i in range(0, len(text), 48):
+                    yield sse_line({"type": "text-delta", "delta": text[i : i + 48], "id": text_id})
+                    await asyncio.sleep(0.02)
+            finally:
+                await http_client.aclose()
+
+            yield sse_line({"type": "text-end", "id": text_id})
+            yield sse_line({"type": "finish-step"})
+            yield sse_line({"type": "finish", "finishReason": "stop"})
+            yield b"data: [DONE]\n\n"
+
+        if kind == "jsx":
+            return StreamingResponse(event_stream_jsx(payload), media_type="text/event-stream")
+        return StreamingResponse(event_stream_llm(payload), media_type="text/event-stream")
 
     # Recreate request body stream with possibly updated body
     call_count = [0]

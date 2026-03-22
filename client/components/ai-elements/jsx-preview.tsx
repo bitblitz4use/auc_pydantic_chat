@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { AlertCircle } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, MutableRefObject, ReactNode } from "react";
 import {
   createContext,
   memo,
@@ -25,7 +25,8 @@ interface JSXPreviewContextValue {
   setLastGoodJsx: (jsx: string) => void;
   components: JsxParserProps["components"];
   bindings: JsxParserProps["bindings"];
-  onErrorProp?: (error: Error) => void;
+  /** Stable ref so context value does not change when parent passes a new onError each render. */
+  onErrorRef: MutableRefObject<((error: Error) => void) | undefined>;
 }
 
 const JSXPreviewContext = createContext<JSXPreviewContextValue | null>(null);
@@ -144,6 +145,8 @@ export const JSXPreview = memo(
   }: JSXPreviewProps) => {
     const [error, setError] = useState<Error | null>(null);
     const [_lastGoodJsx, setLastGoodJsx] = useState("");
+    const onErrorRef = useRef(onError);
+    onErrorRef.current = onError;
 
     // Clear error when jsx changes (must not setState during render)
     useEffect(() => {
@@ -162,21 +165,12 @@ export const JSXPreview = memo(
         error,
         isStreaming,
         jsx,
-        onErrorProp: onError,
+        onErrorRef,
         processedJsx,
         setError,
         setLastGoodJsx,
       }),
-      [
-        bindings,
-        components,
-        error,
-        isStreaming,
-        jsx,
-        onError,
-        processedJsx,
-        setError,
-      ]
+      [bindings, components, error, isStreaming, jsx, processedJsx, setError]
     );
 
     return (
@@ -202,7 +196,7 @@ export const JSXPreviewContent = memo(
       bindings,
       setError,
       setLastGoodJsx,
-      onErrorProp,
+      onErrorRef,
     } = useJSXPreview();
     const errorReportedRef = useRef<string | null>(null);
     const lastGoodJsxRef = useRef("");
@@ -230,11 +224,11 @@ export const JSXPreviewContent = memo(
             return;
           }
           setError(err);
-          onErrorProp?.(err);
+          onErrorRef.current?.(err);
         };
         queueMicrotask(run);
       },
-      [processedJsx, isStreaming, onErrorProp, setError]
+      [processedJsx, isStreaming, onErrorRef, setError]
     );
 
     // Track the last JSX that rendered without error
