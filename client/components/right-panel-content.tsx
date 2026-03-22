@@ -8,12 +8,12 @@ import { ChainsView } from "@/components/chains/chains-view";
 import { ToolbarButton } from "@/components/ui/toolbar-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useState, useCallback, useEffect } from "react";
-import { FileText, Wand2, Layout, Database, Network } from "lucide-react";
+import { FileText, Wand2, Layout, Database, Network, Activity } from "lucide-react";
 
-type ContentView = "editor" | "prompts" | "chains" | "templates" | "sources";
+type ContentView = "editor" | "prompts" | "chains" | "templates" | "sources" | "graph";
 
 const RIGHT_PANEL_VIEW_KEY = "right-panel-view";
-const VIEWS: ContentView[] = ["editor", "prompts", "chains", "templates", "sources"];
+const VIEWS: ContentView[] = ["editor", "prompts", "chains", "templates", "sources", "graph"];
 
 function getStoredView(): ContentView {
   if (typeof window === "undefined") return "editor";
@@ -76,6 +76,12 @@ export function RightPanelContent() {
           onClick={() => setView("sources")}
           title="Sources"
         />
+        <ToolbarButton
+          icon={Activity}
+          isActive={activeView === "graph"}
+          onClick={() => setView("graph")}
+          title="Graph"
+        />
         
         {/* Spacer */}
         <div className="flex-1" />
@@ -95,6 +101,17 @@ export function RightPanelContent() {
           {activeView === "chains" && <ChainsView />}
           {activeView === "templates" && <TemplatesView />}
           {activeView === "sources" && <SourcesView />}
+          {activeView === "graph" && (
+            <div className="h-full overflow-hidden px-4 pt-4 pb-4">
+              <div className="h-full rounded-lg border border-border bg-card overflow-hidden">
+                <iframe
+                  src="/graph-force-dynamic.html"
+                  className="h-full w-full border-0"
+                  title="ECharts Graph"
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
