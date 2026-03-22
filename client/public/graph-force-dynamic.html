@@ -46,12 +46,40 @@
       var edges = null;
       var tick = null; // interval id
       var maxNodes = 200; // default, can be overridden via postMessage
+      var STORAGE_KEY = 'knowledge-graph:state';
 
       function bgFor(dark) { return dark ? '#0a0a0a' : '#ffffff'; }
       function edgeFor(dark) { return dark ? '#475569' : '#cbd5e1'; }
       var PRIMARY = '#ECBC31';
 
-      function initData() {
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            isDark: isDark,
+            data: data,
+            edges: edges,
+            maxNodes: maxNodes
+          }));
+        } catch (_) {}
+      }
+
+      function loadState() {
+        try {
+          var raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return null;
+          var parsed = JSON.parse(raw);
+          if (!parsed || !Array.isArray(parsed.data) || !Array.isArray(parsed.edges)) return null;
+          return parsed;
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function clearState() {
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      }
+
+      function initDataFromScratch() {
         data = [
           {
             fixed: true,
@@ -80,6 +108,7 @@
               });
             }
             myChart.setOption({ series: [{ data: data, edges: edges }] });
+            if (data.length % 10 === 0) saveState();
           }
         }, 200);
       }
@@ -91,7 +120,7 @@
         }
       }
 
-      function createChart(dark) {
+      function createChart(dark, opts) {
         var bg = bgFor(dark);
         document.body.style.backgroundColor = bg;
         dom.style.backgroundColor = bg;
@@ -103,7 +132,16 @@
         }
         myChart = echarts.init(dom, dark ? 'dark' : null, { renderer: 'canvas', useDirtyRect: false });
 
-        initData();
+        var restored = opts && opts.restore ? loadState() : null;
+        if (restored && Array.isArray(restored.data) && Array.isArray(restored.edges)) {
+          data = restored.data;
+          edges = restored.edges;
+          if (typeof restored.maxNodes === 'number' && restored.maxNodes > 0) {
+            maxNodes = Math.floor(restored.maxNodes);
+          }
+        } else {
+          initDataFromScratch();
+        }
 
         var option = {
           backgroundColor: bg,
@@ -124,10 +162,11 @@
         myChart.setOption(option);
         startInterval();
         window.addEventListener('resize', myChart.resize);
+        saveState();
       }
 
-      // initial create
-      createChart(isDark);
+      // initial create with restore
+      createChart(isDark, { restore: true });
 
       // listen for theme + config + restart messages from parent
       window.addEventListener('message', function (e) {
@@ -138,7 +177,7 @@
           var nextIsDark = msg.value === 'dark';
           if (nextIsDark !== isDark) {
             isDark = nextIsDark;
-            createChart(isDark);
+            createChart(isDark, { restore: true });
           }
         } else if (msg.type === 'config' && msg.value) {
           if (typeof msg.value.maxNodes === 'number' && msg.value.maxNodes > 0) {
@@ -152,10 +191,24 @@
               myChart.setOption({ series: [{ data: data, edges: edges }] });
             }
           }
+          saveState();
         } else if (msg.type === 'restart') {
-          // fully recreate chart to ensure background and styles are set consistently
+          // clear state then recreate fresh
           stopInterval();
-          createChart(isDark);
+          clearState();
+          createChart(isDark, { restore: false });
+        } else if (msg.type === 'restore-request') {
+          var st = loadState();
+          if (st) {
+            maxNodes = typeof st.maxNodes === 'number' ? Math.floor(st.maxNodes) : maxNodes;
+            if (data && edges) {
+              data = st.data;
+              edges = st.edges;
+              myChart.setOption({ series: [{ data: data, edges: edges }] });
+            } else {
+              createChart(isDark, { restore: true });
+            }
+          }
         }
       });
 
@@ -166,12 +219,15 @@
           var nextIsDark = ev.matches;
           if (nextIsDark !== isDark) {
             isDark = nextIsDark;
-            createChart(isDark);
+            createChart(isDark, { restore: true });
           }
         };
         if (mql.addEventListener) mql.addEventListener('change', handler);
         else if (mql.addListener) mql.addListener(handler);
       }
+
+      window.addEventListener('beforeunload', saveState);
+      window.addEventListener('pagehide', saveState);
     })();
   </script>
 </body>

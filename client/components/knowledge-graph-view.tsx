@@ -13,7 +13,14 @@ function getAppTheme() {
 export function KnowledgeGraphView() {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [theme, setTheme] = useState(getAppTheme());
-  const [nodeLimit, setNodeLimit] = useState<number>(200);
+  const NODE_LIMIT_KEY = "knowledge-graph:maxNodes";
+  const getStoredNodeLimit = () => {
+    if (typeof window === "undefined") return 200;
+    const raw = window.localStorage.getItem(NODE_LIMIT_KEY);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 200;
+  };
+  const [nodeLimit, setNodeLimit] = useState<number>(getStoredNodeLimit());
 
   useEffect(() => {
     const el = document.documentElement;
@@ -33,11 +40,15 @@ export function KnowledgeGraphView() {
     if (!win) return;
     win.postMessage({ type: "theme", value: theme }, "*");
     win.postMessage({ type: "config", value: { maxNodes: nodeLimit } }, "*");
+    win.postMessage({ type: "restore-request" }, "*");
   };
 
   const src = useMemo(() => `/graph-force-dynamic.html?theme=${theme}`, [theme]);
 
   const applyLimit = () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(NODE_LIMIT_KEY, String(nodeLimit));
+    }
     iframeRef.current?.contentWindow?.postMessage(
       { type: "config", value: { maxNodes: nodeLimit } },
       "*"
