@@ -9,6 +9,7 @@ import { ToolbarButton } from "@/components/ui/toolbar-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useState, useCallback, useEffect } from "react";
 import { FileText, Wand2, Layout, Database, Network, Activity } from "lucide-react";
+import { KnowledgeGraphView } from "@/components/knowledge-graph-view";
 
 type ContentView = "editor" | "prompts" | "chains" | "templates" | "sources" | "graph";
 
@@ -101,17 +102,7 @@ export function RightPanelContent() {
           {activeView === "chains" && <ChainsView />}
           {activeView === "templates" && <TemplatesView />}
           {activeView === "sources" && <SourcesView />}
-          {activeView === "graph" && (
-            <div className="h-full overflow-hidden px-4 pt-4 pb-4">
-              <div className="h-full rounded-lg border border-border bg-card overflow-hidden">
-                <iframe
-                  src="/graph-force-dynamic.html"
-                  className="h-full w-full border-0"
-                  title="ECharts Graph"
-                />
-              </div>
-            </div>
-          )}
+          {activeView === "graph" && <KnowledgeGraphView />}
         </div>
       </div>
     </div>

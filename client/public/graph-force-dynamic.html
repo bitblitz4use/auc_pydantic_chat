@@ -34,94 +34,144 @@
 
   <script type="text/javascript">
     (function () {
-      // Theme detection: query parameter (?theme=dark|light) wins, else prefers-color-scheme
       var params = new URLSearchParams(window.location.search);
       var themeParam = params.get('theme');
       var isDark = themeParam
         ? themeParam === 'dark'
         : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-      // Background to align with app theme (approx Tailwind bg)
-      var bg = isDark ? '#0a0a0a' : '#ffffff';
-      document.body.style.backgroundColor = bg;
-
       var dom = document.getElementById('container');
-      dom.style.backgroundColor = bg;
+      var myChart = null;
+      var data = null;
+      var edges = null;
+      var tick = null; // interval id
+      var maxNodes = 200; // default, can be overridden via postMessage
 
-      // Initialize chart with theme
-      var myChart = echarts.init(dom, isDark ? 'dark' : null, {
-        renderer: 'canvas',
-        useDirtyRect: false
-      });
-      var app = {};
-      var option;
+      function bgFor(dark) { return dark ? '#0a0a0a' : '#ffffff'; }
+      function edgeFor(dark) { return dark ? '#475569' : '#cbd5e1'; }
+      var PRIMARY = '#ECBC31';
 
-      // Colors
-      var PRIMARY = '#ECBC31'; // primary node color
-      var EDGE_COLOR = isDark ? '#475569' /* slate-600 */ : '#cbd5e1' /* slate-300 */;
-
-      // Data
-      var data = [
-        {
-          fixed: true,
-          x: myChart.getWidth() / 2,
-          y: myChart.getHeight() / 2,
-          symbolSize: 20,
-          id: '-1',
-          itemStyle: { color: PRIMARY }
-        }
-      ];
-      var edges = [];
-
-      option = {
-        backgroundColor: bg,
-        series: [
+      function initData() {
+        data = [
           {
-            type: 'graph',
-            layout: 'force',
-            animation: false,
-            roam: true, // enable panning/zooming immediately
-            data: data,
-            force: {
-              repulsion: 100,
-              edgeLength: 5
-            },
-            edges: edges,
-            itemStyle: { color: PRIMARY },
-            lineStyle: { color: EDGE_COLOR, width: 1, opacity: 0.6 }
+            fixed: true,
+            x: myChart.getWidth() / 2,
+            y: myChart.getHeight() / 2,
+            symbolSize: 20,
+            id: '-1',
+            itemStyle: { color: PRIMARY }
           }
-        ]
-      };
-
-      setInterval(function () {
-        data.push({
-          id: data.length + '',
-          itemStyle: { color: PRIMARY }
-        });
-        var source = Math.round((data.length - 1) * Math.random());
-        var target = Math.round((data.length - 1) * Math.random());
-        if (source !== target) {
-          edges.push({
-            source: source,
-            target: target,
-            lineStyle: { color: EDGE_COLOR, width: 1, opacity: 0.6 }
-          });
-        }
-        myChart.setOption({
-          series: [
-            {
-              data: data,
-              edges: edges
-            }
-          ]
-        });
-      }, 200);
-
-      if (option && typeof option === 'object') {
-        myChart.setOption(option);
+        ];
+        edges = [];
       }
 
-      window.addEventListener('resize', myChart.resize);
+      function startInterval() {
+        if (tick) return;
+        tick = setInterval(function () {
+          if (data.length < maxNodes) {
+            data.push({ id: data.length + '', itemStyle: { color: PRIMARY } });
+            var source = Math.round((data.length - 1) * Math.random());
+            var target = Math.round((data.length - 1) * Math.random());
+            if (source !== target) {
+              edges.push({
+                source: source,
+                target: target,
+                lineStyle: { color: edgeFor(isDark), width: 1, opacity: 0.6 }
+              });
+            }
+            myChart.setOption({ series: [{ data: data, edges: edges }] });
+          }
+        }, 200);
+      }
+
+      function stopInterval() {
+        if (tick) {
+          clearInterval(tick);
+          tick = null;
+        }
+      }
+
+      function createChart(dark) {
+        var bg = bgFor(dark);
+        document.body.style.backgroundColor = bg;
+        dom.style.backgroundColor = bg;
+
+        if (myChart) {
+          stopInterval();
+          myChart.dispose();
+          myChart = null;
+        }
+        myChart = echarts.init(dom, dark ? 'dark' : null, { renderer: 'canvas', useDirtyRect: false });
+
+        initData();
+
+        var option = {
+          backgroundColor: bg,
+          series: [
+            {
+              type: 'graph',
+              layout: 'force',
+              animation: false,
+              roam: true,
+              data: data,
+              force: { repulsion: 100, edgeLength: 5 },
+              edges: edges,
+              itemStyle: { color: PRIMARY },
+              lineStyle: { color: edgeFor(dark), width: 1, opacity: 0.6 }
+            }
+          ]
+        };
+        myChart.setOption(option);
+        startInterval();
+        window.addEventListener('resize', myChart.resize);
+      }
+
+      // initial create
+      createChart(isDark);
+
+      // listen for theme + config + restart messages from parent
+      window.addEventListener('message', function (e) {
+        var msg = e && e.data;
+        if (!msg || !msg.type) return;
+
+        if (msg.type === 'theme') {
+          var nextIsDark = msg.value === 'dark';
+          if (nextIsDark !== isDark) {
+            isDark = nextIsDark;
+            createChart(isDark);
+          }
+        } else if (msg.type === 'config' && msg.value) {
+          if (typeof msg.value.maxNodes === 'number' && msg.value.maxNodes > 0) {
+            maxNodes = Math.floor(msg.value.maxNodes);
+            // Trim if above new cap
+            if (data && data.length > maxNodes) {
+              data.length = maxNodes;
+              edges = edges.filter(function (edge) {
+                return Number(edge.source) < maxNodes && Number(edge.target) < maxNodes;
+              });
+              myChart.setOption({ series: [{ data: data, edges: edges }] });
+            }
+          }
+        } else if (msg.type === 'restart') {
+          // fully recreate chart to ensure background and styles are set consistently
+          stopInterval();
+          createChart(isDark);
+        }
+      });
+
+      // if no explicit theme param, also track OS preference changes
+      if (!themeParam && window.matchMedia) {
+        var mql = window.matchMedia('(prefers-color-scheme: dark)');
+        var handler = function (ev) {
+          var nextIsDark = ev.matches;
+          if (nextIsDark !== isDark) {
+            isDark = nextIsDark;
+            createChart(isDark);
+          }
+        };
+        if (mql.addEventListener) mql.addEventListener('change', handler);
+        else if (mql.addListener) mql.addListener(handler);
+      }
     })();
   </script>
 </body>
