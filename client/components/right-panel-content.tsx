@@ -8,7 +8,7 @@ import { ChainsView } from "@/components/chains/chains-view";
 import { ToolbarButton } from "@/components/ui/toolbar-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useState, useCallback, useEffect } from "react";
-import { FileText, Wand2, Layout, Database, Network, Activity } from "lucide-react";
+import { FileText, Wand2, Layout, Database, Network, Activity, ChartScatter } from "lucide-react";
 import { KnowledgeGraphView } from "@/components/knowledge-graph-view";
 
 type ContentView = "editor" | "prompts" | "chains" | "templates" | "sources" | "graph";
@@ -78,7 +78,7 @@ export function RightPanelContent() {
           title="Sources"
         />
         <ToolbarButton
-          icon={Activity}
+          icon={ChartScatter}
           isActive={activeView === "graph"}
           onClick={() => setView("graph")}
           title="Graph"

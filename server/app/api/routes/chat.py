@@ -8,8 +8,8 @@ import logging
 import json
 
 from app.config import config, HOCUSPOCUS_URL, HTTP_TIMEOUT
-from app.agent.schema import DocumentContext, TaskMode
-from app.agent.agent import document_agent, create_agent_from_model_id
+from app.agents.common import DocumentContext, TaskMode
+from app.agents.factory import document_agent, create_agent_from_model_id
 from app.providers import parse_model_id
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 

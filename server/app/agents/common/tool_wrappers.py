@@ -3,8 +3,8 @@ from pydantic_ai import RunContext
 from typing import Optional
 import logging
 
-from app.agent.schema import DocumentContext
-from app.agent.tools import get_document_content as _get_document_content_raw
+from app.agents.common.schema import DocumentContext
+from app.agents.common.tools import get_document_content as _get_document_content_raw
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ async def smart_update_document_content(
         logger.info(f"📝 Creating new document with {len(markdown_content)} characters")
     
     # Step 3: Perform the actual update
-    from app.agent.tools import update_document_content as _update_raw
+    from app.agents.common.tools import update_document_content as _update_raw
     result = await _update_raw(
         ctx,
         document_name=doc_name,
@@ -79,3 +79,4 @@ async def smart_update_document_content(
     )
     
     return result
+
