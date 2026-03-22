@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
 from app.agents.common import DocumentContext, TaskMode
-from app.agents.context.fixed_jsx import FIXED_CONTEXT_JSX
+from app.agents.context.fixed_jsx import resolve_context_jsx
 from app.agents.factory import document_agent, create_agent_from_model_id
 from app.config import config, HOCUSPOCUS_URL, HTTP_TIMEOUT
 from app.providers import parse_model_id
@@ -125,7 +125,7 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
                 return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode("utf-8")
 
             text_id = str(uuid.uuid4())
-            full_jsx = FIXED_CONTEXT_JSX
+            full_jsx = resolve_context_jsx(body_data)
             yield sse_line({"type": "start"})
             yield sse_line({"type": "start-step"})
             yield sse_line({"type": "text-start", "id": text_id})

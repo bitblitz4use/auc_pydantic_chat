@@ -1,5 +1,5 @@
-"""CONTEXT task mode: fixed JSX preview (see `fixed_jsx`)."""
+"""CONTEXT task mode: deterministic JSX wizard (see `fixed_jsx`)."""
 
-from app.agents.context.fixed_jsx import FIXED_CONTEXT_JSX
+from app.agents.context.fixed_jsx import FIXED_CONTEXT_JSX, resolve_context_jsx
 
-__all__ = ["FIXED_CONTEXT_JSX"]
+__all__ = ["FIXED_CONTEXT_JSX", "resolve_context_jsx"]

@@ -46,12 +46,7 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useChat } from "@ai-sdk/react";
 import { CheckIcon, GlobeIcon, FileText } from "lucide-react";
 import { SimpleChatTransport } from "@/lib/simple-chat-transport";
-import { memo, useCallback, useState, useEffect, useMemo } from "react";
-import {
-  JSXPreview,
-  JSXPreviewContent,
-  JSXPreviewError,
-} from "@/components/ai-elements/jsx-preview";
+import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useActiveDocument } from "@/hooks/use-active-document";
 import { useModelSelection, type ModelInfo } from "@/hooks/use-model-selection";
@@ -61,6 +56,13 @@ import { ResourceSelectorDialog } from "@/components/ui/resource-selector-dialog
 import { apiUrl } from "@/lib/config";
 import type { StorageObject } from "@/lib/storage";
 import type { Source } from "@/lib/storage";
+import {
+  ContextAssistantJsxPreview,
+  ContextWizardProvider,
+  type ContextAnswers,
+} from "@/components/context-mode-jsx";
+
+export type { ContextAnswers };
 
 interface AttachmentItemProps {
   attachment: FileUIPart & { id: string };
@@ -143,6 +145,10 @@ export function ChatInterface() {
   const sourceSelector = useSourceSelector(taskMode, activeSource);
   
   const [isInputActive, setIsInputActive] = useState(false);
+  const [contextDraft, setContextDraft] = useState<ContextAnswers>({});
+  const contextDraftRef = useRef<ContextAnswers>(contextDraft);
+  contextDraftRef.current = contextDraft;
+  const contextSendNonceRef = useRef(0);
 
   const transport = useMemo(() => {
     return new SimpleChatTransport({
@@ -154,6 +160,79 @@ export function ChatInterface() {
     transport,
   });
 
+  useEffect(() => {
+    if (taskMode !== "context") {
+      setContextDraft({});
+    }
+  }, [taskMode]);
+
+  const contextBodyBase = useMemo(
+    () => ({
+      model: modelSelection.selectedModel,
+      webSearch,
+      taskMode: "context" as const,
+    }),
+    [modelSelection.selectedModel, webSearch]
+  );
+
+  const toggleMale = useCallback(() => {
+    setContextDraft((prev) => {
+      const gender = prev.gender === "male" ? undefined : "male";
+      return { ...prev, gender };
+    });
+  }, []);
+
+  const toggleFemale = useCallback(() => {
+    setContextDraft((prev) => {
+      const gender = prev.gender === "female" ? undefined : "female";
+      return { ...prev, gender };
+    });
+  }, []);
+
+  const toggleDE = useCallback(() => {
+    setContextDraft((prev) => {
+      const region = prev.region === "DE" ? undefined : "DE";
+      return { ...prev, region };
+    });
+  }, []);
+
+  const toggleAUT = useCallback(() => {
+    setContextDraft((prev) => {
+      const region = prev.region === "AUT" ? undefined : "AUT";
+      return { ...prev, region };
+    });
+  }, []);
+
+  /** Unique user text so useChat always issues a new request (avoids dedupe on identical body). */
+  const sendContextToServer = useCallback(
+    (answers: ContextAnswers) => {
+      contextSendNonceRef.current += 1;
+      const nonce = contextSendNonceRef.current;
+      sendMessage(
+        { text: `\u200b${nonce}` },
+        { body: { ...contextBodyBase, contextAnswers: answers } }
+      );
+    },
+    [sendMessage, contextBodyBase]
+  );
+
+  const sendSelection = useCallback(() => {
+    setLastSentTaskMode("context");
+    sendContextToServer({ ...contextDraftRef.current });
+  }, [sendContextToServer, setLastSentTaskMode]);
+
+  const contextWizardValue = useMemo(
+    () => ({
+      draft: contextDraft,
+      sendSelection,
+      toggleAUT,
+      toggleDE,
+      toggleFemale,
+      toggleMale,
+    }),
+    [contextDraft, sendSelection, toggleAUT, toggleDE, toggleFemale, toggleMale]
+  );
+
   // Component that uses the controller to clear text immediately
   const PromptInputWithController = () => {
     const { textInput } = usePromptInputController();
@@ -164,9 +243,11 @@ export function ChatInterface() {
         if (taskMode === "context") {
           textInput.clear();
           setLastSentTaskMode(taskMode);
+          const answers = { ...contextDraftRef.current };
+          contextSendNonceRef.current += 1;
           sendMessage(
             {
-              text: message.text?.trim() || " ",
+              text: message.text?.trim() || `\u200b${contextSendNonceRef.current}`,
               files: message.files,
             },
             {
@@ -174,6 +255,7 @@ export function ChatInterface() {
                 model: modelSelection.selectedModel,
                 webSearch,
                 taskMode: "context",
+                contextAnswers: answers,
               },
             }
           );
@@ -208,7 +290,15 @@ export function ChatInterface() {
             }
           );
         },
-        [sendMessage, textInput, modelSelection.selectedModel, webSearch, taskMode, activeDocument, activeSource]
+        [
+          sendMessage,
+          textInput,
+          modelSelection.selectedModel,
+          webSearch,
+          taskMode,
+          activeDocument,
+          activeSource,
+        ]
       );
 
     const handleStop = () => {
@@ -474,6 +564,20 @@ export function ChatInterface() {
   const isContextForMessage = (message: any) =>
     (assistantModeById[message.id] ?? (isLoading && message.id === lastMessage?.id ? lastSentTaskMode : taskMode)) === "context";
 
+  const formatUserBubbleText = (message: any) => {
+    const raw = getMessageText(message);
+    const t = raw.trim();
+    if (/^\u200b\d+$/.test(t)) {
+      return "Context update";
+    }
+    return raw;
+  };
+
+  const isInteractiveContextMessage = (message: any) =>
+    isContextForMessage(message) &&
+    message.id === lastMessage?.id &&
+    !isLoading;
+
   // Persist the mode used for the latest assistant message so it keeps rendering consistently after streaming
   useEffect(() => {
     const last = messages[messages.length - 1];
@@ -487,6 +591,7 @@ export function ChatInterface() {
   }, [messages, lastSentTaskMode]);
 
   return (
+    <ContextWizardProvider value={contextWizardValue}>
     <div className="flex h-full flex-col bg-background">
       {/* Scrollable Messages Area */}
       <div className="flex-1 overflow-hidden p-4 pb-0">
@@ -504,23 +609,21 @@ export function ChatInterface() {
                     <Message key={message.id} from={message.role}>
                       <MessageContent>
                         {message.role === "user" ? (
-                          <p>{getMessageText(message)}</p>
+                          <p>{formatUserBubbleText(message)}</p>
                         ) : isContextForMessage(message) ? (
                           <div className="size-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                            <JSXPreview
-                              jsx={(function () {
+                            <ContextAssistantJsxPreview
+                              jsxText={(function () {
                                 const text = getMessageText(message).trim();
                                 return text || "<div />";
                               })()}
+                              interactive={isInteractiveContextMessage(message)}
                               isStreaming={
                                 (status === "submitted" || status === "streaming") &&
                                 message.id === lastMessage?.id
                               }
                               onError={(error) => console.error("JSX Parse Error:", error)}
-                            >
-                              <JSXPreviewContent />
-                              <JSXPreviewError />
-                            </JSXPreview>
+                            />
                           </div>
                         ) : (
                           <MessageResponse>{getMessageText(message)}</MessageResponse>
@@ -561,5 +664,6 @@ export function ChatInterface() {
         </div>
       </div>
     </div>
+    </ContextWizardProvider>
   );
 }
