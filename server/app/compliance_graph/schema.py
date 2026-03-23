@@ -4,6 +4,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+FIXED_HEADING_BLOCKLIST = [
+    "inhaltsverzeichnis",
+    "table of contents",
+    "vorwort",
+    "einleitung",
+]
+
 
 class IngestedRequirement(BaseModel):
     """Atomic requirement extracted from one chunk."""
@@ -40,14 +47,6 @@ class ComplianceIngestRequestMetadata(BaseModel):
     model_id: str | None = Field(
         default=None,
         description="Optional provider:model_name for extraction agent",
-    )
-    heading_blocklist: list[str] = Field(
-        default_factory=lambda: [
-            "inhaltsverzeichnis",
-            "table of contents",
-            "vorwort",
-            "einleitung",
-        ]
     )
 
 

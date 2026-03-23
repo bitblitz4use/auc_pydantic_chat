@@ -15,6 +15,7 @@ from app.compliance_graph.extractor import ComplianceRequirementExtractor
 from app.compliance_graph.schema import (
     ComplianceIngestRequestMetadata,
     ComplianceIngestResponse,
+    FIXED_HEADING_BLOCKLIST,
     IngestedChunk,
     IngestedRequirement,
 )
@@ -52,12 +53,12 @@ class ComplianceGraphIngestionPipeline:
             self._build_chunks,
             conversion_result.document,
             metadata.standard_key,
-            metadata.heading_blocklist,
         )
         for chunk in chunks:
             statements = await extractor.extract(
                 chunk_text=chunk.text_contextualized,
                 clause_path=chunk.clause_path,
+                language=metadata.language,
             )
             for index, statement in enumerate(statements):
                 ru_key = extractor.make_requirement_identity(chunk.chunk_key, statement, index)
@@ -99,10 +100,9 @@ class ComplianceGraphIngestionPipeline:
         self,
         docling_document,
         standard_key: str,
-        heading_blocklist: list[str],
     ) -> tuple[int, list[IngestedChunk]]:
         raw_chunks = list(self.chunker.chunk(docling_document))
-        blocklist = [item.casefold() for item in heading_blocklist]
+        blocklist = [item.casefold() for item in FIXED_HEADING_BLOCKLIST]
         built: list[IngestedChunk] = []
 
         for index, chunk in enumerate(raw_chunks):

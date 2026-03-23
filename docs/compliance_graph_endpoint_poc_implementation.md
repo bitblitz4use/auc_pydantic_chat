@@ -43,7 +43,14 @@ Out of scope for this endpoint:
 - `version_label` (optional)
 - `jurisdiction` (optional)
 - `model_id` (optional, `provider:model`)
-- `heading_blocklist` (optional, comma-separated)
+
+`heading_blocklist` is intentionally **not configurable** in the endpoint.
+The pipeline uses a fixed internal starter list (DE/EN):
+
+- `Inhaltsverzeichnis`
+- `Table of contents`
+- `Vorwort`
+- `Einleitung`
 
 ### Response
 
@@ -60,7 +67,7 @@ Structured success payload with:
 1. Read upload and metadata.
 2. Convert source via Docling `DocumentConverter`.
 3. Chunk with Docling `HierarchicalChunker`.
-4. Filter obvious non-normative headings using blocklist.
+4. Filter obvious non-normative headings using fixed hardcoded blocklist.
 5. For each kept chunk:
    - generate contextualized chunk text (`chunker.contextualize`)
    - run Pydantic AI extraction agent
@@ -81,6 +88,7 @@ The extraction agent is constrained to:
 - return all explicit requirements from a chunk
 - keep requirements atomic
 - avoid hallucinated obligations
+- keep output language equal to request `language`
 - return empty list if none are present
 
 Fallback behavior:

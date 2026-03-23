@@ -28,6 +28,7 @@ Rules:
 - Extract ALL explicit requirements in the chunk, no skipping.
 - Keep each requirement atomic and complete.
 - Preserve normative meaning; do not invent requirements.
+- Keep output language exactly equal to the requested document language.
 - If there are no requirements, return an empty list.
 - Output must match the structured schema only.
 """.strip()
@@ -44,10 +45,13 @@ class ComplianceRequirementExtractor:
             system_prompt=EXTRACTION_SYSTEM_PROMPT,
         )
 
-    async def extract(self, chunk_text: str, clause_path: str) -> list[str]:
+    async def extract(self, chunk_text: str, clause_path: str, language: str) -> list[str]:
         """Extract all requirements from one chunk."""
         prompt = (
             f"Clause path: {clause_path}\n\n"
+            f"Required output language: {language}\n"
+            "Important: Return every requirement in the same language as the chunk "
+            "and the required output language. Do not translate to another language.\n\n"
             "Extract all explicit requirements from this chunk:\n\n"
             f"{chunk_text}"
         )
@@ -55,7 +59,18 @@ class ComplianceRequirementExtractor:
             result = await self.agent.run(prompt)
             output = result.output
             if isinstance(output, RequirementExtractionResult):
-                return self._dedupe(output.requirements)
+                extracted = self._dedupe(output.requirements)
+                if extracted and not self._looks_expected_language(extracted, language):
+                    retry_prompt = (
+                        f"{prompt}\n\n"
+                        "You returned requirements in the wrong language. "
+                        f"Rewrite all requirements strictly in '{language}'."
+                    )
+                    retry_result = await self.agent.run(retry_prompt)
+                    retry_output = retry_result.output
+                    if isinstance(retry_output, RequirementExtractionResult):
+                        return self._dedupe(retry_output.requirements)
+                return extracted
         except Exception as error:
             logger.warning("Requirement extraction agent failed: %s", error)
 
@@ -102,3 +117,17 @@ class ComplianceRequirementExtractor:
             if any(token in lower for token in (" muss ", " shall ", " should ", " hat ")):
                 matched.append(fragment)
         return self._dedupe(matched)
+
+    @staticmethod
+    def _looks_expected_language(requirements: list[str], language: str) -> bool:
+        """
+        Lightweight guard to detect obvious language drift.
+        Keeps POC simple while enforcing the declared request language.
+        """
+        sample = " ".join(requirements[:10]).casefold()
+        lang = language.casefold().strip()
+        if lang.startswith("de"):
+            return " the " not in sample and " shall " not in sample and " should " not in sample
+        if lang.startswith("en"):
+            return " der " not in sample and " die " not in sample and " das " not in sample
+        return True

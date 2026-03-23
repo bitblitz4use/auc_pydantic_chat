@@ -6,7 +6,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
 from app.compliance_graph.pipeline import ComplianceGraphIngestionPipeline
-from app.compliance_graph.schema import ComplianceIngestRequestMetadata, ComplianceIngestResponse
+from app.compliance_graph.schema import (
+    ComplianceIngestRequestMetadata,
+    ComplianceIngestResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,7 +26,6 @@ async def ingest_compliance_graph_document(
     version_label: str | None = Form(None),
     jurisdiction: str | None = Form(None),
     model_id: str | None = Form(None),
-    heading_blocklist: str | None = Form(None),
 ):
     """
     End-to-end concept ingestion in one request:
@@ -40,7 +42,6 @@ async def ingest_compliance_graph_document(
     logger.info("Compliance ingest requested for '%s' (%s)", standard_key, filename)
 
     try:
-        raw_blocklist = [item.strip() for item in (heading_blocklist or "").split(",") if item.strip()]
         metadata = ComplianceIngestRequestMetadata(
             standard_key=standard_key,
             title=title,
@@ -49,9 +50,6 @@ async def ingest_compliance_graph_document(
             version_label=version_label,
             jurisdiction=jurisdiction,
             model_id=model_id,
-            heading_blocklist=raw_blocklist
-            if raw_blocklist
-            else ComplianceIngestRequestMetadata().heading_blocklist,
         )
         file_content = await file.read()
         if not file_content:
