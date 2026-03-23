@@ -54,25 +54,12 @@ import { usePromptSelector } from "@/hooks/use-prompt-selector";
 import { useSourceSelector } from "@/hooks/use-source-selector";
 import { ResourceSelectorDialog } from "@/components/ui/resource-selector-dialog";
 import { apiUrl } from "@/lib/config";
-import type { StorageObject } from "@/lib/storage";
-import type { Source } from "@/lib/storage";
 import {
   ContextAssistantJsxPreview,
-  ContextWizardProvider,
-  type ContextAnswers,
-} from "@/components/context-mode-jsx";
-import {
-  appendNis2NonceLine,
-  buildNis2UserMessageText,
-  formatNis2UserBubbleDisplay,
-  validateNis2Step,
-} from "@/lib/nis2-catalog";
-
-export type { ContextAnswers };
-
-function isNis2WizardComplete(draft: ContextAnswers): boolean {
-  return [1, 2, 3, 4, 5, 6, 7].every((s) => validateNis2Step(draft, s));
-}
+  ContextQuestionRuntimeProvider,
+  type ContextAnswerSubmission,
+  tryDecodeCtxQuestionPayloadFromJsx,
+} from "@/components/context-question-jsx";
 
 interface AttachmentItemProps {
   attachment: FileUIPart & { id: string };
@@ -155,12 +142,8 @@ export function ChatInterface() {
   const sourceSelector = useSourceSelector(taskMode, activeSource);
   
   const [isInputActive, setIsInputActive] = useState(false);
-  const [contextDraft, setContextDraft] = useState<ContextAnswers>({});
-  const [contextActiveStep, setContextActiveStep] = useState(1);
-  const contextDraftRef = useRef<ContextAnswers>(contextDraft);
-  contextDraftRef.current = contextDraft;
-  const contextActiveStepRef = useRef(contextActiveStep);
-  contextActiveStepRef.current = contextActiveStep;
+  const [contextSessionId, setContextSessionId] = useState<string | null>(null);
+  const [contextStandardKeys, setContextStandardKeys] = useState<string[]>([]);
   const contextSendNonceRef = useRef(0);
 
   const transport = useMemo(() => {
@@ -175,8 +158,7 @@ export function ChatInterface() {
 
   useEffect(() => {
     if (taskMode !== "context") {
-      setContextDraft({});
-      setContextActiveStep(1);
+      setContextSessionId(null);
     }
   }, [taskMode]);
 
@@ -189,134 +171,72 @@ export function ChatInterface() {
     [modelSelection.selectedModel, webSearch]
   );
 
-  const setSector = useCallback((id: string) => {
-    setContextDraft((prev) => ({ ...prev, sector: id }));
+  const withContextNonce = useCallback((text: string) => {
+    contextSendNonceRef.current += 1;
+    return `${text}\n\u200bctx-${contextSendNonceRef.current}`;
   }, []);
 
-  const setEmployees = useCallback((v: number | null) => {
-    setContextDraft((prev) => ({ ...prev, employees: v }));
-  }, []);
-
-  const setRevenueMio = useCallback((v: number | null) => {
-    setContextDraft((prev) => ({ ...prev, revenueMio: v }));
-  }, []);
-
-  const setBalanceMio = useCallback((v: number | null) => {
-    setContextDraft((prev) => ({ ...prev, balanceMio: v }));
-  }, []);
-
-  const setBoolField = useCallback(
-    (
-      field:
-        | "wesentlicheDienste"
-        | "kritischeInfrastruktur"
-        | "lieferantNis2"
-        | "beeinflusstSicherheit"
-        | "dienstleistungenEu",
-      value: boolean
-    ) => {
-      setContextDraft((prev) => ({ ...prev, [field]: value }));
+  const formatContextAnswerValue = useCallback(
+    (value: ContextAnswerSubmission["value"]): string => {
+      if (typeof value === "boolean") {
+        return value ? "Ja" : "Nein";
+      }
+      if (Array.isArray(value)) {
+        return value.join(" · ");
+      }
+      return value;
     },
     []
   );
 
-  const toggleDigitale = useCallback((key: string) => {
-    setContextDraft((prev) => {
-      const cur = new Set(prev.digitaleDienste ?? []);
-      if (key === "keine") {
-        return { ...prev, digitaleDienste: ["keine"] };
+  const submitContextAnswer = useCallback(
+    (submission: ContextAnswerSubmission) => {
+      setContextSessionId(submission.sessionId);
+      if (submission.standardKeys.length > 0) {
+        setContextStandardKeys(submission.standardKeys);
       }
-      cur.delete("keine");
-      if (cur.has(key)) {
-        cur.delete(key);
-      } else {
-        cur.add(key);
-      }
-      return { ...prev, digitaleDienste: Array.from(cur) };
-    });
-  }, []);
+      setLastSentTaskMode("context");
 
-  const toggleSonder = useCallback((key: string) => {
-    setContextDraft((prev) => {
-      const cur = new Set(prev.sonderfaelle ?? []);
-      if (key === "keine") {
-        return { ...prev, sonderfaelle: ["keine"] };
-      }
-      cur.delete("keine");
-      if (cur.has(key)) {
-        cur.delete(key);
-      } else {
-        cur.add(key);
-      }
-      return { ...prev, sonderfaelle: Array.from(cur) };
-    });
-  }, []);
-
-  /** Readable German text + invisible nonce so useChat always issues a new request (avoids dedupe). */
-  const sendContextToServer = useCallback(
-    (answers: ContextAnswers, submittedStep: number) => {
-      contextSendNonceRef.current += 1;
-      const nonce = contextSendNonceRef.current;
-      const readable = buildNis2UserMessageText(answers, submittedStep);
-      const text = appendNis2NonceLine(readable, nonce);
+      const text = withContextNonce(
+        `${submission.questionKey}: ${formatContextAnswerValue(submission.value)}`
+      );
       sendMessage(
         { text },
-        { body: { ...contextBodyBase, contextAnswers: answers } }
+        {
+          body: {
+            ...contextBodyBase,
+            contextSession: {
+              session_id: submission.sessionId,
+              standard_keys:
+                submission.standardKeys.length > 0
+                  ? submission.standardKeys
+                  : contextStandardKeys.length > 0
+                    ? contextStandardKeys
+                    : undefined,
+              answer: {
+                question_key: submission.questionKey,
+                value: submission.value,
+              },
+            },
+          },
+        }
       );
     },
-    [sendMessage, contextBodyBase]
+    [
+      contextBodyBase,
+      contextStandardKeys,
+      formatContextAnswerValue,
+      sendMessage,
+      withContextNonce,
+    ]
   );
 
-  const sendSelection = useCallback(() => {
-    const step = contextActiveStepRef.current;
-    const draft = contextDraftRef.current;
-    if (step >= 1 && step <= 7) {
-      if (!validateNis2Step(draft, step)) return;
-    } else if (step === 8) {
-      if (!isNis2WizardComplete(draft)) return;
-    } else {
-      return;
-    }
-    const submittedStep = Math.min(step, 7);
-    setLastSentTaskMode("context");
-    sendContextToServer({ ...draft, submittedStep }, submittedStep);
-    setContextActiveStep((s) => Math.min(s + 1, 8));
-  }, [sendContextToServer, setLastSentTaskMode]);
-
-  const canSubmitStep = useMemo(() => {
-    if (contextActiveStep >= 8) {
-      return isNis2WizardComplete(contextDraft);
-    }
-    return validateNis2Step(contextDraft, contextActiveStep);
-  }, [contextDraft, contextActiveStep]);
-
-  const contextWizardValue = useMemo(
+  const contextRuntimeValue = useMemo(
     () => ({
-      activeStep: contextActiveStep,
-      canSubmitStep,
-      draft: contextDraft,
-      sendSelection,
-      setBalanceMio,
-      setBoolField,
-      setEmployees,
-      setRevenueMio,
-      setSector,
-      toggleDigitale,
-      toggleSonder,
+      submitAnswer: submitContextAnswer,
+      submitting: status === "submitted" || status === "streaming",
     }),
-    [
-      canSubmitStep,
-      contextActiveStep,
-      contextDraft,
-      sendSelection,
-      setBalanceMio,
-      setBoolField,
-      setEmployees,
-      setRevenueMio,
-      setSector,
-      toggleDigitale,
-      toggleSonder,
-    ]
+    [status, submitContextAnswer]
   );
 
   // Component that uses the controller to clear text immediately
@@ -327,44 +247,10 @@ export function ChatInterface() {
       async (message: PromptInputMessage) => {
         // Context mode: server streams JSX (see server chat route); must use sendMessage so messages populate
         if (taskMode === "context") {
-          const isInitialBootstrap = messages.length === 0;
-          const step = contextActiveStepRef.current;
-          const base = { ...contextDraftRef.current };
-          const submittedStepForBody = step >= 8 ? 7 : step;
-          const answers: ContextAnswers = isInitialBootstrap
-            ? base
-            : { ...base, submittedStep: submittedStepForBody };
-
-          if (!isInitialBootstrap) {
-            if (step >= 1 && step <= 7) {
-              if (!validateNis2Step(answers, step)) return;
-            } else if (step >= 8) {
-              if (!isNis2WizardComplete(base)) return;
-            } else {
-              return;
-            }
-          }
-
           textInput.clear();
           setLastSentTaskMode(taskMode);
-          contextSendNonceRef.current += 1;
-          const nonce = contextSendNonceRef.current;
           const userTyped = message.text?.trim() ?? "";
-
-          let text: string;
-          if (isInitialBootstrap) {
-            text = userTyped
-              ? `${userTyped}\n\n${appendNis2NonceLine("NIS-2 · Start", nonce)}`
-              : appendNis2NonceLine("NIS-2 · Start", nonce);
-          } else if (step >= 8) {
-            if (!userTyped) return;
-            text = appendNis2NonceLine(userTyped, nonce);
-          } else {
-            const readable = buildNis2UserMessageText(answers, step);
-            text = userTyped
-              ? `${userTyped}\n\n${readable}\n\u200b${nonce}`
-              : appendNis2NonceLine(readable, nonce);
-          }
+          const text = withContextNonce(userTyped || "Compliance context start");
 
           sendMessage(
             {
@@ -373,10 +259,13 @@ export function ChatInterface() {
             },
             {
               body: {
-                model: modelSelection.selectedModel,
-                webSearch,
-                taskMode: "context",
-                contextAnswers: answers,
+                ...contextBodyBase,
+                contextSession: {
+                  session_id: contextSessionId ?? undefined,
+                  standard_keys: contextStandardKeys.length
+                    ? contextStandardKeys
+                    : undefined,
+                },
               },
             }
           );
@@ -419,7 +308,10 @@ export function ChatInterface() {
           taskMode,
           activeDocument,
           activeSource,
-          messages,
+          contextBodyBase,
+          contextSessionId,
+          contextStandardKeys,
+          withContextNonce,
         ]
       );
 
@@ -688,7 +580,8 @@ export function ChatInterface() {
 
   const formatUserBubbleText = (message: any) => {
     const raw = getMessageText(message);
-    return formatNis2UserBubbleDisplay(raw);
+    const withoutNonce = raw.replace(/\n\u200bctx-\d+$/u, "");
+    return withoutNonce.trim();
   };
 
   const isInteractiveContextMessage = (message: any) =>
@@ -712,8 +605,29 @@ export function ChatInterface() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, lastSentTaskMode]);
 
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant") {
+      return;
+    }
+    const raw = getMessageText(last).trim();
+    if (!raw.startsWith("<")) {
+      return;
+    }
+    const payload = tryDecodeCtxQuestionPayloadFromJsx(raw);
+    if (!payload) {
+      return;
+    }
+    if (payload.session_id) {
+      setContextSessionId(payload.session_id);
+    }
+    if (Array.isArray(payload.standard_keys) && payload.standard_keys.length > 0) {
+      setContextStandardKeys(payload.standard_keys);
+    }
+  }, [messages]);
+
   return (
-    <ContextWizardProvider value={contextWizardValue}>
+    <ContextQuestionRuntimeProvider value={contextRuntimeValue}>
     <div className="flex h-full flex-col bg-background">
       {/* Scrollable Messages Area */}
       <div className="flex-1 overflow-hidden p-4 pb-0">
@@ -794,6 +708,6 @@ export function ChatInterface() {
         </div>
       </div>
     </div>
-    </ContextWizardProvider>
+    </ContextQuestionRuntimeProvider>
   );
 }

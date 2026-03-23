@@ -1,0 +1,104 @@
+"""Typed contracts for compliance context-mode runtime."""
+
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+SUPPORTED_ANSWER_TYPES = {"boolean", "single_choice", "multi_choice", "text"}
+
+
+class ContextAnswerInput(BaseModel):
+    """One structured answer submitted from the UI."""
+
+    question_key: str = Field(min_length=1)
+    value: Any
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class ContextSessionInput(BaseModel):
+    """Session payload submitted on each context turn."""
+
+    session_id: str | None = None
+    standard_keys: list[str] | None = None
+    answer: ContextAnswerInput | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class QuestionRenderModel(BaseModel):
+    """Strict question payload used by JSX renderer."""
+
+    question_key: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    answer_type: Literal["boolean", "single_choice", "multi_choice", "text"]
+    allowed_values: list[str] = Field(default_factory=list)
+    language: str = "de"
+
+
+class ProgressCounters(BaseModel):
+    """Session progress values shown in UI payload and text fallback."""
+
+    requirements_total: int = 0
+    requirements_open: int = 0
+    requirements_addressed: int = 0
+    requirements_gap: int = 0
+    requirements_not_applicable: int = 0
+    requirements_unclear: int = 0
+    unanswered_questions: int = 0
+
+
+class QuestionCardPayload(BaseModel):
+    """Encoded payload consumed by `<CtxQuestionCard />`."""
+
+    session_id: str
+    standard_keys: list[str] = Field(default_factory=list)
+    question: QuestionRenderModel
+    progress: ProgressCounters
+
+
+def parse_context_session_input(body_data: dict[str, Any]) -> ContextSessionInput:
+    """Resolve context session payload from flat or nested SDK body."""
+    nested = body_data.get("body")
+    if isinstance(nested, dict):
+        payload = nested.get("contextSession")
+        if isinstance(payload, dict):
+            return ContextSessionInput.model_validate(payload)
+
+    payload = body_data.get("contextSession")
+    if isinstance(payload, dict):
+        return ContextSessionInput.model_validate(payload)
+
+    return ContextSessionInput()
+
+
+def resolve_conversation_id(body_data: dict[str, Any]) -> str | None:
+    """Best-effort extraction of chat conversation id from SDK payload."""
+    nested = body_data.get("body")
+    candidates: list[Any] = []
+    if isinstance(nested, dict):
+        candidates.extend(
+            [
+                nested.get("chatId"),
+                nested.get("chat_id"),
+                nested.get("conversationId"),
+                nested.get("conversation_id"),
+                nested.get("id"),
+            ]
+        )
+    candidates.extend(
+        [
+            body_data.get("chatId"),
+            body_data.get("chat_id"),
+            body_data.get("conversationId"),
+            body_data.get("conversation_id"),
+            body_data.get("id"),
+        ]
+    )
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None

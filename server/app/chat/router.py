@@ -12,10 +12,9 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
 from app.agents.common import DocumentContext, TaskMode
-from app.agents.context.nis2_agent import create_nis2_summary_agent
-from app.agents.context.nis2_logic import build_nis2_user_prompt_de, resolve_context_mode
 from app.agents.factory import create_agent_from_model_id, document_agent
 from app.agents.providers import parse_model_id
+from app.compliance_graph.context_orchestrator import ComplianceContextOrchestrator
 from app.config import HOCUSPOCUS_URL, HTTP_TIMEOUT, config
 
 logger = logging.getLogger(__name__)
@@ -119,21 +118,9 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     except Exception as error:
         logger.warning("⚠️ Could not collapse context messages: %s", error)
 
-    # CONTEXT: NIS-2 wizard (JSX steps) or LLM summary in German — Vercel AI data stream v6
+    # CONTEXT: compliance graph orchestrator (graph-backed session state) — Vercel AI data stream v6
     if task_mode == TaskMode.CONTEXT:
-        kind, payload = resolve_context_mode(body_data)
-
-        provider = config.default_provider
-        model_name = config.default_model
-        if model_id:
-            try:
-                provider, model_name = parse_model_id(model_id)
-            except ValueError as error:
-                logger.warning(
-                    "⚠️ Invalid model ID %r for context summary: %s", model_id, error
-                )
-
-        async def event_stream_jsx(full_jsx: str):
+        async def event_stream_content(content: str):
             def sse_line(obj: dict) -> bytes:
                 return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode(
                     "utf-8"
@@ -145,8 +132,8 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
             yield sse_line({"type": "text-start", "id": text_id})
 
             chunk_size = 48
-            for i in range(0, len(full_jsx), chunk_size):
-                delta = full_jsx[i : i + chunk_size]
+            for i in range(0, len(content), chunk_size):
+                delta = content[i : i + chunk_size]
                 yield sse_line({"type": "text-delta", "delta": delta, "id": text_id})
                 await asyncio.sleep(0.02)
 
@@ -155,47 +142,28 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
             yield sse_line({"type": "finish", "finishReason": "stop"})
             yield b"data: [DONE]\n\n"
 
-        async def event_stream_llm(answers: dict):
-            def sse_line(obj: dict) -> bytes:
-                return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode(
-                    "utf-8"
-                )
-
-            http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
-            deps = DocumentContext(
-                http_client=http_client,
-                hocuspocus_url=HOCUSPOCUS_URL,
-                model_name=f"{provider}:{model_name}",
-                current_document=None,
-                current_source=None,
-                task_mode=task_mode,
+        neo4j_driver = getattr(request.app.state, "neo4j_driver", None)
+        if neo4j_driver is None:
+            return StreamingResponse(
+                event_stream_content(
+                    "Kontextmodus ist nicht verfugbar: Neo4j ist nicht konfiguriert."
+                ),
+                media_type="text/event-stream",
             )
-            text_id = str(uuid.uuid4())
-            prompt = build_nis2_user_prompt_de(answers)
-            agent = create_nis2_summary_agent(provider, model_name)
 
-            yield sse_line({"type": "start"})
-            yield sse_line({"type": "start-step"})
-            yield sse_line({"type": "text-start", "id": text_id})
-
-            try:
-                result = await agent.run(prompt, deps=deps)
-                output = getattr(result, "output", None)
-                text = output if isinstance(output, str) else (str(output) if output else "")
-                for i in range(0, len(text), 48):
-                    yield sse_line({"type": "text-delta", "delta": text[i : i + 48], "id": text_id})
-                    await asyncio.sleep(0.02)
-            finally:
-                await http_client.aclose()
-
-            yield sse_line({"type": "text-end", "id": text_id})
-            yield sse_line({"type": "finish-step"})
-            yield sse_line({"type": "finish", "finishReason": "stop"})
-            yield b"data: [DONE]\n\n"
-
-        if kind == "jsx":
-            return StreamingResponse(event_stream_jsx(payload), media_type="text/event-stream")
-        return StreamingResponse(event_stream_llm(payload), media_type="text/event-stream")
+        orchestrator = ComplianceContextOrchestrator(neo4j_driver=neo4j_driver)
+        try:
+            _kind, payload = await orchestrator.handle_turn(body_data)
+        except Exception as error:
+            logger.exception("❌ Context orchestrator failed: %s", error)
+            payload = (
+                "Kontextmodus konnte den Turn nicht verarbeiten. "
+                "Bitte erneut versuchen."
+            )
+        return StreamingResponse(
+            event_stream_content(payload),
+            media_type="text/event-stream",
+        )
 
     # Recreate request body stream with possibly updated body
     call_count = [0]
