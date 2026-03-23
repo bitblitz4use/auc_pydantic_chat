@@ -1,31 +1,37 @@
 """FastAPI application entry point"""
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 import logging
+from contextlib import asynccontextmanager
 
-from app.config import config
-from app.storage.client import ensure_bucket_exists
-from app.api.routes import chat, providers, storage, sources, documents
-
-# Configure logging
+# Configure logging before other app imports so their loggers attach correctly
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.routes import chat, providers, storage, sources, documents
+from app.neo4j import close_neo4j_driver, ensure_neo4j_driver
+from app.storage.client import ensure_bucket_exists
+
 logger = logging.getLogger(__name__)
 
 
 # Lifespan event handler for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Ensure bucket exists
     try:
         ensure_bucket_exists()
     except Exception as e:
         logger.error(f"❌ Failed to initialize MinIO bucket: {e}")
-    yield
-    # Shutdown: Add cleanup code here if needed in the future
+
+    await ensure_neo4j_driver(app)
+    neo4j_driver = app.state.neo4j_driver
+    try:
+        yield
+    finally:
+        await close_neo4j_driver(neo4j_driver)
 
 
 app = FastAPI(title="Pydantic AI Chat API", lifespan=lifespan)

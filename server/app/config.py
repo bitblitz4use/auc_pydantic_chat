@@ -51,6 +51,20 @@ class AppConfig(BaseSettings):
         default=False,
         description="Use HTTPS for MinIO (True/False)"
     )
+
+    # Neo4j (https://neo4j.com/docs/python-manual/current/connect/)
+    neo4j_uri: str = Field(
+        default="",
+        description='Neo4j URI, e.g. "neo4j://localhost:7687" or Aura "neo4j+s://..."',
+    )
+    neo4j_user: str = Field(
+        default="",
+        description="Neo4j username (maps from NEO4J_USER in .env)",
+    )
+    neo4j_password: str = Field(
+        default="",
+        description="Neo4j password",
+    )
     
     # Available models per provider
     # Format: provider_slug -> list of model names (JSON string in .env)
@@ -105,10 +119,14 @@ class AppConfig(BaseSettings):
         return data
     
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).parent.parent / ".env"),
+        # App cwd is often server/app; also load server/.env (later file overrides on duplicate keys)
+        env_file=(
+            Path(__file__).parent / ".env",
+            Path(__file__).parent.parent / ".env",
+        ),
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore",
     )
 
 # Create global config instance

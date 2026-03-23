@@ -60,6 +60,26 @@ The files [`converted_iso9001.md`](converted_iso9001.md) and [`converted_iso1400
 
 3. **OCR/layout noise** (e.g. garbled blocks in the ISO 9001 export around early pages) is a **quality risk**. Chunking does not repair bad text; the POC needs **simple quality gates** (length thresholds, character entropy, or skip pages) **before** any LLM or enrichment step—otherwise downstream steps amplify garbage.
 
+### 2.1 TOC and non-normative chunks (POC filter)
+
+**Do not** persist **tables of contents** (TOC / **Inhaltsverzeichnis**), purely navigational **Inhalt** blocks, or similar front matter as **normative clauses** — they are not obligations.
+
+**Simple POC approach (no dedicated TOC-detection ML):**
+
+- **Blocklist** heading patterns (configuration), e.g. `Inhaltsverzeichnis`, `Table of contents`, `Inhalt` when it is only the TOC, `Vorwort`, `Einleitung` — adjust per document family (ISO vs RIS law).
+- **Normative start:** optionally configure the first **real** section id (e.g. first `§ 1` or section `1` / `4` for ISO body) and **skip** everything before for structural `MERGE` into Neo4j.
+- **Light heuristic:** drop chunks that look like TOC lines only (dot leaders, page numbers without substantive text), if easy to implement.
+
+Filtered-out chunks are **omitted** from the clause/chunk spine (see [`compliance_graph_neo4j_schema.md`](compliance_graph_neo4j_schema.md) filter step).
+
+### 2.2 Language of the source document
+
+Each ingested **root document** has **one authoritative language** for stored text (mirror the PDF/edition language). **Do not mix** languages inside the same chunk in POC. Include **language** in the document key / root node properties ([schema](compliance_graph_neo4j_schema.md)). A **second language edition** is a **separate** import (`standard_key` differs, e.g. language suffix) — not inline auto-translation in the pipeline.
+
+### 2.3 Plain-language explanations and examples (where they belong)
+
+**Ingestion** keeps **verbatim** normative wording. **Lay summaries, organizational examples, and “simple language”** are **advisory** content in the concept ([concept §9.1](compliance_graph_concept.md): Interpretation, Recommended action, consulting layer) — **not** replacements for audited **requirement** text. For a minimal POC, **defer** extra labels until ingest + questions + session run end-to-end; the concept already names **where** that content lives when you add it.
+
 ---
 
 ## 3. Docling chunking: recommended strategy for this POC
