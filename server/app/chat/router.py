@@ -1,4 +1,4 @@
-"""Chat API routes"""
+"""Chat API routes."""
 import asyncio
 import json
 import logging
@@ -6,6 +6,7 @@ import uuid
 
 import httpx
 from fastapi import APIRouter
+from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from starlette.background import BackgroundTasks
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -13,10 +14,9 @@ from starlette.responses import Response, StreamingResponse
 from app.agents.common import DocumentContext, TaskMode
 from app.agents.context.nis2_agent import create_nis2_summary_agent
 from app.agents.context.nis2_logic import build_nis2_user_prompt_de, resolve_context_mode
-from app.agents.factory import document_agent, create_agent_from_model_id
-from app.config import config, HOCUSPOCUS_URL, HTTP_TIMEOUT
-from app.providers import parse_model_id
-from pydantic_ai.ui.vercel_ai import VercelAIAdapter
+from app.agents.factory import create_agent_from_model_id, document_agent
+from app.agents.providers import parse_model_id
+from app.config import HOCUSPOCUS_URL, HTTP_TIMEOUT, config
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,8 @@ router = APIRouter()
 
 
 def _nested_body(body_data: dict) -> dict | None:
-    b = body_data.get("body")
-    return b if isinstance(b, dict) else None
+    body = body_data.get("body")
+    return body if isinstance(body, dict) else None
 
 
 def parse_task_mode(body_data: dict) -> TaskMode:
@@ -54,14 +54,14 @@ def _resolve_model_id(body_data: dict) -> str | None:
 
 def _messages_list(body_data: dict) -> list | None:
     """UIMessage list is usually top-level; some clients nest under body."""
-    m = body_data.get("messages")
-    if isinstance(m, list):
-        return m
+    messages = body_data.get("messages")
+    if isinstance(messages, list):
+        return messages
     inner = _nested_body(body_data)
     if inner is not None:
-        m = inner.get("messages")
-        if isinstance(m, list):
-            return m
+        messages = inner.get("messages")
+        if isinstance(messages, list):
+            return messages
     return None
 
 
@@ -77,17 +77,17 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     - webSearch: Enable web search (optional)
     """
     logger.info("💬 Chat request received")
-    
+
     # Read body to extract parameters
     body_bytes = await request.body()
     body_data = {}
-    
+
     if body_bytes:
         try:
             body_data = json.loads(body_bytes)
         except json.JSONDecodeError:
             logger.warning("⚠️ Could not parse request body as JSON")
-    
+
     inner = _nested_body(body_data)
     model_id = _resolve_model_id(body_data)
     task_mode = parse_task_mode(body_data)
@@ -103,21 +103,21 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
 
     logger.info("📋 Request - Model: %s, Mode: %s", model_id, task_mode.value)
 
-    # Collapse history in CONTEXT mode; rewrite full JSON (never only the nested `body` dict)
+    # Collapse history in CONTEXT mode; rewrite full JSON (never only nested `body`)
     try:
         if task_mode == TaskMode.CONTEXT:
             incoming_messages = _messages_list(body_data)
             if isinstance(incoming_messages, list):
                 last_user = None
-                for m in reversed(incoming_messages):
-                    if isinstance(m, dict) and m.get("role") == "user":
-                        last_user = m
+                for message in reversed(incoming_messages):
+                    if isinstance(message, dict) and message.get("role") == "user":
+                        last_user = message
                         break
                 updated = dict(body_data)
                 updated["messages"] = [last_user] if last_user is not None else []
                 body_bytes = json.dumps(updated).encode("utf-8")
-    except Exception as e:
-        logger.warning("⚠️ Could not collapse context messages: %s", e)
+    except Exception as error:
+        logger.warning("⚠️ Could not collapse context messages: %s", error)
 
     # CONTEXT: NIS-2 wizard (JSX steps) or LLM summary in German — Vercel AI data stream v6
     if task_mode == TaskMode.CONTEXT:
@@ -128,12 +128,16 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         if model_id:
             try:
                 provider, model_name = parse_model_id(model_id)
-            except ValueError as e:
-                logger.warning("⚠️ Invalid model ID %r for context summary: %s", model_id, e)
+            except ValueError as error:
+                logger.warning(
+                    "⚠️ Invalid model ID %r for context summary: %s", model_id, error
+                )
 
         async def event_stream_jsx(full_jsx: str):
             def sse_line(obj: dict) -> bytes:
-                return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode("utf-8")
+                return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode(
+                    "utf-8"
+                )
 
             text_id = str(uuid.uuid4())
             yield sse_line({"type": "start"})
@@ -153,7 +157,9 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
 
         async def event_stream_llm(answers: dict):
             def sse_line(obj: dict) -> bytes:
-                return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode("utf-8")
+                return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode(
+                    "utf-8"
+                )
 
             http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
             deps = DocumentContext(
@@ -174,8 +180,8 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
 
             try:
                 result = await agent.run(prompt, deps=deps)
-                out = getattr(result, "output", None)
-                text = out if isinstance(out, str) else (str(out) if out is not None else "")
+                output = getattr(result, "output", None)
+                text = output if isinstance(output, str) else (str(output) if output else "")
                 for i in range(0, len(text), 48):
                     yield sse_line({"type": "text-delta", "delta": text[i : i + 48], "id": text_id})
                     await asyncio.sleep(0.02)
@@ -193,9 +199,11 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
 
     # Recreate request body stream with possibly updated body
     call_count = [0]
+
     async def receive():
         call_count[0] += 1
         return {"type": "http.request", "body": body_bytes if call_count[0] == 1 else b""}
+
     request._receive = receive
 
     # Parse model
@@ -205,14 +213,14 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     if model_id:
         try:
             provider, model_name = parse_model_id(model_id)
-        except ValueError as e:
-            logger.warning(f"⚠️ Invalid model ID '{model_id}': {e}")
+        except ValueError as error:
+            logger.warning("⚠️ Invalid model ID '%s': %s", model_id, error)
 
     # Create agent
     try:
         agent = create_agent_from_model_id(f"{provider}:{model_name}", task_mode)
-    except Exception as e:
-        logger.error(f"❌ Error creating agent: {e}")
+    except Exception as error:
+        logger.error("❌ Error creating agent: %s", error)
         agent = document_agent
 
     # Create HTTP client and context
@@ -233,6 +241,7 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         return await VercelAIAdapter.dispatch_request(
             request, agent=agent, deps=deps, sdk_version=6
         )
-    except Exception as e:
-        logger.error(f"❌ Error in VercelAIAdapter: {type(e).__name__}: {e}")
+    except Exception as error:
+        logger.error("❌ Error in VercelAIAdapter: %s: %s", type(error).__name__, error)
         raise
+

@@ -4,7 +4,7 @@ from pydantic_ai import Agent
 
 from app.agents.common.schema import DocumentContext
 from app.agents.context.nis2_logic import NIS2_SYSTEM_PROMPT_DE
-from app.providers import create_model
+from app.agents.providers import create_model
 
 
 def create_nis2_summary_agent(provider: str, model_name: str) -> Agent:

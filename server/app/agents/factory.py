@@ -8,7 +8,7 @@ from app.agents.chat.agent import create_ask_agent
 from app.agents.summarize.agent import create_summarize_agent
 from app.agents.writer.prompt import WRITE_SYSTEM_PROMPT
 from app.agents.common.tools import get_document_content, apply_document_edits
-from app.providers import create_model, parse_model_id
+from app.agents.providers import create_model, parse_model_id
 from app.config import config
 
 

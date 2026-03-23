@@ -11,7 +11,11 @@ logging.basicConfig(
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import chat, providers, storage, sources, documents
+from app.chat.router import router as chat_router
+from app.documents.router import router as documents_router
+from app.providers.router import router as providers_router
+from app.sources.router import router as sources_router
+from app.storage.router import router as storage_router
 from app.neo4j import close_neo4j_driver, ensure_neo4j_driver
 from app.storage.client import ensure_bucket_exists
 
@@ -46,11 +50,11 @@ app.add_middleware(
 )
 
 # Register routes
-app.include_router(chat.router, prefix="/api")
-app.include_router(providers.router, prefix="/api")
-app.include_router(storage.router, prefix="/api")
-app.include_router(sources.router, prefix="/api")
-app.include_router(documents.router, prefix="/api")
+app.include_router(chat_router, prefix="/api")
+app.include_router(providers_router, prefix="/api")
+app.include_router(storage_router, prefix="/api")
+app.include_router(sources_router, prefix="/api")
+app.include_router(documents_router, prefix="/api")
 
 
 @app.get("/")

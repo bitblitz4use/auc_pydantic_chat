@@ -3,7 +3,7 @@ from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 from app.agents.common.schema import DocumentContext
 from app.agents.chat.prompt import ASK_SYSTEM_PROMPT
-from app.providers import create_model
+from app.agents.providers import create_model
 
 
 def create_ask_agent(provider: str, model_name: str) -> Agent:
