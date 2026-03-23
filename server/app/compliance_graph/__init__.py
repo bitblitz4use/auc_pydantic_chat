@@ -1,0 +1,2 @@
+"""Compliance graph ingestion package."""
+

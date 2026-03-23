@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.chat.router import router as chat_router
+from app.compliance_graph.router import router as compliance_graph_router
 from app.documents.router import router as documents_router
 from app.providers.router import router as providers_router
 from app.sources.router import router as sources_router
@@ -55,6 +56,7 @@ app.include_router(providers_router, prefix="/api")
 app.include_router(storage_router, prefix="/api")
 app.include_router(sources_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
+app.include_router(compliance_graph_router, prefix="/api")
 
 
 @app.get("/")
