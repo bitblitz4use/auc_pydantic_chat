@@ -239,7 +239,9 @@ For each context turn:
    - re-materialize question-owned `EXCLUDES`
 3. **RECOMPUTE**
    - derive active requirement set
+   - derive per-requirement session state (`open` | `addressed` | `gap` | `not_applicable` | `unclear`)
    - derive answered/unanswered question set
+   - derive todo/progress counters (remaining open requirements, open critical requirements, unanswered high-impact questions)
 4. **SELECT_NEXT**
    - deterministic impact-aware question ranking
 5. **EMIT**
@@ -276,7 +278,62 @@ On new answer for same `question_key`:
 
 - remove old exclusions from that question
 - recompute exclusions for current value
+- remove or overwrite old requirement-state effects from that question
+- recompute requirement-state effects for current value
 - keep exclusions from other questions
+- keep requirement-state effects from other questions
+
+### 10.4 Requirement completion semantics (POC)
+
+The session runtime must not only shrink applicability scope; it must also track **work closure**.
+
+For each active `RequirementUnit` in a session, maintain exactly one derived session state:
+
+- `open`: relevant, unresolved, still to be clarified or implemented
+- `addressed`: answer(s) indicate requirement is currently fulfilled/covered
+- `gap`: answer(s) indicate requirement is currently not fulfilled or missing evidence
+- `not_applicable`: requirement excluded by deterministic applicability logic
+- `unclear`: conflicting or insufficient information after normalization/rules
+
+State transitions are deterministic and rule-driven from answer effects, never LLM-authored.
+
+### 10.5 Influence modes for closure
+
+In addition to scope modes, support requirement-closure effects:
+
+- `satisfies_if`: match => set RU state to `addressed`
+- `gaps_if`: match => set RU state to `gap`
+- `unclear_if`: match => set RU state to `unclear`
+- `exclude_if` / `include_if`: continue to drive `not_applicable` via `EXCLUDES`
+
+If multiple matched influences target the same RU in one recompute cycle, apply deterministic precedence:
+
+1. `not_applicable` (from exclusion logic)
+2. `gap`
+3. `unclear`
+4. `addressed`
+5. fallback `open`
+
+Precedence and tie-breaking are fixed and test-covered.
+
+### 10.6 Session completion criteria (POC)
+
+A context session is considered operationally complete when both are true:
+
+1. no unanswered high-impact questions remain for active scope
+2. no active requirement remains in `open` state
+
+Completion output must expose:
+
+- `requirements_total`
+- `requirements_open`
+- `requirements_addressed`
+- `requirements_gap`
+- `requirements_not_applicable`
+- `requirements_unclear`
+- optional completion ratio and critical-open count
+
+This turns session state into an actionable **compliance to-do list** and enables “zero open items” checks.
 
 ---
 
@@ -362,7 +419,10 @@ Per turn log:
 - normalized answer
 - influences evaluated/matched
 - exclusions added/removed
+- requirement-state effects added/removed
 - active requirements delta
+- requirement-state delta (open/addressed/gap/not_applicable/unclear)
+- progress counters after recompute
 - selected next question and rank basis
 - JSX build status (`ok` | `fallback`) and reason code
 
@@ -372,6 +432,8 @@ Cypher validation should confirm:
 - answer linkage
 - exclusion traceability by question
 - active RU count monotonic behavior across deterministic exclusions
+- requirement-state traceability by question and answer replay
+- exactly one effective session state per active RU
 
 ---
 
@@ -381,7 +443,9 @@ Cypher validation should confirm:
 2. Implement orchestrator methods:
    - resolve/create session by conversation
    - apply answer and materialize exclusions
+   - apply answer and materialize requirement-state effects
    - compute active subgraph and question candidates
+   - compute todo/progress counters
    - select next question deterministically
 3. Implement backend JSX renderer utility:
    - strict question input validation
@@ -394,6 +458,8 @@ Cypher validation should confirm:
 8. Add deterministic tests for:
    - same answer replay
    - re-answer replacement
+   - requirement-state precedence and overwrite behavior
+   - completion criteria (`open` count and unanswered-impact count)
    - question selection tie-break behavior
    - cross-standard session scope
    - JSX builder validity/fallback behavior
@@ -414,10 +480,12 @@ This stage is done when:
 - context mode is chat-driven and graph-backed (not hardcoded step wizard logic)
 - frontend does not own applicability logic
 - backend deterministically updates session graph on each answer
+- backend deterministically updates requirement completion state per active requirement
 - next question is selected from graph influence and active scope
 - each selected question is rendered via backend JSX utility (or explicit deterministic fallback)
 - session can be resumed with stable state across turns
 - final output reflects narrowed active requirement subgraph
+- completion/progress metrics expose remaining to-do scope explicitly
 
 The resulting system now matches the concept objective:  
 **initialize from full master graph and iteratively narrow through user answers under backend-controlled orchestration.**

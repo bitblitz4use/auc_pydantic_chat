@@ -281,8 +281,14 @@ A session graph tracks, among others:
 
 - **Active** vs **excluded** vs **unclear** nodes  
 - **Answered** questions and derived **facts**  
+- **Requirement closure state** per requirement unit (`open`, `addressed`, `gap`, `not_applicable`, `unclear`)  
 - **Evidence gaps**  
 - **Prioritization** overlays  
+
+This is essential: contextualization is not only “filtering what applies.”  
+It must also close or escalate concrete obligations as answers arrive, so the remaining graph acts as a **live compliance to-do set**.
+
+Operationally, one key success signal is: **no open requirement units remain in active scope** (subject to defined confidence and review rules).
 
 This keeps the **master** stable while the **session** captures the evolving, organization-specific view.
 
@@ -298,8 +304,8 @@ Conceptual loop:
 2. Instantiate a **session graph** for the organization (and scope).  
 3. Select the **next question** using criteria such as: remaining uncertainty, breadth of impact on relevant nodes, advisory value, user context.  
 4. Map the user’s answer to **structured facts** (typed context updates).  
-5. Apply **rules** on the session graph: exclude, activate, reweight, enable follow-up questions.  
-6. Recompute continuously: relevant topics, open gaps, candidate next question, provisional recommendations.  
+5. Apply **rules** on the session graph: exclude, activate, reweight, set requirement closure state, enable follow-up questions.  
+6. Recompute continuously: relevant topics, open gaps, requirement-state totals, candidate next question, provisional recommendations.  
 7. Emit or refresh the **result / advisory subgraph** for explanation and export.
 
 **LLM role (conceptual):** Interaction, natural-language explanation, and optional mapping assistance—not the **authoritative** source of compliance logic. The **orchestrator** (rule + graph engine) owns deterministic behavior and traceability.
@@ -311,7 +317,7 @@ Conceptual loop:
 The agent is not “a chatbot with documents.” It is a **dialogical graph interpreter** with four conceptual tasks:
 
 1. **Collect context** (through questions and structured capture).  
-2. **Reduce and weight** the graph (session + rules).  
+2. **Reduce, weight, and close** the graph (session + rules + requirement-state transitions).  
 3. **Interpret** remaining requirements in light of context (including path selection within clusters).  
 4. **Produce advisory output** (gaps, measures, evidence, narrative explanation).  
 
@@ -346,7 +352,7 @@ Visualization should reflect **the same transformation** the engine performs:
 - **Start:** Large norm graph (many topics visible).  
 - **After a few answers:** Irrelevant topic blocks de-emphasized or inactive.  
 - **After more answers:** Only relevant topics and requirements emphasized.  
-- **End state:** Compact **target subgraph**: obligations, measures, evidence, open questions.  
+- **End state:** Compact **target subgraph**: obligations, measures, evidence, open questions, and explicit requirement closure status.
 
 The UI stack (e.g. a particular charting library) is implementation; the **concept** is narrating **full → contextualized → advisory** reduction.
 

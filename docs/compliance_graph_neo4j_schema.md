@@ -150,12 +150,40 @@ One row per question answered in a session (simplest normalized shape).
 
 **Edges:** `(:Session)-[:SUBMITTED]->(:Answer)`, `(:Answer)-[:FOR_QUESTION]->(:DiagnosticQuestion)`.
 
-**Applying answers (orchestrator):** From `Session` + `Answer` + `INFLUENCES`, compute **excluded** / **active** `RequirementUnit` keys, then either:
+### 4.3 Requirement state in session (to-do semantics)
+
+Applicability reduction alone is not enough for operational guidance.  
+The session layer must track requirement closure state so the runtime acts as a to-do engine.
+
+Recommended POC shape (materialized):
+
+- `(:Session)-[:HAS_STATE {state, source_question_key, updated_at}]->(:RequirementUnit)`
+
+Where `state` is one of:
+
+- `open`
+- `addressed`
+- `gap`
+- `not_applicable`
+- `unclear`
+
+Runtime invariant: at most one effective `HAS_STATE` per `(session_id, ru_key)` after each recompute cycle.
+
+`source_question_key` stores traceability for the last state-changing answer effect.
+
+### 4.4 Applying answers (orchestrator)
+
+From `Session` + `Answer` + `INFLUENCES`, compute:
+
+- **excluded / active** `RequirementUnit` keys
+- **effective requirement state** for each active requirement
+
+Then either:
 
 - **Materialize:** `(:Session)-[:EXCLUDES]->(:RequirementUnit)` and `[:PRIORITIZES]->` after each answer, **or**
 - **Query-time:** pass `$excluded_ru_keys` / `$active_only` from application layer into Cypher `WHERE`.
 
-POC can start with **materialized** `EXCLUDES` for easy Cypher debugging.
+POC should start with **materialized** `EXCLUDES` and `HAS_STATE` for easy Cypher debugging and auditability.
 
 ---
 
@@ -172,6 +200,7 @@ POC can start with **materialized** `EXCLUDES` for easy Cypher debugging.
 | `RequirementUnit` | `ru_key = "ISO9001:2015:de#4.1-a"`, `statement = "Determine external and internal issues relevant to QMS purpose"` (curated from chunk) |
 | `DiagnosticQuestion` | `question_key = "scope.product_design"`, `prompt = "Do you design products or services in-house?"`, `answer_type = "boolean"` |
 | `INFLUENCES` | That question → ISO **design**-related RUs with `mode = exclude_if`, `when_value = "false"` (illustrative; real mapping is curated) |
+| Session state example | After answering `q = organisation-hat-momentanes-wissen-beruecksichtigt` with `true`, `(:Session)-[:HAS_STATE {state: "addressed", source_question_key: q}]->(:RequirementUnit {ru_key: "...wissen-der-organisation..."})` |
 
 ### 5.2 AStV — `AStV, Fassung vom 23.03.2026.md` style
 
@@ -194,8 +223,8 @@ POC can start with **materialized** `EXCLUDES` for easy Cypher debugging.
 2. **Open or create** `Session` for this organization.  
 3. **Next question:** `MATCH (q:DiagnosticQuestion)` where not yet answered in this session, order by impact / `FOLLOWS` — [concept §11.3](compliance_graph_concept.md).  
 4. **Record** `Answer` for `FOR_QUESTION`.  
-5. **Apply** `INFLUENCES` → create `EXCLUDES` / update weights on `RequirementUnit` for this `Session`.  
-6. **Return subgraph:** `RequirementUnit` not `EXCLUDES` from `Session`, with `TopicBlock` / `EvidenceType` for advisory — result / advisory view ([concept §4](compliance_graph_concept.md)).
+5. **Apply** `INFLUENCES` → create `EXCLUDES`, update requirement closure state (`HAS_STATE`), and update optional weights for this `Session`.  
+6. **Return subgraph:** `RequirementUnit` not `EXCLUDES` from `Session`, with `HAS_STATE`, `TopicBlock`, `EvidenceType` for advisory and to-do view ([concept §4](compliance_graph_concept.md)).
 
 The LLM **explains** paths; it does **not** own exclusion logic ([concept §11](compliance_graph_concept.md)).
 
@@ -211,6 +240,7 @@ UNIQUE RequirementUnit.ru_key
 UNIQUE DiagnosticQuestion.question_key
 UNIQUE Session.session_id
 UNIQUE (Session, DiagnosticQuestion) per Answer — implement as `answer_id = session_id + "::" + question_key` + UNIQUE on `answer_id`, or app-enforced uniqueness
+INDEX HAS_STATE.state (relationship property index where supported)
 INDEX RequirementUnit.status
 ```
 
@@ -231,6 +261,7 @@ MASTER (versioned, curated)
 SESSION (per org / engagement)
   (:Session) [:SUBMITTED]→ (:Answer) [:FOR_QUESTION]→ (:DiagnosticQuestion)
   (:Session) [:EXCLUDES]→ (:RequirementUnit)    // materialized after apply answers
+  (:Session) [:HAS_STATE {state}]→ (:RequirementUnit) // open/addressed/gap/not_applicable/unclear
 ```
 
 ---
@@ -249,7 +280,7 @@ SESSION (per org / engagement)
 
 - **`Interpretation` / `RecommendedAction` nodes** for plain-language and org-specific examples — concept §9.1; add after core loop is stable ([implementation §2.3](compliance_graph_docling_neo4j_implementation.md)).  
 - Soft scoring on every node (concept §7.2) — add numeric properties later.  
-- Full executable rule language — `INFLUENCES` + `when_value` is enough to start.  
+- Full executable rule language — `INFLUENCES` + `when_value` plus deterministic session-state precedence is enough to start.  
 - Vector indexes / APOC — [implementation §6.4](compliance_graph_docling_neo4j_implementation.md).  
 - Cluster / causal bookmarks — production deployment only.
 
