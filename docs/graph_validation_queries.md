@@ -10,6 +10,7 @@ They are aligned to the current POC master-graph pipeline:
 - `Clause`
 - `NormativeChunk`
 - `RequirementUnit`
+- `EvidenceType`
 - `DiagnosticQuestion`
 - `INFLUENCES`
 
@@ -39,6 +40,7 @@ MATCH (d:NormativeDocument {standard_key: "ÖNORM_EN_ISO9001:2015"})
 OPTIONAL MATCH (d)-[:HAS_CHILD]->(c:Clause)
 OPTIONAL MATCH (c)-[:HAS_CHUNK]->(ch:NormativeChunk)
 OPTIONAL MATCH (c)-[:CONTAINS_REQUIREMENT]->(ru:RequirementUnit)
+OPTIONAL MATCH (ru)-[:VERIFIED_BY]->(ev:EvidenceType)
 OPTIONAL MATCH (q:DiagnosticQuestion {standard_key: d.standard_key})
 OPTIONAL MATCH (q)-[:INFLUENCES]->(:RequirementUnit)
 RETURN
@@ -47,6 +49,7 @@ RETURN
   count(DISTINCT c) AS clauses,
   count(DISTINCT ch) AS chunks,
   count(DISTINCT ru) AS requirements,
+  count(DISTINCT ev) AS evidence_hints,
   count(DISTINCT q) AS questions,
   count(DISTINCT (q)-[:INFLUENCES]->()) AS influences;
 ```
@@ -58,11 +61,14 @@ RETURN
 ```cypher
 MATCH (d:NormativeDocument {standard_key: "ÖNORM_EN_ISO9001:2015"})
 OPTIONAL MATCH (d)-[:HAS_CHILD]->(:Clause)-[:CONTAINS_REQUIREMENT]->(ru:RequirementUnit)
+OPTIONAL MATCH (d)-[:HAS_CHILD]->(:Clause)-[:CONTAINS_REQUIREMENT]->(:RequirementUnit)-[:VERIFIED_BY]->(ev:EvidenceType)
 OPTIONAL MATCH (q:DiagnosticQuestion {standard_key: d.standard_key})
 RETURN
   d.language AS root_language,
   count(CASE WHEN ru.language = d.language THEN 1 END) AS ru_language_ok,
   count(CASE WHEN ru.language <> d.language OR ru.language IS NULL THEN 1 END) AS ru_language_mismatch,
+  count(CASE WHEN ev.language = d.language THEN 1 END) AS evidence_language_ok,
+  count(CASE WHEN ev.language <> d.language OR ev.language IS NULL THEN 1 END) AS evidence_language_mismatch,
   count(CASE WHEN q.language = d.language THEN 1 END) AS q_language_ok,
   count(CASE WHEN q.language <> d.language OR q.language IS NULL THEN 1 END) AS q_language_mismatch;
 ```
@@ -98,7 +104,49 @@ LIMIT 50;
 
 ---
 
-## 6) Find chunks without extracted requirements
+## 6) Question typing quality (`answer_type` / `allowed_values`)
+
+```cypher
+MATCH (q:DiagnosticQuestion {standard_key: "ÖNORM_EN_ISO9001:2015"})
+RETURN
+  q.question_key,
+  q.answer_type,
+  q.allowed_values,
+  size(coalesce(q.allowed_values, [])) AS allowed_values_count
+ORDER BY q.question_key
+LIMIT 200;
+```
+
+Boolean consistency check:
+
+```cypher
+MATCH (q:DiagnosticQuestion {standard_key: "ÖNORM_EN_ISO9001:2015"})
+WHERE q.answer_type = "boolean"
+RETURN
+  count(q) AS boolean_questions,
+  count(CASE WHEN q.allowed_values = ["true","false"] THEN 1 END) AS boolean_with_expected_values,
+  count(CASE WHEN q.allowed_values <> ["true","false"] THEN 1 END) AS boolean_with_unexpected_values;
+```
+
+---
+
+## 7) Evidence coverage by requirement
+
+```cypher
+MATCH (:NormativeDocument {standard_key: "ÖNORM_EN_ISO9001:2015"})-[:HAS_CHILD]->(:Clause)-[:CONTAINS_REQUIREMENT]->(ru:RequirementUnit)
+OPTIONAL MATCH (ru)-[:VERIFIED_BY]->(ev:EvidenceType)
+RETURN
+  ru.ru_key AS ru_key,
+  ru.title AS ru_title,
+  count(DISTINCT ev) AS evidence_count,
+  collect(DISTINCT ev.title)[0..5] AS evidence_titles
+ORDER BY evidence_count ASC, ru_key
+LIMIT 200;
+```
+
+---
+
+## 8) Find chunks without extracted requirements
 
 ```cypher
 MATCH (:NormativeDocument {standard_key: "ÖNORM_EN_ISO9001:2015"})-[:HAS_CHILD]->(c:Clause)-[:HAS_CHUNK]->(ch:NormativeChunk)
@@ -109,7 +157,7 @@ LIMIT 200;
 
 ---
 
-## 7) Whole chain for a single clause
+## 9) Whole chain for a single clause
 
 Replace the clause path value with one from query 4.
 
@@ -117,6 +165,7 @@ Replace the clause path value with one from query 4.
 MATCH (d:NormativeDocument {standard_key: "ÖNORM_EN_ISO9001:2015"})-[:HAS_CHILD]->(c:Clause {clause_path: "4 / 4.1"})
 OPTIONAL MATCH (c)-[:HAS_CHUNK]->(ch:NormativeChunk)
 OPTIONAL MATCH (c)-[:CONTAINS_REQUIREMENT]->(ru:RequirementUnit)
+OPTIONAL MATCH (ru)-[:VERIFIED_BY]->(ev:EvidenceType)
 OPTIONAL MATCH (q:DiagnosticQuestion {standard_key: d.standard_key})-[i:INFLUENCES]->(ru)
 RETURN
   d.standard_key AS standard_key,
@@ -127,23 +176,28 @@ RETURN
   ru.ru_key AS ru_key,
   ru.title AS ru_title,
   ru.statement AS ru_statement,
+  ev.evidence_key AS evidence_key,
+  ev.title AS evidence_title,
+  ev.hint AS evidence_hint,
+  ev.example AS evidence_example,
   q.question_key AS question_key,
   q.prompt AS question_prompt,
   i.mode AS influence_mode,
   i.when_value AS influence_when_value
-ORDER BY chunk_key, ru_key, question_key
+ORDER BY chunk_key, ru_key, evidence_key, question_key
 LIMIT 500;
 ```
 
 ---
 
-## 8) Graph visualization for one clause chain
+## 10) Graph visualization for one clause chain
 
 ```cypher
 MATCH (d:NormativeDocument {standard_key: "ÖNORM_EN_ISO9001:2015"})-[:HAS_CHILD]->(c:Clause {clause_path: "4 / 4.1"})
 OPTIONAL MATCH p1=(c)-[:HAS_CHUNK]->(:NormativeChunk)
 OPTIONAL MATCH p2=(c)-[:CONTAINS_REQUIREMENT]->(ru:RequirementUnit)
+OPTIONAL MATCH pE=(ru)-[:VERIFIED_BY]->(:EvidenceType)
 OPTIONAL MATCH p3=(q:DiagnosticQuestion {standard_key: d.standard_key})-[:INFLUENCES]->(ru)
-RETURN d, c, p1, p2, p3, q
+RETURN d, c, p1, p2, pE, p3, q
 LIMIT 200;
 ```

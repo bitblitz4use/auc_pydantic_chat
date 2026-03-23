@@ -3,8 +3,8 @@
 This document defines the new server-side endpoint that executes the concept pipeline in one call:
 
 - `ingestion` (document conversion + structural chunking)
-- `knowledge production (POC)` (requirement extraction from each chunk)
-- `master graph persistence` (`NormativeDocument`, `Clause`, `NormativeChunk`, `RequirementUnit`, `DiagnosticQuestion`)
+- `knowledge production (POC)` (requirement extraction + evidence hint extraction + diagnostic question extraction)
+- `master graph persistence` (`NormativeDocument`, `Clause`, `NormativeChunk`, `RequirementUnit`, `EvidenceType`, `DiagnosticQuestion`)
 
 It is intentionally aligned with:
 
@@ -19,6 +19,7 @@ The endpoint is designed for POC velocity but follows the concept:
 - one API call performs the complete document-to-graph path
 - extraction happens directly from Docling chunks (no additional external step)
 - Pydantic AI agents are used for requirement extraction
+- Pydantic AI agents are used for evidence hint extraction
 - Pydantic AI agents are used for diagnostic question generation and `INFLUENCES` links
 - writes go to the Neo4j master layer only (no session graph in this endpoint)
 
@@ -62,6 +63,7 @@ Structured success payload with:
 - total extracted requirements
 - total generated diagnostic questions
 - total generated question-to-requirement influences
+- total generated requirement evidence hints
 - clauses written
 - effective extraction model id
 
@@ -75,16 +77,19 @@ Structured success payload with:
    - generate contextualized chunk text (`chunker.contextualize`)
    - run Pydantic AI extraction agent
    - extract all explicit requirement statements (atomic)
-6. Generate diagnostic questions from extracted requirements in root document language.
-7. Persist into Neo4j using async driver:
+6. Generate evidence hints from extracted requirements in root document language.
+7. Generate diagnostic questions from extracted requirements in root document language.
+   - normalize question typing (`answer_type`, `allowed_values`) deterministically
+8. Persist into Neo4j using async driver:
    - `NormativeDocument`
    - `Clause`
    - `NormativeChunk`
    - `RequirementUnit` + provenance links
+   - `EvidenceType` + `VERIFIED_BY` links from requirement units
    - `DiagnosticQuestion`
    - `INFLUENCES` (`mode`, `when_value`) from question to requirement
    - optional sequential `FOLLOWS` ordering between generated questions
-8. Return summary metrics.
+9. Return summary metrics.
 
 This keeps the concept order: structure first, then requirement-unit candidate production.
 
@@ -104,9 +109,23 @@ Question generation is constrained to:
 - generate answerable diagnostic prompts
 - generate explicit `INFLUENCES` metadata (`mode`, `when_value`) targeting extracted requirement keys
 
+Question normalization guarantees:
+
+- `boolean` questions are persisted with `allowed_values = ["true", "false"]`
+- `single_choice` / `multi_choice` questions always have non-empty `allowed_values` after normalization
+
+Evidence generation is constrained to:
+
+- use output language equal to request `language`
+- provide practical auditable evidence hints (documents, records, artifacts)
+- optionally include short examples per hint
+- keep evidence tied to requirement keys
+
 Fallback behavior:
 
 - if the agent fails, a lightweight heuristic extracts normative-looking fragments
+- if question extraction fails, deterministic fallback questions are generated
+- if evidence extraction fails, deterministic fallback hints are generated in request language
 
 This fallback preserves endpoint continuity while still favoring model extraction.
 
@@ -128,8 +147,12 @@ For each request:
   - `MERGE (q:DiagnosticQuestion {question_key})`
   - `MERGE (q)-[:INFLUENCES {mode, when_value}]->(ru)`
   - optional `MERGE (q_prev)-[:FOLLOWS {order}]->(q_next)`
+- per generated evidence hint:
+  - `MERGE (ev:EvidenceType {evidence_key})`
+  - `MERGE (ru)-[:VERIFIED_BY]->(ev)`
 
 Status for extracted requirement nodes and generated question/influence entities is set to `draft` in this POC endpoint.
+Status for generated evidence hints is also set to `draft`.
 
 ## 6) Files introduced
 
@@ -144,6 +167,7 @@ Status for extracted requirement nodes and generated question/influence entities
 
 - Uses native Docling chunking, not markdown-only parsing.
 - Produces requirement-unit level graph nodes from chunk text.
+- Produces requirement-linked evidence hints (`EvidenceType`) in root document language.
 - Produces diagnostic questions and explicit requirement influence links in the master model.
 - Keeps provenance from chunk -> requirement.
 - Writes directly to Neo4j master graph in a deterministic server path.

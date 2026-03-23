@@ -12,6 +12,7 @@ from neo4j import AsyncDriver
 
 from app.agents.providers import parse_model_id
 from app.compliance_graph.extractor import (
+    ComplianceEvidenceExtractor,
     ComplianceQuestionExtractor,
     ComplianceRequirementExtractor,
 )
@@ -45,6 +46,7 @@ class ComplianceGraphIngestionPipeline:
         provider, model_name = self._resolve_model(metadata.model_id)
         extractor = ComplianceRequirementExtractor(provider=provider, model_name=model_name)
         question_extractor = ComplianceQuestionExtractor(provider=provider, model_name=model_name)
+        evidence_extractor = ComplianceEvidenceExtractor(provider=provider, model_name=model_name)
 
         conversion_result = await asyncio.to_thread(
             self._convert_document,
@@ -76,6 +78,23 @@ class ComplianceGraphIngestionPipeline:
                     )
                 )
 
+            requirement_payload = [
+                {
+                    "ru_key": requirement.ru_key,
+                    "title": requirement.title,
+                    "statement": requirement.statement,
+                }
+                for requirement in chunk.requirements
+            ]
+            grouped_evidence = await evidence_extractor.extract(
+                standard_key=metadata.standard_key,
+                clause_path=chunk.clause_path,
+                requirements=requirement_payload,
+                language=metadata.language,
+            )
+            for requirement in chunk.requirements:
+                requirement.evidence_hints.extend(grouped_evidence.get(requirement.ru_key, []))
+
         questions = await self._extract_questions(
             question_extractor=question_extractor,
             metadata=metadata,
@@ -85,6 +104,11 @@ class ComplianceGraphIngestionPipeline:
         await self._persist(metadata=metadata, chunks=chunks, questions=questions)
 
         requirement_count = sum(len(chunk.requirements) for chunk in chunks)
+        evidence_count = sum(
+            len(requirement.evidence_hints)
+            for chunk in chunks
+            for requirement in chunk.requirements
+        )
         clause_count = len({chunk.clause_id for chunk in chunks})
         influence_count = sum(len(question.influences) for question in questions)
         return ComplianceIngestResponse(
@@ -96,6 +120,7 @@ class ComplianceGraphIngestionPipeline:
             clauses_written=clause_count,
             questions_generated=len(questions),
             influences_generated=influence_count,
+            evidence_hints_generated=evidence_count,
             model_id=f"{provider}:{model_name}",
         )
 
@@ -246,6 +271,26 @@ class ComplianceGraphIngestionPipeline:
                     title=requirement.title,
                     language=requirement.language,
                 )
+                for evidence in requirement.evidence_hints:
+                    await tx.run(
+                        """
+                        MATCH (ru:RequirementUnit {ru_key: $ru_key})
+                        MERGE (ev:EvidenceType {evidence_key: $evidence_key})
+                        SET ev.title = $title,
+                            ev.hint = $hint,
+                            ev.example = $example,
+                            ev.language = $language,
+                            ev.status = $status
+                        MERGE (ru)-[:VERIFIED_BY]->(ev)
+                        """,
+                        ru_key=requirement.ru_key,
+                        evidence_key=evidence.evidence_key,
+                        title=evidence.title,
+                        hint=evidence.hint,
+                        example=evidence.example,
+                        language=evidence.language,
+                        status=evidence.status,
+                    )
 
     async def _extract_questions(
         self,

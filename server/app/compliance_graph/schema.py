@@ -12,6 +12,17 @@ FIXED_HEADING_BLOCKLIST = [
 ]
 
 
+class IngestedEvidenceHint(BaseModel):
+    """Draft evidence hint linked to one requirement."""
+
+    evidence_key: str
+    title: str
+    hint: str
+    example: str = ""
+    language: str
+    status: Literal["draft", "reviewed", "published"] = "draft"
+
+
 class IngestedRequirement(BaseModel):
     """Atomic requirement extracted from one chunk."""
 
@@ -19,6 +30,7 @@ class IngestedRequirement(BaseModel):
     statement: str
     title: str
     language: str
+    evidence_hints: list[IngestedEvidenceHint] = Field(default_factory=list)
 
 
 class IngestedChunk(BaseModel):
@@ -83,4 +95,5 @@ class ComplianceIngestResponse(BaseModel):
     clauses_written: int
     questions_generated: int = 0
     influences_generated: int = 0
+    evidence_hints_generated: int = 0
     model_id: str

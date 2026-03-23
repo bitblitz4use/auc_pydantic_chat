@@ -113,12 +113,13 @@ Docling defines a **`BaseChunker`** API: `chunk(dl_doc, **kwargs)` yielding chun
 
 ## 4. After chunks: knowledge production without a semantic framework
 
-Once chunks exist in Neo4j with stable ids, you can add **requirement units**, **topics**, and **advisory** content in layers—aligned with [concept §3.2, §5](compliance_graph_concept.md):
+Once chunks exist in Neo4j with stable ids, you can add **requirement units**, **topics**, **evidence hints**, and **advisory** content in layers—aligned with [concept §3.2, §5](compliance_graph_concept.md):
 
 | Mechanism | Role | Concept fit |
 |-----------|------|-------------|
 | **Lightweight text normalization** (stdlib, small helpers) | Unicode/whitespace cleanup on chunk text before optional LLM prompts | Reduces noise; no extra dependency |
 | **LLM-assisted decomposition (optional)** | Propose **requirement unit** candidates from `contextualize(chunk)` text | Fits “LLM mediates”; outputs must be **reviewed** before master promotion |
+| **LLM-assisted evidence hints (optional)** | Propose requirement-linked `EvidenceType` hints/examples in the same root document language | Supports concept verification/evidence layer while staying `draft` until review |
 | **Manual / spreadsheet curation** | Authoritative for early POC when automation is uncertain | Matches **auditability** of the master graph |
 
 **Optional pattern:** store **draft** nodes or `pending_review` flags on suggested edges so **deterministic rules** and human review remain in control ([concept §20](compliance_graph_concept.md)).
@@ -183,7 +184,7 @@ Enough structure to avoid duplicate worlds on re-import, without designing the f
 2. **Chunk:** `HierarchicalChunker.chunk(dl_doc)`; optionally **`contextualize`** each chunk for downstream text.
 3. **Filter:** drop front matter / out-of-scope annexes by heading rules for the chosen standard slice.
 4. **Persist structure:** write **Standard + Clause/Section + Chunk** to **Neo4j** with stable ids.
-5. **Enrich (optional, separate):** normalize text lightly; run **curated** decomposition or LLM-assisted drafts into **review queues**—not blocking steps 1–4.
+5. **Enrich (optional, separate):** normalize text lightly; run **curated** decomposition or LLM-assisted drafts (requirements, evidence hints) into **review queues**—not blocking steps 1–4.
 
 Steps 4–5 align with §6: **persist structure in step 4** via the Python driver; enrichment is optional and later.
 

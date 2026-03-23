@@ -8,7 +8,11 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from app.agents.providers import create_model
-from app.compliance_graph.schema import IngestedDiagnosticQuestion, IngestedQuestionInfluence
+from app.compliance_graph.schema import (
+    IngestedDiagnosticQuestion,
+    IngestedEvidenceHint,
+    IngestedQuestionInfluence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +46,22 @@ Rules:
 - Questions must be answerable and useful for applicability or prioritization.
 - Create concise prompts; avoid legal reinterpretation.
 - Return influences with valid mode and when_value.
-- Prefer boolean questions when possible.
+- Prefer boolean questions when possible, but use `single_choice`, `multi_choice`, or `text` when fitting.
+- For `boolean`, allowed_values must be `["true", "false"]`.
+- For `single_choice` and `multi_choice`, provide non-empty allowed_values.
 - Output must match the structured schema only.
+""".strip()
+
+EVIDENCE_SYSTEM_PROMPT = """
+You propose practical evidence hints for requirement units.
+
+Rules:
+- Use the required document language exactly.
+- Produce concrete, auditable evidence hints (documents, records, artifacts).
+- Keep each evidence hint practical and concise.
+- Include one short optional example where useful.
+- Do not invent legal obligations; stay aligned to the requirement statement.
+- Return output in the required structured schema only.
 """.strip()
 
 
@@ -63,6 +81,21 @@ class QuestionExtractionResult(BaseModel):
     """Structured extraction result for diagnostic questions."""
 
     questions: list[QuestionCandidate] = Field(default_factory=list)
+
+
+class EvidenceCandidate(BaseModel):
+    """Model output for a single evidence hint proposal."""
+
+    ru_key: str
+    title: str
+    hint: str
+    example: str = ""
+
+
+class EvidenceExtractionResult(BaseModel):
+    """Structured extraction result for requirement evidence hints."""
+
+    evidence: list[EvidenceCandidate] = Field(default_factory=list)
 
 
 class ComplianceRequirementExtractor:
@@ -226,14 +259,23 @@ class ComplianceQuestionExtractor:
                 continue
             mode = self._normalize_mode(item.mode)
             answer_type = self._normalize_answer_type(item.answer_type)
-            when_value = self._normalize_when_value(item.when_value, answer_type)
+            allowed_values = self._normalize_allowed_values(
+                item.allowed_values,
+                answer_type=answer_type,
+                language=language,
+            )
+            when_value = self._normalize_when_value(
+                item.when_value,
+                answer_type=answer_type,
+                allowed_values=allowed_values,
+            )
 
             if q_key not in grouped:
                 grouped[q_key] = IngestedDiagnosticQuestion(
                     question_key=q_key,
                     prompt=" ".join(item.prompt.split()),
                     answer_type=answer_type,
-                    allowed_values=[value for value in item.allowed_values if value],
+                    allowed_values=allowed_values,
                     language=language,
                     status="draft",
                     influences=[],
@@ -299,10 +341,44 @@ class ComplianceQuestionExtractor:
         return answer_type if answer_type in allowed else "boolean"
 
     @staticmethod
-    def _normalize_when_value(value: str, answer_type: str) -> str:
+    def _normalize_allowed_values(
+        values: list[str],
+        answer_type: str,
+        language: str,
+    ) -> list[str]:
+        if answer_type == "text":
+            return []
+        if answer_type == "boolean":
+            return ["true", "false"]
+
+        cleaned = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = " ".join(value.split())
+            if not normalized:
+                continue
+            key = normalized.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(normalized)
+
+        if cleaned:
+            return cleaned
+
+        if language.casefold().startswith("de"):
+            return ["ja", "nein"]
+        return ["yes", "no"]
+
+    @staticmethod
+    def _normalize_when_value(value: str, answer_type: str, allowed_values: list[str]) -> str:
         normalized = value.strip().lower()
         if answer_type == "boolean" and normalized not in {"true", "false"}:
             return "true"
+        if answer_type in {"single_choice", "multi_choice"} and allowed_values:
+            allowed_normalized = {item.casefold() for item in allowed_values}
+            if normalized not in allowed_normalized:
+                return allowed_values[0]
         return normalized or "true"
 
     @staticmethod
@@ -311,6 +387,148 @@ class ComplianceQuestionExtractor:
         language: str,
     ) -> bool:
         sample = " ".join(q.prompt for q in questions[:10]).casefold()
+        lang = language.casefold().strip()
+        if lang.startswith("de"):
+            return " the " not in sample and " shall " not in sample and " should " not in sample
+        if lang.startswith("en"):
+            return " der " not in sample and " die " not in sample and " das " not in sample
+        return True
+
+
+class ComplianceEvidenceExtractor:
+    """Generate EvidenceType hint candidates from extracted requirements."""
+
+    def __init__(self, provider: str, model_name: str):
+        self.model_id = f"{provider}:{model_name}"
+        self.agent = Agent(
+            create_model(provider, model_name),
+            output_type=EvidenceExtractionResult,
+            system_prompt=EVIDENCE_SYSTEM_PROMPT,
+        )
+
+    async def extract(
+        self,
+        standard_key: str,
+        clause_path: str,
+        requirements: list[dict[str, str]],
+        language: str,
+    ) -> dict[str, list[IngestedEvidenceHint]]:
+        if not requirements:
+            return {}
+
+        prompt = (
+            f"Standard key: {standard_key}\n"
+            f"Clause path: {clause_path}\n"
+            f"Required output language: {language}\n"
+            "Return 1 to 3 practical evidence hints per requirement where possible.\n"
+            f"Requirements JSON: {requirements}"
+        )
+        try:
+            result = await self.agent.run(prompt)
+            output = result.output
+            if isinstance(output, EvidenceExtractionResult):
+                grouped = self._normalize(output.evidence, language)
+                if grouped and not self._looks_expected_language(grouped, language):
+                    retry_prompt = (
+                        f"{prompt}\n\n"
+                        "You returned evidence hints in the wrong language. "
+                        f"Rewrite all hints strictly in '{language}'."
+                    )
+                    retry = await self.agent.run(retry_prompt)
+                    retry_output = retry.output
+                    if isinstance(retry_output, EvidenceExtractionResult):
+                        return self._normalize(retry_output.evidence, language)
+                return grouped
+        except Exception as error:
+            logger.warning("Evidence extraction agent failed: %s", error)
+
+        return self._fallback(requirements, language)
+
+    def _normalize(
+        self,
+        candidates: list[EvidenceCandidate],
+        language: str,
+    ) -> dict[str, list[IngestedEvidenceHint]]:
+        grouped: dict[str, list[IngestedEvidenceHint]] = {}
+        seen_per_ru: dict[str, set[tuple[str, str, str]]] = {}
+        for item in candidates:
+            ru_key = item.ru_key.strip()
+            title = " ".join(item.title.split())
+            hint = " ".join(item.hint.split())
+            example = " ".join(item.example.split())
+            if not ru_key or not title or not hint:
+                continue
+
+            seen = seen_per_ru.setdefault(ru_key, set())
+            dedupe_key = (title.casefold(), hint.casefold(), example.casefold())
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            evidence = IngestedEvidenceHint(
+                evidence_key=self.make_evidence_identity(ru_key, title, hint, example),
+                title=title,
+                hint=hint,
+                example=example,
+                language=language,
+                status="draft",
+            )
+            grouped.setdefault(ru_key, []).append(evidence)
+
+        for ru_key, values in grouped.items():
+            grouped[ru_key] = values[:3]
+        return grouped
+
+    @staticmethod
+    def make_evidence_identity(ru_key: str, title: str, hint: str, example: str) -> str:
+        digest = hashlib.sha1(f"{ru_key}:{title}:{hint}:{example}".encode("utf-8")).hexdigest()
+        return f"{ru_key}::ev::{digest[:12]}"
+
+    @staticmethod
+    def _fallback(
+        requirements: list[dict[str, str]],
+        language: str,
+    ) -> dict[str, list[IngestedEvidenceHint]]:
+        grouped: dict[str, list[IngestedEvidenceHint]] = {}
+        for requirement in requirements:
+            ru_key = requirement.get("ru_key", "").strip()
+            if not ru_key:
+                continue
+            if language.casefold().startswith("de"):
+                title = "Nachweisdokument"
+                hint = "Dokumentierter Nachweis zur Umsetzung der Anforderung"
+                example = "Freigegebene Verfahrensanweisung, Protokoll oder Rollenmatrix"
+            else:
+                title = "Evidence record"
+                hint = "Documented evidence that the requirement is implemented"
+                example = "Approved procedure, meeting record, or responsibility matrix"
+            grouped[ru_key] = [
+                IngestedEvidenceHint(
+                    evidence_key=ComplianceEvidenceExtractor.make_evidence_identity(
+                        ru_key,
+                        title,
+                        hint,
+                        example,
+                    ),
+                    title=title,
+                    hint=hint,
+                    example=example,
+                    language=language,
+                    status="draft",
+                )
+            ]
+        return grouped
+
+    @staticmethod
+    def _looks_expected_language(
+        grouped: dict[str, list[IngestedEvidenceHint]],
+        language: str,
+    ) -> bool:
+        sample = " ".join(
+            f"{item.title} {item.hint} {item.example}"
+            for items in grouped.values()
+            for item in items
+        ).casefold()
         lang = language.casefold().strip()
         if lang.startswith("de"):
             return " the " not in sample and " shall " not in sample and " should " not in sample
