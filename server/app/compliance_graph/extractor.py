@@ -46,6 +46,9 @@ Rules:
 - Questions must be answerable and useful for applicability or prioritization.
 - Create concise prompts; avoid legal reinterpretation.
 - Return influences with valid mode and when_value.
+- Valid influence modes: `exclude_if`, `include_if`, `prioritize_if`, `unclear_if`, `gaps_if`, `satisfies_if`.
+- For direct implementation/fulfillment checks, prefer paired closure logic:
+  `satisfies_if` for positive answers and `gaps_if` for negative answers.
 - Prefer boolean questions when possible, but use `single_choice`, `multi_choice`, or `text` when fitting.
 - For `boolean`, allowed_values must be `["true", "false"]`.
 - For `single_choice` and `multi_choice`, provide non-empty allowed_values.
@@ -315,9 +318,14 @@ class ComplianceQuestionExtractor:
                     influences=[
                         IngestedQuestionInfluence(
                             ru_key=requirement["ru_key"],
-                            mode="prioritize_if",
+                            mode="satisfies_if",
+                            when_value="true",
+                        ),
+                        IngestedQuestionInfluence(
+                            ru_key=requirement["ru_key"],
+                            mode="gaps_if",
                             when_value="false",
-                        )
+                        ),
                     ],
                 )
             )
@@ -331,7 +339,14 @@ class ComplianceQuestionExtractor:
     @staticmethod
     def _normalize_mode(value: str) -> str:
         mode = value.strip().lower()
-        allowed = {"exclude_if", "include_if", "prioritize_if", "unclear_if"}
+        allowed = {
+            "exclude_if",
+            "include_if",
+            "prioritize_if",
+            "unclear_if",
+            "gaps_if",
+            "satisfies_if",
+        }
         return mode if mode in allowed else "prioritize_if"
 
     @staticmethod

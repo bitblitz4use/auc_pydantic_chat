@@ -495,10 +495,6 @@ class ComplianceContextOrchestrator:
                 effects[row.ru_key].append(("unclear", row.question_key))
             elif mode == "satisfies_if" and matched:
                 effects[row.ru_key].append(("addressed", row.question_key))
-            elif mode in {"include_if", "exclude_if", "prioritize_if"}:
-                # POC bridge: answering a direct RU-influencing question addresses the item
-                # unless it was excluded by applicability logic.
-                effects[row.ru_key].append(("addressed", row.question_key))
 
         exclusions: list[dict[str, str]] = []
         states: list[dict[str, str]] = []

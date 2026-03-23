@@ -376,10 +376,8 @@ class ComplianceGraphIngestionPipeline:
                     """
                     MATCH (q:DiagnosticQuestion {question_key: $question_key})
                     MATCH (ru:RequirementUnit {ru_key: $ru_key})
-                    MERGE (q)-[rel:INFLUENCES]->(ru)
-                    SET rel.mode = $mode,
-                        rel.when_value = $when_value,
-                        rel.status = "draft"
+                    MERGE (q)-[rel:INFLUENCES {mode: $mode, when_value: $when_value}]->(ru)
+                    SET rel.status = "draft"
                     """,
                     question_key=question.question_key,
                     ru_key=influence.ru_key,

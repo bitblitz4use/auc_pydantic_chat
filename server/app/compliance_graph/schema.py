@@ -50,7 +50,14 @@ class IngestedQuestionInfluence(BaseModel):
     """A single question-to-requirement influence edge."""
 
     ru_key: str
-    mode: Literal["exclude_if", "include_if", "prioritize_if", "unclear_if"]
+    mode: Literal[
+        "exclude_if",
+        "include_if",
+        "prioritize_if",
+        "unclear_if",
+        "gaps_if",
+        "satisfies_if",
+    ]
     when_value: str
 
 
