@@ -29,7 +29,7 @@ async def ingest_compliance_graph_document(
 ):
     """
     End-to-end concept ingestion in one request:
-    convert document, create chunks, extract requirements, persist into Neo4j.
+    convert document, create chunks, extract requirements/questions, persist into Neo4j.
     """
     neo4j_driver = getattr(request.app.state, "neo4j_driver", None)
     if neo4j_driver is None:

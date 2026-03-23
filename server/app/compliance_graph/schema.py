@@ -18,6 +18,7 @@ class IngestedRequirement(BaseModel):
     ru_key: str
     statement: str
     title: str
+    language: str
 
 
 class IngestedChunk(BaseModel):
@@ -31,6 +32,26 @@ class IngestedChunk(BaseModel):
     text_contextualized: str
     text_raw: str
     requirements: list[IngestedRequirement] = Field(default_factory=list)
+
+
+class IngestedQuestionInfluence(BaseModel):
+    """A single question-to-requirement influence edge."""
+
+    ru_key: str
+    mode: Literal["exclude_if", "include_if", "prioritize_if", "unclear_if"]
+    when_value: str
+
+
+class IngestedDiagnosticQuestion(BaseModel):
+    """Diagnostic question generated in master graph production."""
+
+    question_key: str
+    prompt: str
+    answer_type: Literal["boolean", "single_choice", "multi_choice", "text"] = "boolean"
+    allowed_values: list[str] = Field(default_factory=list)
+    language: str
+    status: Literal["draft", "reviewed", "published"] = "draft"
+    influences: list[IngestedQuestionInfluence] = Field(default_factory=list)
 
 
 class ComplianceIngestRequestMetadata(BaseModel):
@@ -60,4 +81,6 @@ class ComplianceIngestResponse(BaseModel):
     chunks_kept: int
     requirements_extracted: int
     clauses_written: int
+    questions_generated: int = 0
+    influences_generated: int = 0
     model_id: str

@@ -4,7 +4,7 @@ This document defines the new server-side endpoint that executes the concept pip
 
 - `ingestion` (document conversion + structural chunking)
 - `knowledge production (POC)` (requirement extraction from each chunk)
-- `master graph persistence` (NormativeDocument, Clause, NormativeChunk, RequirementUnit)
+- `master graph persistence` (`NormativeDocument`, `Clause`, `NormativeChunk`, `RequirementUnit`, `DiagnosticQuestion`)
 
 It is intentionally aligned with:
 
@@ -19,6 +19,7 @@ The endpoint is designed for POC velocity but follows the concept:
 - one API call performs the complete document-to-graph path
 - extraction happens directly from Docling chunks (no additional external step)
 - Pydantic AI agents are used for requirement extraction
+- Pydantic AI agents are used for diagnostic question generation and `INFLUENCES` links
 - writes go to the Neo4j master layer only (no session graph in this endpoint)
 
 Out of scope for this endpoint:
@@ -59,6 +60,8 @@ Structured success payload with:
 - total chunks discovered
 - chunks persisted after filtering
 - total extracted requirements
+- total generated diagnostic questions
+- total generated question-to-requirement influences
 - clauses written
 - effective extraction model id
 
@@ -72,12 +75,16 @@ Structured success payload with:
    - generate contextualized chunk text (`chunker.contextualize`)
    - run Pydantic AI extraction agent
    - extract all explicit requirement statements (atomic)
-6. Persist into Neo4j using async driver:
+6. Generate diagnostic questions from extracted requirements in root document language.
+7. Persist into Neo4j using async driver:
    - `NormativeDocument`
    - `Clause`
    - `NormativeChunk`
    - `RequirementUnit` + provenance links
-7. Return summary metrics.
+   - `DiagnosticQuestion`
+   - `INFLUENCES` (`mode`, `when_value`) from question to requirement
+   - optional sequential `FOLLOWS` ordering between generated questions
+8. Return summary metrics.
 
 This keeps the concept order: structure first, then requirement-unit candidate production.
 
@@ -90,6 +97,12 @@ The extraction agent is constrained to:
 - avoid hallucinated obligations
 - keep output language equal to request `language`
 - return empty list if none are present
+
+Question generation is constrained to:
+
+- use output language equal to request `language`
+- generate answerable diagnostic prompts
+- generate explicit `INFLUENCES` metadata (`mode`, `when_value`) targeting extracted requirement keys
 
 Fallback behavior:
 
@@ -111,8 +124,12 @@ For each request:
   - `MERGE (ru:RequirementUnit {ru_key})`
   - `MERGE (c)-[:CONTAINS_REQUIREMENT]->(ru)`
   - `MERGE (ch)-[:SOURCE_FOR]->(ru)`
+- per generated diagnostic question:
+  - `MERGE (q:DiagnosticQuestion {question_key})`
+  - `MERGE (q)-[:INFLUENCES {mode, when_value}]->(ru)`
+  - optional `MERGE (q_prev)-[:FOLLOWS {order}]->(q_next)`
 
-Status for extracted requirement nodes is set to `draft` in this POC endpoint.
+Status for extracted requirement nodes and generated question/influence entities is set to `draft` in this POC endpoint.
 
 ## 6) Files introduced
 
@@ -127,6 +144,7 @@ Status for extracted requirement nodes is set to `draft` in this POC endpoint.
 
 - Uses native Docling chunking, not markdown-only parsing.
 - Produces requirement-unit level graph nodes from chunk text.
+- Produces diagnostic questions and explicit requirement influence links in the master model.
 - Keeps provenance from chunk -> requirement.
 - Writes directly to Neo4j master graph in a deterministic server path.
 - Uses Pydantic AI agents for extraction, as requested.

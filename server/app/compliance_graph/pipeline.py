@@ -11,12 +11,16 @@ from docling_core.transforms.chunker import HierarchicalChunker
 from neo4j import AsyncDriver
 
 from app.agents.providers import parse_model_id
-from app.compliance_graph.extractor import ComplianceRequirementExtractor
+from app.compliance_graph.extractor import (
+    ComplianceQuestionExtractor,
+    ComplianceRequirementExtractor,
+)
 from app.compliance_graph.schema import (
     ComplianceIngestRequestMetadata,
     ComplianceIngestResponse,
     FIXED_HEADING_BLOCKLIST,
     IngestedChunk,
+    IngestedDiagnosticQuestion,
     IngestedRequirement,
 )
 from app.config import config
@@ -40,6 +44,7 @@ class ComplianceGraphIngestionPipeline:
     ) -> ComplianceIngestResponse:
         provider, model_name = self._resolve_model(metadata.model_id)
         extractor = ComplianceRequirementExtractor(provider=provider, model_name=model_name)
+        question_extractor = ComplianceQuestionExtractor(provider=provider, model_name=model_name)
 
         conversion_result = await asyncio.to_thread(
             self._convert_document,
@@ -67,13 +72,21 @@ class ComplianceGraphIngestionPipeline:
                         ru_key=ru_key,
                         statement=statement,
                         title=extractor.summarize_title(statement),
+                        language=metadata.language,
                     )
                 )
 
-        await self._persist(metadata=metadata, chunks=chunks)
+        questions = await self._extract_questions(
+            question_extractor=question_extractor,
+            metadata=metadata,
+            chunks=chunks,
+        )
+
+        await self._persist(metadata=metadata, chunks=chunks, questions=questions)
 
         requirement_count = sum(len(chunk.requirements) for chunk in chunks)
         clause_count = len({chunk.clause_id for chunk in chunks})
+        influence_count = sum(len(question.influences) for question in questions)
         return ComplianceIngestResponse(
             standard_key=metadata.standard_key,
             source_filename=filename,
@@ -81,6 +94,8 @@ class ComplianceGraphIngestionPipeline:
             chunks_kept=len(chunks),
             requirements_extracted=requirement_count,
             clauses_written=clause_count,
+            questions_generated=len(questions),
+            influences_generated=influence_count,
             model_id=f"{provider}:{model_name}",
         )
 
@@ -160,10 +175,12 @@ class ComplianceGraphIngestionPipeline:
         self,
         metadata: ComplianceIngestRequestMetadata,
         chunks: list[IngestedChunk],
+        questions: list[IngestedDiagnosticQuestion],
     ) -> None:
         async with self.neo4j_driver.session() as session:
             await session.execute_write(self._write_document, metadata)
             await session.execute_write(self._write_chunks, chunks)
+            await session.execute_write(self._write_questions, metadata.standard_key, questions)
 
     @staticmethod
     async def _write_document(tx, metadata: ComplianceIngestRequestMetadata) -> None:
@@ -217,6 +234,7 @@ class ComplianceGraphIngestionPipeline:
                     MERGE (ru:RequirementUnit {ru_key: $ru_key})
                     SET ru.statement = $statement,
                         ru.title = $title,
+                        ru.language = $language,
                         ru.status = "draft"
                     MERGE (c)-[:CONTAINS_REQUIREMENT]->(ru)
                     MERGE (ch)-[:SOURCE_FOR]->(ru)
@@ -226,4 +244,100 @@ class ComplianceGraphIngestionPipeline:
                     ru_key=requirement.ru_key,
                     statement=requirement.statement,
                     title=requirement.title,
+                    language=requirement.language,
+                )
+
+    async def _extract_questions(
+        self,
+        question_extractor: ComplianceQuestionExtractor,
+        metadata: ComplianceIngestRequestMetadata,
+        chunks: list[IngestedChunk],
+    ) -> list[IngestedDiagnosticQuestion]:
+        questions_by_key: dict[str, IngestedDiagnosticQuestion] = {}
+        for chunk in chunks:
+            requirement_payload = [
+                {
+                    "ru_key": requirement.ru_key,
+                    "title": requirement.title,
+                    "statement": requirement.statement,
+                }
+                for requirement in chunk.requirements
+            ]
+            extracted = await question_extractor.extract(
+                standard_key=metadata.standard_key,
+                clause_path=chunk.clause_path,
+                requirements=requirement_payload,
+                language=metadata.language,
+            )
+            for question in extracted:
+                existing = questions_by_key.get(question.question_key)
+                if existing is None:
+                    questions_by_key[question.question_key] = question
+                    continue
+                seen_influences = {
+                    (edge.ru_key, edge.mode, edge.when_value) for edge in existing.influences
+                }
+                for edge in question.influences:
+                    edge_key = (edge.ru_key, edge.mode, edge.when_value)
+                    if edge_key in seen_influences:
+                        continue
+                    existing.influences.append(edge)
+                    seen_influences.add(edge_key)
+        return list(questions_by_key.values())
+
+    @staticmethod
+    async def _write_questions(
+        tx,
+        standard_key: str,
+        questions: list[IngestedDiagnosticQuestion],
+    ) -> None:
+        previous_question_key: str | None = None
+        for order, question in enumerate(questions):
+            await tx.run(
+                """
+                MERGE (q:DiagnosticQuestion {question_key: $question_key})
+                SET q.prompt = $prompt,
+                    q.answer_type = $answer_type,
+                    q.allowed_values = $allowed_values,
+                    q.language = $language,
+                    q.status = $status,
+                    q.standard_key = $standard_key
+                """,
+                question_key=question.question_key,
+                prompt=question.prompt,
+                answer_type=question.answer_type,
+                allowed_values=question.allowed_values,
+                language=question.language,
+                status=question.status,
+                standard_key=standard_key,
+            )
+
+            if previous_question_key:
+                await tx.run(
+                    """
+                    MATCH (q1:DiagnosticQuestion {question_key: $prev_key})
+                    MATCH (q2:DiagnosticQuestion {question_key: $next_key})
+                    MERGE (q1)-[f:FOLLOWS]->(q2)
+                    SET f.order = $order
+                    """,
+                    prev_key=previous_question_key,
+                    next_key=question.question_key,
+                    order=order,
+                )
+            previous_question_key = question.question_key
+
+            for influence in question.influences:
+                await tx.run(
+                    """
+                    MATCH (q:DiagnosticQuestion {question_key: $question_key})
+                    MATCH (ru:RequirementUnit {ru_key: $ru_key})
+                    MERGE (q)-[rel:INFLUENCES]->(ru)
+                    SET rel.mode = $mode,
+                        rel.when_value = $when_value,
+                        rel.status = "draft"
+                    """,
+                    question_key=question.question_key,
+                    ru_key=influence.ru_key,
+                    mode=influence.mode,
+                    when_value=influence.when_value,
                 )
