@@ -14,6 +14,12 @@ from neo4j import AsyncDriver
 
 from app.compliance_graph.context_contract import (
     ProgressCounters,
+    QuestionBriefing,
+    QuestionBriefingChunk,
+    QuestionBriefingClause,
+    QuestionBriefingDocument,
+    QuestionBriefingEvidence,
+    QuestionBriefingImpact,
     QuestionCardPayload,
     QuestionRenderModel,
     parse_context_session_input,
@@ -129,10 +135,16 @@ class ComplianceContextOrchestrator:
             if render_model is None:
                 continue
             valid_candidate_found = True
+            briefing = await self._load_question_briefing(
+                session_id=session_id,
+                question_key=render_model.question_key,
+                impact=candidate.impact,
+            )
             payload = QuestionCardPayload(
                 session_id=session_id,
                 standard_keys=standard_keys,
                 question=render_model,
+                question_briefing=briefing,
                 progress=progress,
             )
             return ("jsx", self._build_question_jsx(payload))
@@ -710,6 +722,81 @@ class ComplianceContextOrchestrator:
     def _build_question_jsx(self, payload: QuestionCardPayload) -> str:
         encoded = base64.b64encode(payload.model_dump_json().encode("utf-8")).decode("ascii")
         return f'<CtxQuestionCard payloadB64="{encoded}" />'
+
+    async def _load_question_briefing(
+        self,
+        session_id: str,
+        question_key: str,
+        impact: int,
+    ) -> QuestionBriefing:
+        briefing = QuestionBriefing(
+            impact=QuestionBriefingImpact(requirements_count=max(0, int(impact or 0)))
+        )
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})-[:SCOPES]->(d:NormativeDocument)
+                MATCH (q:DiagnosticQuestion {question_key: $question_key})-[:INFLUENCES]->(ru:RequirementUnit)
+                MATCH (d)-[:HAS_CHILD*1..]->(c:Clause)-[:CONTAINS_REQUIREMENT]->(ru)
+                WHERE NOT EXISTS { MATCH (s)-[:EXCLUDES]->(ru) }
+                OPTIONAL MATCH (ch:NormativeChunk)-[:SOURCE_FOR]->(ru)
+                OPTIONAL MATCH (ru)-[:VERIFIED_BY]->(ev:EvidenceType)
+                WITH d, c, ru, ch, collect(DISTINCT ev)[0..3] AS evidence_nodes
+                ORDER BY c.clause_path, ru.ru_key, ch.chunk_key
+                LIMIT 1
+                RETURN
+                    coalesce(d.standard_key, "") AS standard_key,
+                    coalesce(d.title, "") AS document_title,
+                    coalesce(d.version_label, "") AS version_label,
+                    coalesce(c.clause_id, "") AS clause_id,
+                    coalesce(c.clause_path, "") AS clause_path,
+                    coalesce(c.heading_text, "") AS heading_text,
+                    coalesce(ch.chunk_key, "") AS chunk_key,
+                    left(coalesce(ch.text_contextualized, ch.text_raw, ""), 280) AS chunk_preview,
+                    coalesce(ru.title, left(coalesce(ru.statement, ""), 180)) AS summary,
+                    [ev IN evidence_nodes | {
+                        title: coalesce(ev.title, ""),
+                        hint: coalesce(ev.hint, ""),
+                        example: coalesce(ev.example, "")
+                    }] AS evidence
+                """,
+                session_id=session_id,
+                question_key=question_key,
+            )
+            row = await result.single()
+
+        if not row:
+            return briefing
+
+        evidence_items = [
+            QuestionBriefingEvidence(
+                title=str(item.get("title", "")),
+                hint=str(item.get("hint", "")),
+                example=str(item.get("example", "")),
+            )
+            for item in (row.get("evidence") or [])
+            if isinstance(item, dict)
+        ]
+
+        return QuestionBriefing(
+            document=QuestionBriefingDocument(
+                standard_key=str(row.get("standard_key", "")),
+                title=str(row.get("document_title", "")),
+                version_label=str(row.get("version_label", "")),
+            ),
+            clause=QuestionBriefingClause(
+                clause_id=str(row.get("clause_id", "")),
+                clause_path=str(row.get("clause_path", "")),
+                heading_text=str(row.get("heading_text", "")),
+            ),
+            chunk=QuestionBriefingChunk(
+                chunk_key=str(row.get("chunk_key", "")),
+                preview=str(row.get("chunk_preview", "")),
+            ),
+            summary=str(row.get("summary", "")),
+            evidence=evidence_items,
+            impact=briefing.impact,
+        )
 
     def _build_no_candidate_text(
         self,

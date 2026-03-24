@@ -49,6 +49,31 @@ type QuestionPayload = {
     allowed_values?: string[];
     language?: string;
   };
+  question_briefing?: {
+    document?: {
+      standard_key?: string;
+      title?: string;
+      version_label?: string;
+    };
+    clause?: {
+      clause_id?: string;
+      clause_path?: string;
+      heading_text?: string;
+    };
+    chunk?: {
+      chunk_key?: string;
+      preview?: string;
+    };
+    summary?: string;
+    evidence?: Array<{
+      title?: string;
+      hint?: string;
+      example?: string;
+    }>;
+    impact?: {
+      requirements_count?: number;
+    };
+  };
   progress?: ProgressPayload;
 };
 
@@ -117,11 +142,24 @@ function ProgressPills({ progress }: { progress?: ProgressPayload }) {
   );
 }
 
+function CitationPill({ label, value }: { label: string; value: string }) {
+  if (!value.trim()) {
+    return null;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+      <span className="font-medium text-foreground/80">{label}:</span>
+      <span className="max-w-[22rem] truncate">{value}</span>
+    </span>
+  );
+}
+
 function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
   const interactive = useCtxInteractive();
   const runtime = useContextQuestionRuntime();
   const payload = useMemo(() => decodePayload(payloadB64), [payloadB64]);
   const question = payload?.question;
+  const briefing = payload?.question_briefing;
   const allowedValues = question?.allowed_values ?? [];
 
   const [booleanValue, setBooleanValue] = useState<boolean | null>(null);
@@ -179,11 +217,58 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
 
   return (
     <div className="max-w-2xl rounded-lg border bg-card p-5 shadow-sm">
+      {(briefing?.document?.title ||
+        briefing?.document?.standard_key ||
+        briefing?.clause?.clause_path ||
+        briefing?.clause?.heading_text) && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <CitationPill label="Standard" value={briefing?.document?.standard_key || ""} />
+          <CitationPill
+            label="Dokument"
+            value={briefing?.document?.title || ""}
+          />
+          <CitationPill
+            label="Clause"
+            value={briefing?.clause?.clause_path || briefing?.clause?.heading_text || ""}
+          />
+        </div>
+      )}
+
       <h3 className="text-sm font-semibold text-foreground">{question.prompt}</h3>
       <p className="mt-1 text-xs text-muted-foreground">
         Typ: {question.answer_type}
         {question.language ? ` · Sprache: ${question.language}` : ""}
       </p>
+
+      {briefing?.summary && (
+        <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Worum es geht
+          </p>
+          <p className="mt-1 text-sm text-foreground">{briefing.summary}</p>
+        </div>
+      )}
+
+      {(briefing?.evidence?.length ?? 0) > 0 && (
+        <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Mögliche Nachweise
+          </p>
+          <div className="mt-2 space-y-2">
+            {briefing?.evidence?.slice(0, 3).map((item, index) => (
+              <div key={`${item.title ?? "evidence"}-${index}`} className="text-sm">
+                {item.title && <p className="font-medium text-foreground">{item.title}</p>}
+                {item.hint && <p className="text-muted-foreground">{item.hint}</p>}
+                {item.example && (
+                  <p className="mt-0.5 text-xs text-muted-foreground/90">
+                    Beispiel: {item.example}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4">
         {question.answer_type === "boolean" && (

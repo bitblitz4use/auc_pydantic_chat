@@ -39,6 +39,54 @@ class QuestionRenderModel(BaseModel):
     language: str = "de"
 
 
+class QuestionBriefingDocument(BaseModel):
+    """Compact document citation info for one question."""
+
+    standard_key: str = ""
+    title: str = ""
+    version_label: str = ""
+
+
+class QuestionBriefingClause(BaseModel):
+    """Clause reference shown to users."""
+
+    clause_id: str = ""
+    clause_path: str = ""
+    heading_text: str = ""
+
+
+class QuestionBriefingChunk(BaseModel):
+    """Chunk reference and preview; page metadata is intentionally omitted for now."""
+
+    chunk_key: str = ""
+    preview: str = ""
+
+
+class QuestionBriefingEvidence(BaseModel):
+    """Evidence hint shown in question card support area."""
+
+    title: str = ""
+    hint: str = ""
+    example: str = ""
+
+
+class QuestionBriefingImpact(BaseModel):
+    """Impact metadata for one question in active scope."""
+
+    requirements_count: int = 0
+
+
+class QuestionBriefing(BaseModel):
+    """User-facing support payload for one question card."""
+
+    document: QuestionBriefingDocument = Field(default_factory=QuestionBriefingDocument)
+    clause: QuestionBriefingClause = Field(default_factory=QuestionBriefingClause)
+    chunk: QuestionBriefingChunk = Field(default_factory=QuestionBriefingChunk)
+    summary: str = ""
+    evidence: list[QuestionBriefingEvidence] = Field(default_factory=list)
+    impact: QuestionBriefingImpact = Field(default_factory=QuestionBriefingImpact)
+
+
 class ProgressCounters(BaseModel):
     """Session progress values shown in UI payload and text fallback."""
 
@@ -57,6 +105,7 @@ class QuestionCardPayload(BaseModel):
     session_id: str
     standard_keys: list[str] = Field(default_factory=list)
     question: QuestionRenderModel
+    question_briefing: QuestionBriefing | None = None
     progress: ProgressCounters
 
 
