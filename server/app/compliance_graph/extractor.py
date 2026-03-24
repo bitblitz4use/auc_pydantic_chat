@@ -269,6 +269,7 @@ class ComplianceQuestionExtractor:
             )
             when_value = self._normalize_when_value(
                 item.when_value,
+                mode=mode,
                 answer_type=answer_type,
                 allowed_values=allowed_values,
             )
@@ -290,7 +291,9 @@ class ComplianceQuestionExtractor:
                     when_value=when_value,
                 )
             )
-        return list(grouped.values())
+        questions = list(grouped.values())
+        self._enforce_boolean_closure_pairs(questions)
+        return questions
 
     def _fallback(
         self,
@@ -386,15 +389,63 @@ class ComplianceQuestionExtractor:
         return ["yes", "no"]
 
     @staticmethod
-    def _normalize_when_value(value: str, answer_type: str, allowed_values: list[str]) -> str:
+    def _normalize_when_value(
+        value: str,
+        mode: str,
+        answer_type: str,
+        allowed_values: list[str],
+    ) -> str:
         normalized = value.strip().lower()
         if answer_type == "boolean" and normalized not in {"true", "false"}:
+            # Closure defaults must be deterministic to avoid silent drift.
+            if mode == "gaps_if":
+                return "false"
+            if mode == "satisfies_if":
+                return "true"
             return "true"
         if answer_type in {"single_choice", "multi_choice"} and allowed_values:
             allowed_normalized = {item.casefold() for item in allowed_values}
             if normalized not in allowed_normalized:
                 return allowed_values[0]
         return normalized or "true"
+
+    @staticmethod
+    def _enforce_boolean_closure_pairs(questions: list[IngestedDiagnosticQuestion]) -> None:
+        """
+        Ensure boolean closure rules are paired per question+requirement.
+        This keeps runtime state transitions deterministic:
+        true -> addressed and false -> gap (or inverse variants if authored that way).
+        """
+        closure_counterparts = {
+            ("satisfies_if", "true"): ("gaps_if", "false"),
+            ("satisfies_if", "false"): ("gaps_if", "true"),
+            ("gaps_if", "true"): ("satisfies_if", "false"),
+            ("gaps_if", "false"): ("satisfies_if", "true"),
+        }
+
+        for question in questions:
+            if question.answer_type != "boolean":
+                continue
+
+            by_ru: dict[str, set[tuple[str, str]]] = {}
+            for influence in question.influences:
+                by_ru.setdefault(influence.ru_key, set()).add(
+                    (influence.mode, influence.when_value)
+                )
+
+            for ru_key, existing in by_ru.items():
+                additions: list[IngestedQuestionInfluence] = []
+                for key, counterpart in closure_counterparts.items():
+                    if key in existing and counterpart not in existing:
+                        additions.append(
+                            IngestedQuestionInfluence(
+                                ru_key=ru_key,
+                                mode=counterpart[0],
+                                when_value=counterpart[1],
+                            )
+                        )
+                if additions:
+                    question.influences.extend(additions)
 
     @staticmethod
     def _looks_expected_language(
