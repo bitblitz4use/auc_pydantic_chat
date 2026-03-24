@@ -63,6 +63,21 @@ import {
   tryDecodeCtxQuestionPayloadFromJsx,
 } from "@/components/context-question-jsx";
 
+const CONTEXT_RUNTIME_STORAGE_KEY = "auc.context.runtime.v1";
+
+type PersistedContextRuntime = {
+  sessionId?: string;
+  standardKeys?: string[];
+  conversationId?: string;
+};
+
+function createClientConversationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `ctx-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 interface AttachmentItemProps {
   attachment: FileUIPart & { id: string };
   onRemove: (id: string) => void;
@@ -146,7 +161,9 @@ export function ChatInterface() {
   const [isInputActive, setIsInputActive] = useState(false);
   const [contextSessionId, setContextSessionId] = useState<string | null>(null);
   const [contextStandardKeys, setContextStandardKeys] = useState<string[]>([]);
+  const [contextConversationId, setContextConversationId] = useState<string | null>(null);
   const contextSendNonceRef = useRef(0);
+  const contextAutoResumeKeyRef = useRef<string | null>(null);
 
   const transport = useMemo(() => {
     return new SimpleChatTransport({
@@ -159,10 +176,54 @@ export function ChatInterface() {
   });
 
   useEffect(() => {
-    if (taskMode !== "context") {
-      setContextSessionId(null);
+    try {
+      const raw = window.localStorage.getItem(CONTEXT_RUNTIME_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as PersistedContextRuntime;
+      if (typeof parsed.sessionId === "string" && parsed.sessionId.trim()) {
+        setContextSessionId(parsed.sessionId.trim());
+      }
+      if (Array.isArray(parsed.standardKeys)) {
+        setContextStandardKeys(
+          parsed.standardKeys
+            .map((item) => (typeof item === "string" ? item.trim() : ""))
+            .filter((item) => item.length > 0)
+        );
+      }
+      if (typeof parsed.conversationId === "string" && parsed.conversationId.trim()) {
+        setContextConversationId(parsed.conversationId.trim());
+      }
+    } catch {
+      // Ignore malformed persisted state.
     }
-  }, [taskMode]);
+  }, []);
+
+  useEffect(() => {
+    const payload: PersistedContextRuntime = {
+      sessionId: contextSessionId ?? undefined,
+      standardKeys: contextStandardKeys.length > 0 ? contextStandardKeys : undefined,
+      conversationId: contextConversationId ?? undefined,
+    };
+    const hasData = Boolean(payload.sessionId || payload.conversationId || payload.standardKeys?.length);
+    try {
+      if (!hasData) {
+        window.localStorage.removeItem(CONTEXT_RUNTIME_STORAGE_KEY);
+        return;
+      }
+      window.localStorage.setItem(CONTEXT_RUNTIME_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage failures (private mode/quota).
+    }
+  }, [contextSessionId, contextStandardKeys, contextConversationId]);
+
+  const ensureContextConversationId = useCallback((): string => {
+    if (contextConversationId && contextConversationId.trim()) {
+      return contextConversationId;
+    }
+    const created = createClientConversationId();
+    setContextConversationId(created);
+    return created;
+  }, [contextConversationId]);
 
   const contextBodyBase = useMemo(
     () => ({
@@ -177,6 +238,54 @@ export function ChatInterface() {
     contextSendNonceRef.current += 1;
     return `${text}\n\u200bctx-${contextSendNonceRef.current}`;
   }, []);
+
+  useEffect(() => {
+    if (taskMode !== "context") {
+      contextAutoResumeKeyRef.current = null;
+      return;
+    }
+    if (!contextSessionId) {
+      return;
+    }
+    if (status === "submitted" || status === "streaming") {
+      return;
+    }
+    if (messages.length > 0) {
+      return;
+    }
+
+    const conversationId = ensureContextConversationId();
+    const resumeKey = `${contextSessionId}::${conversationId}`;
+    if (contextAutoResumeKeyRef.current === resumeKey) {
+      return;
+    }
+    contextAutoResumeKeyRef.current = resumeKey;
+    setLastSentTaskMode("context");
+
+    sendMessage(
+      { text: withContextNonce("Compliance context resume") },
+      {
+        body: {
+          ...contextBodyBase,
+          conversationId,
+          contextSession: {
+            session_id: contextSessionId,
+            standard_keys: contextStandardKeys.length > 0 ? contextStandardKeys : undefined,
+          },
+        },
+      }
+    );
+  }, [
+    taskMode,
+    contextSessionId,
+    contextStandardKeys,
+    contextBodyBase,
+    ensureContextConversationId,
+    messages.length,
+    sendMessage,
+    status,
+    withContextNonce,
+  ]);
 
   const formatContextAnswerValue = useCallback(
     (value: ContextAnswerSubmission["value"]): string => {
@@ -193,6 +302,7 @@ export function ChatInterface() {
 
   const submitContextAnswer = useCallback(
     (submission: ContextAnswerSubmission) => {
+      const conversationId = ensureContextConversationId();
       setContextSessionId(submission.sessionId);
       if (submission.standardKeys.length > 0) {
         setContextStandardKeys(submission.standardKeys);
@@ -207,6 +317,7 @@ export function ChatInterface() {
         {
           body: {
             ...contextBodyBase,
+            conversationId,
             contextSession: {
               session_id: submission.sessionId,
               standard_keys:
@@ -227,6 +338,7 @@ export function ChatInterface() {
     [
       contextBodyBase,
       contextStandardKeys,
+      ensureContextConversationId,
       formatContextAnswerValue,
       sendMessage,
       withContextNonce,
@@ -237,6 +349,7 @@ export function ChatInterface() {
     async (
       submission: ContextAssistSubmission
     ): Promise<{ payload: QuestionPayload | null; note: string }> => {
+      const conversationId = ensureContextConversationId();
       setContextSessionId(submission.sessionId);
       if (submission.standardKeys.length > 0) {
         setContextStandardKeys(submission.standardKeys);
@@ -247,6 +360,7 @@ export function ChatInterface() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...contextBodyBase,
+            conversationId,
             contextSession: {
               session_id: submission.sessionId,
               standard_keys:
@@ -299,7 +413,7 @@ export function ChatInterface() {
         };
       }
     },
-    [contextBodyBase, contextStandardKeys]
+    [contextBodyBase, contextStandardKeys, ensureContextConversationId]
   );
 
   const contextRuntimeValue = useMemo(
@@ -319,6 +433,7 @@ export function ChatInterface() {
       async (message: PromptInputMessage) => {
         // Context mode: server streams JSX (see server chat route); must use sendMessage so messages populate
         if (taskMode === "context") {
+          const conversationId = ensureContextConversationId();
           textInput.clear();
           setLastSentTaskMode(taskMode);
           const userTyped = message.text?.trim() ?? "";
@@ -332,6 +447,7 @@ export function ChatInterface() {
             {
               body: {
                 ...contextBodyBase,
+                conversationId,
                 contextSession: {
                   session_id: contextSessionId ?? undefined,
                   standard_keys: contextStandardKeys.length
@@ -381,6 +497,7 @@ export function ChatInterface() {
           activeDocument,
           activeSource,
           contextBodyBase,
+          ensureContextConversationId,
           contextSessionId,
           contextStandardKeys,
           withContextNonce,

@@ -22,6 +22,8 @@ const defaultModels: ModelInfo[] = [
   },
 ];
 
+const MODEL_SELECTION_STORAGE_KEY = "auc.chat.selectedModel.v1";
+
 export function useModelSelection() {
   const [models, setModels] = useState<ModelInfo[]>(defaultModels);
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,17 @@ export function useModelSelection() {
   
   const [selectedModel, setSelectedModel] = useState<string>(initialModel);
 
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(MODEL_SELECTION_STORAGE_KEY);
+      if (stored && stored.trim()) {
+        setSelectedModel(stored.trim());
+      }
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, []);
+
   // Fetch available models from API
   useEffect(() => {
     const fetchModels = async () => {
@@ -41,10 +54,14 @@ export function useModelSelection() {
         const response = await fetch(apiUrl.providers());
         if (response.ok) {
           const data = await response.json();
-          setModels(data.models || defaultModels);
-          if (data.models && data.models.length > 0) {
-            setSelectedModel(data.models[0].id);
-          }
+          const fetchedModels = data.models || defaultModels;
+          setModels(fetchedModels);
+          setSelectedModel((prev) => {
+            if (fetchedModels.some((model: ModelInfo) => model.id === prev)) {
+              return prev;
+            }
+            return fetchedModels.length > 0 ? fetchedModels[0].id : prev;
+          });
         } else {
           console.error("Failed to fetch models:", response.statusText);
         }
@@ -57,6 +74,17 @@ export function useModelSelection() {
 
     fetchModels();
   }, []);
+
+  useEffect(() => {
+    if (!selectedModel) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(MODEL_SELECTION_STORAGE_KEY, selectedModel);
+    } catch {
+      // Ignore localStorage failures.
+    }
+  }, [selectedModel]);
 
   const handleModelSelect = useCallback((id: string) => {
     setSelectedModel(id);

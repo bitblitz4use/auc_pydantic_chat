@@ -153,7 +153,13 @@ class ComplianceContextOrchestrator:
         await self._ensure_constraints()
         context_input = parse_context_session_input(body_data)
         conversation_id = resolve_conversation_id(body_data)
-        session_id = context_input.session_id.strip() if context_input.session_id else str(uuid.uuid4())
+        session_id = context_input.session_id.strip() if context_input.session_id else ""
+        if not session_id and conversation_id:
+            recovered_session_id = await self._resolve_session_id_for_conversation(conversation_id)
+            if recovered_session_id:
+                session_id = recovered_session_id
+        if not session_id:
+            session_id = str(uuid.uuid4())
 
         standard_keys = await self._resolve_standard_keys(context_input.standard_keys)
         if not standard_keys:
@@ -456,6 +462,28 @@ class ComplianceContextOrchestrator:
             session_id=session_id,
             standard_keys=standard_keys,
         )
+
+    async def _resolve_session_id_for_conversation(self, conversation_id: str) -> str | None:
+        conversation = (conversation_id or "").strip()
+        if not conversation:
+            return None
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (s:Session {conversation_id: $conversation_id})
+                RETURN s.session_id AS session_id
+                ORDER BY coalesce(s.context_updated_at, s.created_at) DESC
+                LIMIT 1
+                """,
+                conversation_id=conversation,
+            )
+            row = await result.single()
+        if not row:
+            return None
+        value = row.get("session_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
 
     async def _validate_answer_target(self, session_id: str, question_key: str) -> tuple[bool, str]:
         async with self.neo4j_driver.session() as session:
