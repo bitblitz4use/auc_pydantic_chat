@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SUPPORTED_ANSWER_TYPES = {"boolean", "single_choice", "multi_choice", "text"}
+SUPPORTED_ANSWER_TYPES = {"boolean", "single_choice", "multi_choice", "text", "number"}
 
 
 class ContextAnswerInput(BaseModel):
@@ -19,12 +19,23 @@ class ContextAnswerInput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class ContextAssistInput(BaseModel):
+    """Assist action request for one context question."""
+
+    question_key: str = Field(min_length=1)
+    tool: Literal["rewrite", "web_lookup"]
+    value: Any = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class ContextSessionInput(BaseModel):
     """Session payload submitted on each context turn."""
 
     session_id: str | None = None
     standard_keys: list[str] | None = None
     answer: ContextAnswerInput | None = None
+    assist: ContextAssistInput | None = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -34,8 +45,12 @@ class QuestionRenderModel(BaseModel):
 
     question_key: str = Field(min_length=1)
     prompt: str = Field(min_length=1)
-    answer_type: Literal["boolean", "single_choice", "multi_choice", "text"]
+    answer_type: Literal["boolean", "single_choice", "multi_choice", "text", "number"]
     allowed_values: list[str] = Field(default_factory=list)
+    options: list[dict[str, str]] = Field(default_factory=list)
+    assist_tools: list[Literal["rewrite", "web_lookup"]] = Field(default_factory=list)
+    prefill_value: Any = None
+    assist_note: str = ""
     language: str = "de"
 
 

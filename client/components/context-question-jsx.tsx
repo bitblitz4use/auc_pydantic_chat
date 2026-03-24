@@ -15,17 +15,26 @@ import {
   type ReactNode,
 } from "react";
 
-type QuestionAnswerType = "boolean" | "single_choice" | "multi_choice" | "text";
+type QuestionAnswerType = "boolean" | "single_choice" | "multi_choice" | "text" | "number";
 
 export type ContextAnswerSubmission = {
   sessionId: string;
   standardKeys: string[];
   questionKey: string;
-  value: boolean | string | string[];
+  value: boolean | string | string[] | number;
+};
+
+export type ContextAssistSubmission = {
+  sessionId: string;
+  standardKeys: string[];
+  questionKey: string;
+  tool: "rewrite" | "web_lookup";
+  value: string;
 };
 
 type ContextQuestionRuntimeValue = {
   submitAnswer: (submission: ContextAnswerSubmission) => void;
+  requestAssist: (submission: ContextAssistSubmission) => void;
   submitting: boolean;
 };
 
@@ -47,6 +56,10 @@ type QuestionPayload = {
     prompt: string;
     answer_type: QuestionAnswerType;
     allowed_values?: string[];
+    options?: Array<{ value: string; label: string }>;
+    assist_tools?: Array<"rewrite" | "web_lookup">;
+    prefill_value?: unknown;
+    assist_note?: string;
     language?: string;
   };
   question_briefing?: {
@@ -161,11 +174,39 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
   const question = payload?.question;
   const briefing = payload?.question_briefing;
   const allowedValues = question?.allowed_values ?? [];
+  const options =
+    question?.options && question.options.length > 0
+      ? question.options
+      : allowedValues.map((value) => ({ value, label: value }));
+  const initialText =
+    question?.answer_type === "text" && typeof question.prefill_value === "string"
+      ? question.prefill_value
+      : "";
+  const initialNumber =
+    question?.answer_type === "number" &&
+    (typeof question.prefill_value === "number" || typeof question.prefill_value === "string")
+      ? String(question.prefill_value)
+      : "";
+  const initialSingle =
+    question?.answer_type === "single_choice" && typeof question.prefill_value === "string"
+      ? question.prefill_value
+      : "";
+  const initialMulti =
+    question?.answer_type === "multi_choice" && Array.isArray(question.prefill_value)
+      ? question.prefill_value
+          .map((item) => (typeof item === "string" ? item : String(item)))
+          .filter((item) => item.trim())
+      : [];
+  const initialBoolean =
+    question?.answer_type === "boolean" && typeof question.prefill_value === "boolean"
+      ? question.prefill_value
+      : null;
 
-  const [booleanValue, setBooleanValue] = useState<boolean | null>(null);
-  const [singleValue, setSingleValue] = useState<string>("");
-  const [multiValues, setMultiValues] = useState<string[]>([]);
-  const [textValue, setTextValue] = useState<string>("");
+  const [booleanValue, setBooleanValue] = useState<boolean | null>(initialBoolean);
+  const [singleValue, setSingleValue] = useState<string>(initialSingle);
+  const [multiValues, setMultiValues] = useState<string[]>(initialMulti);
+  const [textValue, setTextValue] = useState<string>(initialText);
+  const [numberValue, setNumberValue] = useState<string>(initialNumber);
 
   if (!payload || !question) {
     return (
@@ -187,11 +228,15 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
     (question.answer_type === "boolean" && booleanValue !== null) ||
     (question.answer_type === "single_choice" && Boolean(singleValue)) ||
     (question.answer_type === "multi_choice" && multiValues.length > 0) ||
-    (question.answer_type === "text" && Boolean(textValue.trim()));
+    (question.answer_type === "text" && Boolean(textValue.trim())) ||
+    (question.answer_type === "number" &&
+      Boolean(numberValue.trim()) &&
+      Number.isFinite(Number(numberValue)) &&
+      Number(numberValue) >= 0);
 
   const submit = () => {
     if (disabled) return;
-    let value: boolean | string | string[];
+    let value: boolean | string | string[] | number;
     if (question.answer_type === "boolean") {
       if (booleanValue === null) return;
       value = booleanValue;
@@ -201,6 +246,10 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
     } else if (question.answer_type === "multi_choice") {
       if (multiValues.length === 0) return;
       value = multiValues;
+    } else if (question.answer_type === "number") {
+      const normalized = Number(numberValue);
+      if (!Number.isFinite(normalized) || normalized < 0) return;
+      value = normalized;
     } else {
       const trimmed = textValue.trim();
       if (!trimmed) return;
@@ -215,8 +264,20 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
     });
   };
 
+  const requestAssist = (tool: "rewrite" | "web_lookup") => {
+    if (disabled || !question) return;
+    const currentValue = question.answer_type === "text" ? textValue : "";
+    runtime.requestAssist({
+      sessionId: payload.session_id,
+      standardKeys: payload.standard_keys ?? [],
+      questionKey: question.question_key,
+      tool,
+      value: currentValue,
+    });
+  };
+
   return (
-    <div className="max-w-2xl rounded-lg border bg-card p-5 shadow-sm">
+    <div className="w-full max-w-3xl rounded-lg border bg-card p-5 shadow-sm">
       {(briefing?.document?.title ||
         briefing?.document?.standard_key ||
         briefing?.clause?.clause_path ||
@@ -239,6 +300,24 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
         Typ: {question.answer_type}
         {question.language ? ` · Sprache: ${question.language}` : ""}
       </p>
+      {(question.assist_tools?.length ?? 0) > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+          {question.assist_tools?.map((tool) => (
+            <button
+              key={tool}
+              type="button"
+              disabled={disabled}
+              onClick={() => requestAssist(tool)}
+              className="rounded-md border border-border bg-muted/30 px-2 py-1 text-muted-foreground"
+            >
+              Assist: {tool}
+            </button>
+          ))}
+        </div>
+      )}
+      {question.assist_note && (
+        <p className="mt-2 text-xs text-muted-foreground">{question.assist_note}</p>
+      )}
 
       {briefing?.summary && (
         <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
@@ -308,9 +387,9 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
             className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
           >
             <option value="">Bitte auswahlen</option>
-            {allowedValues.map((value) => (
-              <option key={value} value={value}>
-                {value}
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -318,21 +397,34 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
 
         {question.answer_type === "multi_choice" && (
           <div className="flex flex-col gap-2">
-            {allowedValues.map((value) => (
+            {options.map((option) => (
               <label
-                key={value}
+                key={option.value}
                 className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-2 py-1.5 text-xs"
               >
                 <input
                   type="checkbox"
                   disabled={disabled}
-                  checked={multiValues.includes(value)}
-                  onChange={() => toggleMultiValue(value)}
+                  checked={multiValues.includes(option.value)}
+                  onChange={() => toggleMultiValue(option.value)}
                 />
-                <span>{value}</span>
+                <span>{option.label}</span>
               </label>
             ))}
           </div>
+        )}
+
+        {question.answer_type === "number" && (
+          <input
+            type="number"
+            min={0}
+            step="any"
+            disabled={disabled}
+            value={numberValue}
+            onChange={(event) => setNumberValue(event.target.value)}
+            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            placeholder="Wert eingeben"
+          />
         )}
 
         {question.answer_type === "text" && (

@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from neo4j import AsyncDriver
 
+from app.compliance_graph.context_assist import ContextAssistService
 from app.compliance_graph.context_contract import (
     ProgressCounters,
     QuestionBriefing,
@@ -56,13 +57,99 @@ class _QuestionCandidate:
     impact: int
 
 
+@dataclass(slots=True)
+class _ContextQuestionDef:
+    key: str
+    prompt: str
+    answer_type: str
+    required: bool = True
+    allowed_values: list[str] | None = None
+    assist_tools: list[str] | None = None
+    number_kind: str | None = None
+
+
+SECTOR_OPTIONS = [
+    "Energie",
+    "Verkehr / Transport",
+    "Banken / Finanzwesen",
+    "Gesundheitswesen",
+    "Digitale Infrastruktur / IT-Dienstleistungen",
+    "Öffentliche Verwaltung",
+    "Herstellung / Produktion",
+    "Lebensmittel / Chemie / Abfallwirtschaft",
+    "Sonstige",
+]
+
+CONTEXT_QUESTION_ORDER: list[_ContextQuestionDef] = [
+    _ContextQuestionDef(key="context.org_name", prompt="Name", answer_type="text"),
+    _ContextQuestionDef(key="context.org_address", prompt="Adresse", answer_type="text"),
+    _ContextQuestionDef(key="context.org_website", prompt="Website", answer_type="text"),
+    _ContextQuestionDef(
+        key="context.org_economic_sector",
+        prompt="Wirtschaftssektor",
+        answer_type="multi_choice",
+        allowed_values=SECTOR_OPTIONS,
+    ),
+    _ContextQuestionDef(
+        key="context.org_critical_infrastructure",
+        prompt="Kritische Infrastruktur",
+        answer_type="boolean",
+    ),
+    _ContextQuestionDef(
+        key="context.org_has_production",
+        prompt="Produktion vorhanden",
+        answer_type="boolean",
+    ),
+    _ContextQuestionDef(
+        key="context.org_activity_scope",
+        prompt="Tätigkeitsbereich",
+        answer_type="text",
+        assist_tools=["web_lookup"],
+    ),
+    _ContextQuestionDef(
+        key="context.org_employee_count",
+        prompt="Mitarbeiteranzahl",
+        answer_type="number",
+        number_kind="int",
+    ),
+    _ContextQuestionDef(
+        key="context.org_revenue_eur",
+        prompt="Umsatz (EUR absolut)",
+        answer_type="number",
+    ),
+    _ContextQuestionDef(
+        key="context.org_balance_sheet_total_eur",
+        prompt="Bilanzsumme (EUR absolut)",
+        answer_type="number",
+    ),
+    _ContextQuestionDef(
+        key="context.org_company_goals",
+        prompt="Unternehmensziele",
+        answer_type="text",
+        assist_tools=["rewrite"],
+    ),
+    _ContextQuestionDef(
+        key="context.org_selected_standards",
+        prompt="Standards / Gesetze / Regulierungen",
+        answer_type="multi_choice",
+        allowed_values=[],
+    ),
+]
+
+CONTEXT_QUESTION_BY_KEY = {item.key: item for item in CONTEXT_QUESTION_ORDER}
+
+
 class ComplianceContextOrchestrator:
     """Graph-backed session-state orchestrator for `taskMode=context`."""
 
     _constraints_ready: bool = False
+    _assist_service: ContextAssistService | None = None
 
     def __init__(self, neo4j_driver: AsyncDriver):
         self.neo4j_driver = neo4j_driver
+        if ComplianceContextOrchestrator._assist_service is None:
+            ComplianceContextOrchestrator._assist_service = ContextAssistService()
+        self.assist_service = ComplianceContextOrchestrator._assist_service
 
     async def handle_turn(self, body_data: dict[str, Any]) -> tuple[Literal["jsx", "text"], str]:
         """Process one context turn and return streamed payload content."""
@@ -84,46 +171,137 @@ class ComplianceContextOrchestrator:
             standard_keys=standard_keys,
         )
 
-        stale_answer_reason = ""
-        if context_input.answer is not None:
-            valid, reason = await self._validate_answer_target(
-                session_id=session_id,
-                question_key=context_input.answer.question_key,
-            )
-            if not valid:
-                stale_answer_reason = reason
-                logger.info(
-                    "Skipping stale/inactive context answer in session=%s question=%s reason=%s",
-                    session_id,
-                    context_input.answer.question_key,
-                    reason,
+        context_profile = await self._load_context_profile(session_id=session_id)
+        selected_from_context = self._extract_selected_standards(context_profile)
+        if selected_from_context:
+            standard_keys = await self._resolve_standard_keys(selected_from_context)
+            if standard_keys:
+                await self._ensure_session_scope(
+                    session_id=session_id,
+                    conversation_id=conversation_id,
+                    standard_keys=standard_keys,
                 )
+
+        stale_answer_reason = ""
+        if context_input.assist is not None:
+            assist_payload = await self._handle_assist_request(
+                session_id=session_id,
+                standard_keys=standard_keys,
+                context_profile=context_profile,
+                question_key=context_input.assist.question_key,
+                tool=context_input.assist.tool,
+                raw_value=context_input.assist.value,
+            )
+            if assist_payload is None:
+                return (
+                    "text",
+                    "Assist-Aktion konnte nicht ausgeführt werden. Bitte Frage und Tool-Konfiguration prüfen.",
+                )
+            return ("jsx", self._build_question_jsx(assist_payload))
+
+        if context_input.answer is not None:
+            question_key = context_input.answer.question_key
+            context_question_def = CONTEXT_QUESTION_BY_KEY.get(question_key)
+            if context_question_def is not None:
+                allowed_values = context_question_def.allowed_values or []
+                if question_key == "context.org_selected_standards":
+                    allowed_values = [
+                        option["value"] for option in await self._load_standard_options()
+                    ]
+                normalized = self._normalize_answer(
+                    value=context_input.answer.value,
+                    answer_type=context_question_def.answer_type,
+                    allowed_values=allowed_values,
+                    number_kind=context_question_def.number_kind,
+                )
+                if normalized is None:
+                    return (
+                        "text",
+                        "Antwortformat ungültig für diese Kontextfrage. Bitte Eingabe prüfen und erneut senden.",
+                    )
+                await self._upsert_context_fact(
+                    session_id=session_id,
+                    question_key=question_key,
+                    value=normalized,
+                    answer_type=context_question_def.answer_type,
+                    required=context_question_def.required,
+                )
+                context_profile = await self._load_context_profile(session_id=session_id)
+                await self._refresh_context_status(session_id=session_id, context_profile=context_profile)
+                selected_from_context = self._extract_selected_standards(context_profile)
+                if selected_from_context:
+                    selected_resolved = await self._resolve_standard_keys(selected_from_context)
+                    if selected_resolved:
+                        standard_keys = selected_resolved
+                        await self._ensure_session_scope(
+                            session_id=session_id,
+                            conversation_id=conversation_id,
+                            standard_keys=standard_keys,
+                        )
             else:
-                question_meta = await self._load_question_meta(context_input.answer.question_key)
-                if question_meta is None:
-                    logger.info(
-                        "Skipping context answer because question was not found: session=%s question=%s",
-                        session_id,
-                        context_input.answer.question_key,
+                context_ready = self._is_context_ready(context_profile)
+                if not context_ready:
+                    stale_answer_reason = (
+                        "Kontextprofil ist noch nicht vollständig. "
+                        "Bitte zuerst alle erforderlichen Organisationsdaten ausfüllen."
                     )
                 else:
-                    normalized = self._normalize_answer(
-                        value=context_input.answer.value,
-                        answer_type=question_meta.answer_type,
-                        allowed_values=question_meta.allowed_values,
-                    )
-                    if normalized is None:
-                        return (
-                            "text",
-                            "Antwortformat ungültig für diese Frage. Bitte Eingabe prüfen und erneut senden.",
-                        )
-
-                    await self._upsert_answer(
+                    valid, reason = await self._validate_answer_target(
                         session_id=session_id,
-                        question_key=context_input.answer.question_key,
-                        raw_value=context_input.answer.value,
-                        normalized_value=normalized,
+                        question_key=question_key,
                     )
+                    if not valid:
+                        stale_answer_reason = reason
+                        logger.info(
+                            "Skipping stale/inactive context answer in session=%s question=%s reason=%s",
+                            session_id,
+                            question_key,
+                            reason,
+                        )
+                    else:
+                        question_meta = await self._load_question_meta(question_key)
+                        if question_meta is None:
+                            logger.info(
+                                "Skipping context answer because question was not found: session=%s question=%s",
+                                session_id,
+                                question_key,
+                            )
+                        else:
+                            normalized = self._normalize_answer(
+                                value=context_input.answer.value,
+                                answer_type=question_meta.answer_type,
+                                allowed_values=question_meta.allowed_values,
+                            )
+                            if normalized is None:
+                                return (
+                                    "text",
+                                    "Antwortformat ungültig für diese Frage. Bitte Eingabe prüfen und erneut senden.",
+                                )
+
+                            await self._upsert_answer(
+                                session_id=session_id,
+                                question_key=question_key,
+                                raw_value=context_input.answer.value,
+                                normalized_value=normalized,
+                            )
+
+        context_profile = await self._load_context_profile(session_id=session_id)
+        await self._refresh_context_status(session_id=session_id, context_profile=context_profile)
+
+        missing_context_keys = self._missing_required_context_keys(context_profile)
+        if missing_context_keys:
+            context_payload = await self._build_next_context_question_payload(
+                session_id=session_id,
+                standard_keys=standard_keys,
+                context_profile=context_profile,
+                missing_keys=missing_context_keys,
+            )
+            if context_payload is None:
+                return (
+                    "text",
+                    "Kontextphase konnte nicht fortgesetzt werden. Bitte prüfen Sie die Kontextkonfiguration.",
+                )
+            return ("jsx", self._build_question_jsx(context_payload))
 
         await self._recompute_session_state(session_id=session_id)
         progress = await self._load_progress(session_id=session_id)
@@ -140,6 +318,7 @@ class ComplianceContextOrchestrator:
                 question_key=render_model.question_key,
                 impact=candidate.impact,
             )
+            briefing = self._personalize_briefing(briefing=briefing, context_profile=context_profile)
             payload = QuestionCardPayload(
                 session_id=session_id,
                 standard_keys=standard_keys,
@@ -178,6 +357,12 @@ class ComplianceContextOrchestrator:
                 """
                 CREATE CONSTRAINT answer_answer_id_unique IF NOT EXISTS
                 FOR (a:Answer) REQUIRE a.answer_id IS UNIQUE
+                """
+            )
+            await session.run(
+                """
+                CREATE CONSTRAINT context_fact_id_unique IF NOT EXISTS
+                FOR (f:ContextFact) REQUIRE f.context_fact_id IS UNIQUE
                 """
             )
         ComplianceContextOrchestrator._constraints_ready = True
@@ -244,7 +429,8 @@ class ComplianceContextOrchestrator:
             MERGE (s:Session {session_id: $session_id})
             ON CREATE SET
                 s.created_at = datetime(),
-                s.status = "active"
+                s.status = "active",
+                s.context_status = "missing"
             SET s.conversation_id = coalesce(s.conversation_id, $conversation_id)
             """,
             session_id=session_id,
@@ -318,7 +504,282 @@ class ComplianceContextOrchestrator:
             impact=0,
         )
 
-    def _normalize_answer(self, value: Any, answer_type: str, allowed_values: list[str]) -> Any | None:
+    async def _upsert_context_fact(
+        self,
+        session_id: str,
+        question_key: str,
+        value: Any,
+        answer_type: str,
+        required: bool,
+    ) -> None:
+        context_fact_id = f"{session_id}::{question_key}"
+        value_json = json.dumps(value, ensure_ascii=False)
+        async with self.neo4j_driver.session() as session:
+            await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                MERGE (f:ContextFact {context_fact_id: $context_fact_id})
+                SET
+                    f.session_id = $session_id,
+                    f.fact_key = $fact_key,
+                    f.value_json = $value_json,
+                    f.value_type = $value_type,
+                    f.required = $required,
+                    f.updated_at = datetime()
+                MERGE (s)-[:HAS_CONTEXT]->(f)
+                """,
+                session_id=session_id,
+                context_fact_id=context_fact_id,
+                fact_key=question_key,
+                value_json=value_json,
+                value_type=answer_type,
+                required=required,
+            )
+
+    async def _load_context_profile(self, session_id: str) -> dict[str, Any]:
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                OPTIONAL MATCH (s)-[:HAS_CONTEXT]->(f:ContextFact)
+                RETURN
+                    collect({
+                        fact_key: f.fact_key,
+                        value_json: f.value_json
+                    }) AS facts,
+                    s.context_profile_json AS context_profile_json
+                """,
+                session_id=session_id,
+            )
+            row = await result.single()
+
+        profile: dict[str, Any] = {}
+        if row and isinstance(row.get("context_profile_json"), str):
+            try:
+                parsed = json.loads(row["context_profile_json"])
+                if isinstance(parsed, dict):
+                    profile = parsed
+            except json.JSONDecodeError:
+                profile = {}
+
+        facts = row.get("facts") if row else []
+        for fact in facts or []:
+            fact_key = str((fact or {}).get("fact_key") or "").strip()
+            raw_value = (fact or {}).get("value_json")
+            if not fact_key or not isinstance(raw_value, str):
+                continue
+            try:
+                profile[fact_key] = json.loads(raw_value)
+            except json.JSONDecodeError:
+                continue
+        return profile
+
+    async def _refresh_context_status(self, session_id: str, context_profile: dict[str, Any]) -> None:
+        missing = self._missing_required_context_keys(context_profile)
+        status = "ready" if not missing else "collecting"
+        compiled_json = json.dumps(context_profile, ensure_ascii=False)
+        async with self.neo4j_driver.session() as session:
+            await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                SET
+                    s.context_status = $status,
+                    s.context_profile_json = $compiled_json,
+                    s.context_updated_at = datetime()
+                """,
+                session_id=session_id,
+                status=status,
+                compiled_json=compiled_json,
+            )
+
+    @staticmethod
+    def _extract_selected_standards(context_profile: dict[str, Any]) -> list[str]:
+        raw = context_profile.get("context.org_selected_standards")
+        if not isinstance(raw, list):
+            return []
+        return [str(item).strip() for item in raw if isinstance(item, str) and str(item).strip()]
+
+    @staticmethod
+    def _missing_required_context_keys(context_profile: dict[str, Any]) -> list[str]:
+        missing: list[str] = []
+        for item in CONTEXT_QUESTION_ORDER:
+            if not item.required:
+                continue
+            value = context_profile.get(item.key)
+            if value is None:
+                missing.append(item.key)
+                continue
+            if item.answer_type == "text" and (not isinstance(value, str) or not value.strip()):
+                missing.append(item.key)
+            elif item.answer_type == "boolean" and not isinstance(value, bool):
+                missing.append(item.key)
+            elif item.answer_type == "number":
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+                    missing.append(item.key)
+            elif item.answer_type == "single_choice" and (
+                not isinstance(value, str) or not value.strip()
+            ):
+                missing.append(item.key)
+            elif item.answer_type == "multi_choice":
+                if not isinstance(value, list) or len(value) == 0:
+                    missing.append(item.key)
+        return missing
+
+    @staticmethod
+    def _is_context_ready(context_profile: dict[str, Any]) -> bool:
+        return len(ComplianceContextOrchestrator._missing_required_context_keys(context_profile)) == 0
+
+    async def _load_standard_options(self) -> list[dict[str, str]]:
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (d:NormativeDocument)
+                RETURN
+                    d.standard_key AS standard_key,
+                    coalesce(d.title, d.standard_key) AS title,
+                    coalesce(d.source_kind, "standard") AS source_kind,
+                    coalesce(d.version_label, "") AS version_label
+                ORDER BY title, standard_key
+                """
+            )
+            rows = await result.data()
+
+        options: list[dict[str, str]] = []
+        for row in rows:
+            standard_key = str(row.get("standard_key") or "").strip()
+            if not standard_key:
+                continue
+            title = str(row.get("title") or standard_key).strip()
+            source_kind = str(row.get("source_kind") or "standard").strip()
+            version_label = str(row.get("version_label") or "").strip()
+            suffix = f" ({source_kind}" + (f", {version_label}" if version_label else "") + ")"
+            options.append({"value": standard_key, "label": f"{title}{suffix}"})
+        return options
+
+    async def _build_next_context_question_payload(
+        self,
+        session_id: str,
+        standard_keys: list[str],
+        context_profile: dict[str, Any],
+        missing_keys: list[str],
+    ) -> QuestionCardPayload | None:
+        if not missing_keys:
+            return None
+        question_key = missing_keys[0]
+        question = await self._build_context_question_payload(
+            question_key=question_key,
+            prefill_value=context_profile.get(question_key),
+            assist_note="",
+        )
+        if question is None:
+            return None
+        progress = ProgressCounters(
+            requirements_total=0,
+            requirements_open=0,
+            requirements_addressed=0,
+            requirements_gap=0,
+            requirements_not_applicable=0,
+            requirements_unclear=0,
+            unanswered_questions=len(missing_keys),
+        )
+        return QuestionCardPayload(
+            session_id=session_id,
+            standard_keys=standard_keys,
+            question=question,
+            question_briefing=None,
+            progress=progress,
+        )
+
+    async def _build_context_question_payload(
+        self,
+        question_key: str,
+        prefill_value: Any = None,
+        assist_note: str = "",
+    ) -> QuestionRenderModel | None:
+        definition = CONTEXT_QUESTION_BY_KEY.get(question_key)
+        if definition is None:
+            return None
+
+        allowed_values = list(definition.allowed_values or [])
+        options: list[dict[str, str]] = [{"value": value, "label": value} for value in allowed_values]
+        if question_key == "context.org_selected_standards":
+            options = await self._load_standard_options()
+            allowed_values = [option["value"] for option in options]
+
+        return QuestionRenderModel(
+            question_key=definition.key,
+            prompt=definition.prompt,
+            answer_type=definition.answer_type,  # type: ignore[arg-type]
+            allowed_values=allowed_values,
+            options=options,
+            assist_tools=[tool for tool in (definition.assist_tools or []) if tool in {"rewrite", "web_lookup"}],
+            prefill_value=prefill_value,
+            assist_note=assist_note,
+            language="de",
+        )
+
+    async def _handle_assist_request(
+        self,
+        session_id: str,
+        standard_keys: list[str],
+        context_profile: dict[str, Any],
+        question_key: str,
+        tool: str,
+        raw_value: Any,
+    ) -> QuestionCardPayload | None:
+        definition = CONTEXT_QUESTION_BY_KEY.get(question_key)
+        if definition is None:
+            return None
+        if tool not in {"rewrite", "web_lookup"}:
+            return None
+        allowed_tools = definition.assist_tools or []
+        if tool not in allowed_tools:
+            return None
+
+        source_value = str(raw_value).strip() if isinstance(raw_value, str) else ""
+        website_url = ""
+        if tool == "web_lookup":
+            website_url = str(context_profile.get("context.org_website") or "").strip()
+
+        suggestion = await self.assist_service.suggest(
+            tool=tool,  # type: ignore[arg-type]
+            question_prompt=definition.prompt,
+            user_value=source_value,
+            website_url=website_url,
+        )
+        question = await self._build_context_question_payload(
+            question_key=question_key,
+            prefill_value=suggestion.suggested_text,
+            assist_note=suggestion.note,
+        )
+        if question is None:
+            return None
+
+        missing_keys = self._missing_required_context_keys(context_profile)
+        progress = ProgressCounters(
+            requirements_total=0,
+            requirements_open=0,
+            requirements_addressed=0,
+            requirements_gap=0,
+            requirements_not_applicable=0,
+            requirements_unclear=0,
+            unanswered_questions=len(missing_keys),
+        )
+        return QuestionCardPayload(
+            session_id=session_id,
+            standard_keys=standard_keys,
+            question=question,
+            question_briefing=None,
+            progress=progress,
+        )
+
+    def _normalize_answer(
+        self,
+        value: Any,
+        answer_type: str,
+        allowed_values: list[str],
+        number_kind: str | None = None,
+    ) -> Any | None:
         at = (answer_type or "boolean").strip().lower()
         if at == "boolean":
             if isinstance(value, bool):
@@ -361,6 +822,28 @@ class ComplianceContextOrchestrator:
                 return None
             normalized = value.strip()
             return normalized if normalized else None
+
+        if at == "number":
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, (int, float)):
+                numeric = float(value)
+            elif isinstance(value, str):
+                cleaned = value.strip().replace(",", ".")
+                if not cleaned:
+                    return None
+                try:
+                    numeric = float(cleaned)
+                except ValueError:
+                    return None
+            else:
+                return None
+
+            if numeric < 0:
+                return None
+            if number_kind == "int":
+                return int(numeric)
+            return numeric
 
         return None
 
@@ -702,7 +1185,7 @@ class ComplianceContextOrchestrator:
 
     def _validate_question_candidate(self, candidate: _QuestionCandidate) -> QuestionRenderModel | None:
         answer_type = candidate.answer_type.strip().lower()
-        if answer_type not in {"boolean", "single_choice", "multi_choice", "text"}:
+        if answer_type not in {"boolean", "single_choice", "multi_choice", "text", "number"}:
             logger.warning("Skipping invalid question answer_type for %s", candidate.question_key)
             return None
         if not candidate.prompt.strip():
@@ -716,6 +1199,10 @@ class ComplianceContextOrchestrator:
             prompt=candidate.prompt.strip(),
             answer_type=answer_type,
             allowed_values=candidate.allowed_values,
+            options=[],
+            assist_tools=[],
+            prefill_value=None,
+            assist_note="",
             language=candidate.language or "de",
         )
 
@@ -797,6 +1284,66 @@ class ComplianceContextOrchestrator:
             evidence=evidence_items,
             impact=briefing.impact,
         )
+
+    def _personalize_briefing(
+        self,
+        briefing: QuestionBriefing,
+        context_profile: dict[str, Any],
+    ) -> QuestionBriefing:
+        employee_count = context_profile.get("context.org_employee_count")
+        size_hint = self._size_hint(employee_count)
+        activity_scope = str(context_profile.get("context.org_activity_scope") or "").strip()
+        has_production = context_profile.get("context.org_has_production")
+
+        personalized_summary = briefing.summary
+        if size_hint:
+            personalized_summary = f"Kontext ({size_hint}): {personalized_summary}".strip()
+        if activity_scope:
+            personalized_summary = (
+                f"{personalized_summary}\n"
+                f"Organisationskontext Tätigkeitsbereich: {activity_scope}"
+            ).strip()
+
+        personalized_evidence: list[QuestionBriefingEvidence] = []
+        for item in briefing.evidence:
+            hint = item.hint
+            if size_hint:
+                hint = f"{hint} (Ausprägung für {size_hint}).".strip()
+            if has_production is True:
+                hint = f"{hint} Produktionsnachweise bevorzugt ergänzen.".strip()
+            elif has_production is False:
+                hint = f"{hint} Fokus auf Service-/Prozessnachweise.".strip()
+            personalized_evidence.append(
+                QuestionBriefingEvidence(
+                    title=item.title,
+                    hint=hint,
+                    example=item.example,
+                )
+            )
+
+        return QuestionBriefing(
+            document=briefing.document,
+            clause=briefing.clause,
+            chunk=briefing.chunk,
+            summary=personalized_summary,
+            evidence=personalized_evidence,
+            impact=briefing.impact,
+        )
+
+    @staticmethod
+    def _size_hint(employee_count: Any) -> str:
+        if not isinstance(employee_count, (int, float)) or isinstance(employee_count, bool):
+            return ""
+        value = int(employee_count)
+        if value <= 1:
+            return "Ein-Personen-Unternehmen"
+        if value < 10:
+            return "kleines Unternehmen (<10 Mitarbeitende)"
+        if value < 50:
+            return "kleines Unternehmen (<50 Mitarbeitende)"
+        if value < 250:
+            return "mittleres Unternehmen (50-249 Mitarbeitende)"
+        return "großes Unternehmen (>=250 Mitarbeitende)"
 
     def _build_no_candidate_text(
         self,

@@ -56,6 +56,7 @@ import { ResourceSelectorDialog } from "@/components/ui/resource-selector-dialog
 import { apiUrl } from "@/lib/config";
 import {
   ContextAssistantJsxPreview,
+  type ContextAssistSubmission,
   ContextQuestionRuntimeProvider,
   type ContextAnswerSubmission,
   tryDecodeCtxQuestionPayloadFromJsx,
@@ -231,12 +232,50 @@ export function ChatInterface() {
     ]
   );
 
+  const requestContextAssist = useCallback(
+    (submission: ContextAssistSubmission) => {
+      setContextSessionId(submission.sessionId);
+      if (submission.standardKeys.length > 0) {
+        setContextStandardKeys(submission.standardKeys);
+      }
+      setLastSentTaskMode("context");
+
+      const text = withContextNonce(
+        `${submission.questionKey} assist ${submission.tool}: ${submission.value || "(leer)"}`
+      );
+      sendMessage(
+        { text },
+        {
+          body: {
+            ...contextBodyBase,
+            contextSession: {
+              session_id: submission.sessionId,
+              standard_keys:
+                submission.standardKeys.length > 0
+                  ? submission.standardKeys
+                  : contextStandardKeys.length > 0
+                    ? contextStandardKeys
+                    : undefined,
+              assist: {
+                question_key: submission.questionKey,
+                tool: submission.tool,
+                value: submission.value,
+              },
+            },
+          },
+        }
+      );
+    },
+    [contextBodyBase, contextStandardKeys, sendMessage, withContextNonce]
+  );
+
   const contextRuntimeValue = useMemo(
     () => ({
       submitAnswer: submitContextAnswer,
+      requestAssist: requestContextAssist,
       submitting: status === "submitted" || status === "streaming",
     }),
-    [status, submitContextAnswer]
+    [status, submitContextAnswer, requestContextAssist]
   );
 
   // Component that uses the controller to clear text immediately
