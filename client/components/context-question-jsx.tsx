@@ -5,6 +5,7 @@ import {
   JSXPreviewContent,
   JSXPreviewError,
 } from "@/components/ai-elements/jsx-preview";
+import { Shimmer } from "@/components/ai-elements/shimmer";
 import { cn } from "@/lib/utils";
 import {
   createContext,
@@ -14,6 +15,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { GlobeIcon, SparklesIcon } from "lucide-react";
 
 type QuestionAnswerType = "boolean" | "single_choice" | "multi_choice" | "text" | "number";
 
@@ -32,9 +34,14 @@ export type ContextAssistSubmission = {
   value: string;
 };
 
+type ContextAssistResponse = {
+  payload: QuestionPayload | null;
+  note: string;
+};
+
 type ContextQuestionRuntimeValue = {
   submitAnswer: (submission: ContextAnswerSubmission) => void;
-  requestAssist: (submission: ContextAssistSubmission) => void;
+  requestAssist: (submission: ContextAssistSubmission) => Promise<ContextAssistResponse>;
   submitting: boolean;
 };
 
@@ -48,7 +55,7 @@ type ProgressPayload = {
   unanswered_questions?: number;
 };
 
-type QuestionPayload = {
+export type QuestionPayload = {
   session_id: string;
   standard_keys: string[];
   question: {
@@ -207,6 +214,10 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
   const [multiValues, setMultiValues] = useState<string[]>(initialMulti);
   const [textValue, setTextValue] = useState<string>(initialText);
   const [numberValue, setNumberValue] = useState<string>(initialNumber);
+  const [assistLoadingTool, setAssistLoadingTool] = useState<"rewrite" | "web_lookup" | null>(null);
+  const [assistNote, setAssistNote] = useState<string>(
+    typeof question?.assist_note === "string" ? question.assist_note : ""
+  );
 
   if (!payload || !question) {
     return (
@@ -265,14 +276,49 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
   };
 
   const requestAssist = (tool: "rewrite" | "web_lookup") => {
-    if (disabled || !question) return;
+    if (disabled || !question || assistLoadingTool) return;
     const currentValue = question.answer_type === "text" ? textValue : "";
-    runtime.requestAssist({
+    setAssistLoadingTool(tool);
+    void runtime.requestAssist({
       sessionId: payload.session_id,
       standardKeys: payload.standard_keys ?? [],
       questionKey: question.question_key,
       tool,
       value: currentValue,
+    }).then((assistResponse) => {
+      if (assistResponse.note) {
+        setAssistNote(assistResponse.note);
+      }
+      const nextQuestion = assistResponse.payload?.question;
+      if (!nextQuestion || nextQuestion.question_key !== question.question_key) {
+        return;
+      }
+      if (nextQuestion.answer_type === "text" && typeof nextQuestion.prefill_value === "string") {
+        setTextValue(nextQuestion.prefill_value);
+      }
+      if (
+        nextQuestion.answer_type === "number" &&
+        (typeof nextQuestion.prefill_value === "number" ||
+          typeof nextQuestion.prefill_value === "string")
+      ) {
+        setNumberValue(String(nextQuestion.prefill_value));
+      }
+      if (nextQuestion.answer_type === "single_choice" && typeof nextQuestion.prefill_value === "string") {
+        setSingleValue(nextQuestion.prefill_value);
+      }
+      if (nextQuestion.answer_type === "multi_choice" && Array.isArray(nextQuestion.prefill_value)) {
+        setMultiValues(
+          nextQuestion.prefill_value
+            .map((item) => (typeof item === "string" ? item : String(item)))
+            .filter((item) => item.trim())
+        );
+      }
+      if (nextQuestion.answer_type === "boolean" && typeof nextQuestion.prefill_value === "boolean") {
+        setBooleanValue(nextQuestion.prefill_value);
+      }
+      setAssistNote(nextQuestion.assist_note || "");
+    }).finally(() => {
+      setAssistLoadingTool(null);
     });
   };
 
@@ -301,22 +347,42 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
         {question.language ? ` · Sprache: ${question.language}` : ""}
       </p>
       {(question.assist_tools?.length ?? 0) > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
           {question.assist_tools?.map((tool) => (
             <button
               key={tool}
               type="button"
-              disabled={disabled}
-              onClick={() => requestAssist(tool)}
-              className="rounded-md border border-border bg-muted/30 px-2 py-1 text-muted-foreground"
+              disabled={disabled || assistLoadingTool !== null}
+              onClick={(event) => {
+                event.currentTarget.blur();
+                requestAssist(tool);
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs active:scale-100",
+                assistLoadingTool === tool
+                  ? "border-border bg-muted/20 text-muted-foreground pointer-events-none"
+                  : "border-border bg-background text-muted-foreground hover:bg-muted/30"
+              )}
+              title={tool === "rewrite" ? "Text verbessern" : "Website analysieren"}
             >
-              Assist: {tool}
+              {assistLoadingTool === tool ? (
+                <Shimmer className="text-xs">
+                  {tool === "rewrite"
+                    ? "Text wird verbessert..."
+                    : "Website wird analysiert..."}
+                </Shimmer>
+              ) : (
+                <>
+                  {tool === "rewrite" ? <SparklesIcon size={14} /> : <GlobeIcon size={14} />}
+                  {tool === "rewrite" ? "Text verbessern" : "Website analysieren"}
+                </>
+              )}
             </button>
           ))}
-        </div>
+          </div>
       )}
-      {question.assist_note && (
-        <p className="mt-2 text-xs text-muted-foreground">{question.assist_note}</p>
+      {(assistNote || question.assist_note) && (
+        <p className="mt-2 text-xs text-muted-foreground">{assistNote || question.assist_note}</p>
       )}
 
       {briefing?.summary && (
@@ -442,10 +508,10 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
       <div className="mt-4 border-t border-border pt-3">
         <button
           type="button"
-          disabled={!canSubmit || disabled}
+          disabled={!canSubmit || disabled || assistLoadingTool !== null}
           className={cn(
             "inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium",
-            !canSubmit || disabled
+            !canSubmit || disabled || assistLoadingTool !== null
               ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-60"
               : "bg-background hover:bg-muted/60"
           )}

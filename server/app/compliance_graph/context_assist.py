@@ -23,13 +23,26 @@ class AssistSuggestionResult(BaseModel):
     note: str = Field(default="")
 
 
-ASSIST_SYSTEM_PROMPT = """
-Du bist ein Assistenz-Modul für Kontextfragen in einem Compliance-System.
+REWRITE_SYSTEM_PROMPT = """
+Du bist ein Rewrite-Assistent für Kontextfragen in einem Compliance-System.
 
-Ziele:
-- Verbessere Nutzereingaben sprachlich und inhaltlich klar.
-- Bei Web-Kontext: leite einen präzisen Tätigkeitsbereich aus bereitgestellten Website-Auszügen ab.
-- Keine Rechtsberatung, keine regulatorischen Schlussfolgerungen.
+Aufgabe:
+- Formuliere Nutzereingaben klar, präzise und professionell um.
+- Bewahre die ursprüngliche Bedeutung.
+- Erfinde keine neuen Fakten.
+- Keine Rechtsberatung.
+- Antworte immer auf Deutsch.
+- Ausgabe nur im strukturierten Schema.
+""".strip()
+
+WEB_LOOKUP_SYSTEM_PROMPT = """
+Du bist ein Website-Assistenzmodul für Kontextfragen in einem Compliance-System.
+
+Aufgabe:
+- Leite aus bereitgestellten Website-Auszügen einen präzisen Tätigkeitsbereich ab.
+- Bleibe strikt bei den gegebenen Inhalten.
+- Erfinde keine Fakten und keine regulatorischen Bewertungen.
+- Keine Rechtsberatung.
 - Antworte immer auf Deutsch.
 - Ausgabe nur im strukturierten Schema.
 """.strip()
@@ -39,10 +52,15 @@ class ContextAssistService:
     """Small helper service for assist suggestions."""
 
     def __init__(self) -> None:
-        self.agent = Agent(
+        self.rewrite_agent = Agent(
             create_model(config.default_provider, config.default_model),
             output_type=AssistSuggestionResult,
-            system_prompt=ASSIST_SYSTEM_PROMPT,
+            system_prompt=REWRITE_SYSTEM_PROMPT,
+        )
+        self.web_lookup_agent = Agent(
+            create_model(config.default_provider, config.default_model),
+            output_type=AssistSuggestionResult,
+            system_prompt=WEB_LOOKUP_SYSTEM_PROMPT,
         )
 
     async def suggest(
@@ -75,7 +93,7 @@ class ContextAssistService:
             f"Nutzereingabe:\n{text}"
         )
         try:
-            result = await self.agent.run(prompt)
+            result = await self.rewrite_agent.run(prompt)
             output = result.output
             if isinstance(output, AssistSuggestionResult) and output.suggested_text.strip():
                 return output
@@ -116,7 +134,7 @@ class ContextAssistService:
             "Aufgabe: Formuliere einen knappen, sachlichen Tätigkeitsbereich für das Unternehmen."
         )
         try:
-            result = await self.agent.run(prompt)
+            result = await self.web_lookup_agent.run(prompt)
             output = result.output
             if isinstance(output, AssistSuggestionResult) and output.suggested_text.strip():
                 return output

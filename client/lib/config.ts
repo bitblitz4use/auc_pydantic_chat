@@ -12,6 +12,7 @@ export const API_CONFIG = {
 export const apiUrl = {
   storage: (path: string = "") => `${API_CONFIG.STORAGE_API}/api/storage/${path}`,
   chat: () => `${API_CONFIG.CHAT_API}/api/chat`,
+  chatContextAssist: () => `${API_CONFIG.CHAT_API}/api/chat/context-assist`,
   providers: () => `${API_CONFIG.CHAT_API}/api/providers`,
   sources: (path: string = "") => `${API_CONFIG.STORAGE_API}/api/sources${path ? `/${path}` : ""}`,
   

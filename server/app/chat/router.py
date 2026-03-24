@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from pydantic_ai.ui.vercel_ai import VercelAIAdapter
 from starlette.background import BackgroundTasks
 from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from app.agents.common import DocumentContext, TaskMode
 from app.agents.factory import create_agent_from_model_id, document_agent
@@ -212,4 +212,35 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
     except Exception as error:
         logger.error("❌ Error in VercelAIAdapter: %s: %s", type(error).__name__, error)
         raise
+
+
+@router.post("/chat/context-assist")
+async def context_assist(request: Request) -> Response:
+    """Non-streaming context assist endpoint for in-card UX updates."""
+    body_data: dict = {}
+    try:
+        body_data = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"kind": "text", "payload": "Ungültiger Request-Body für Context-Assist."},
+            status_code=400,
+        )
+
+    neo4j_driver = getattr(request.app.state, "neo4j_driver", None)
+    if neo4j_driver is None:
+        return JSONResponse(
+            {"kind": "text", "payload": "Kontextmodus ist nicht verfügbar: Neo4j fehlt."},
+            status_code=503,
+        )
+
+    orchestrator = ComplianceContextOrchestrator(neo4j_driver=neo4j_driver)
+    try:
+        kind, payload = await orchestrator.handle_turn(body_data)
+        return JSONResponse({"kind": kind, "payload": payload})
+    except Exception as error:
+        logger.exception("❌ Context assist failed: %s", error)
+        return JSONResponse(
+            {"kind": "text", "payload": "Assist-Aktion konnte nicht verarbeitet werden."},
+            status_code=500,
+        )
 

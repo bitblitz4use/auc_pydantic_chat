@@ -57,6 +57,7 @@ import { apiUrl } from "@/lib/config";
 import {
   ContextAssistantJsxPreview,
   type ContextAssistSubmission,
+  type QuestionPayload,
   ContextQuestionRuntimeProvider,
   type ContextAnswerSubmission,
   tryDecodeCtxQuestionPayloadFromJsx,
@@ -233,20 +234,18 @@ export function ChatInterface() {
   );
 
   const requestContextAssist = useCallback(
-    (submission: ContextAssistSubmission) => {
+    async (
+      submission: ContextAssistSubmission
+    ): Promise<{ payload: QuestionPayload | null; note: string }> => {
       setContextSessionId(submission.sessionId);
       if (submission.standardKeys.length > 0) {
         setContextStandardKeys(submission.standardKeys);
       }
-      setLastSentTaskMode("context");
-
-      const text = withContextNonce(
-        `${submission.questionKey} assist ${submission.tool}: ${submission.value || "(leer)"}`
-      );
-      sendMessage(
-        { text },
-        {
-          body: {
+      try {
+        const response = await fetch(apiUrl.chatContextAssist(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             ...contextBodyBase,
             contextSession: {
               session_id: submission.sessionId,
@@ -262,11 +261,45 @@ export function ChatInterface() {
                 value: submission.value,
               },
             },
-          },
+          }),
+        });
+        const data = (await response.json()) as { kind?: string; payload?: string };
+        if (!response.ok) {
+          return {
+            payload: null,
+            note: data?.payload || "Assist-Aktion fehlgeschlagen. Bitte erneut versuchen.",
+          };
         }
-      );
+        if (!data?.payload) {
+          return {
+            payload: null,
+            note: "Assist-Aktion lieferte keine Daten.",
+          };
+        }
+        if (data.kind === "text") {
+          return {
+            payload: null,
+            note: data.payload,
+          };
+        }
+        if (data.kind !== "jsx") {
+          return {
+            payload: null,
+            note: "Assist-Antwortformat ist ungültig.",
+          };
+        }
+        return {
+          payload: tryDecodeCtxQuestionPayloadFromJsx(data.payload),
+          note: "",
+        };
+      } catch {
+        return {
+          payload: null,
+          note: "Assist-Aktion konnte nicht ausgeführt werden (Netzwerkfehler).",
+        };
+      }
     },
-    [contextBodyBase, contextStandardKeys, sendMessage, withContextNonce]
+    [contextBodyBase, contextStandardKeys]
   );
 
   const contextRuntimeValue = useMemo(

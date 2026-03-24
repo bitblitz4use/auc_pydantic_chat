@@ -653,7 +653,12 @@ class ComplianceContextOrchestrator:
             source_kind = str(row.get("source_kind") or "standard").strip()
             version_label = str(row.get("version_label") or "").strip()
             suffix = f" ({source_kind}" + (f", {version_label}" if version_label else "") + ")"
-            options.append({"value": standard_key, "label": f"{title}{suffix}"})
+            options.append(
+                {
+                    "value": standard_key,
+                    "label": f"{title}{suffix} - {standard_key}",
+                }
+            )
         return options
 
     async def _build_next_context_question_payload(
