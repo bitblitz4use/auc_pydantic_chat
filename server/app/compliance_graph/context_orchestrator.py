@@ -143,13 +143,10 @@ class ComplianceContextOrchestrator:
     """Graph-backed session-state orchestrator for `taskMode=context`."""
 
     _constraints_ready: bool = False
-    _assist_service: ContextAssistService | None = None
 
-    def __init__(self, neo4j_driver: AsyncDriver):
+    def __init__(self, neo4j_driver: AsyncDriver, model_id: str | None = None):
         self.neo4j_driver = neo4j_driver
-        if ComplianceContextOrchestrator._assist_service is None:
-            ComplianceContextOrchestrator._assist_service = ContextAssistService()
-        self.assist_service = ComplianceContextOrchestrator._assist_service
+        self.assist_service = ContextAssistService(model_id=model_id)
 
     async def handle_turn(self, body_data: dict[str, Any]) -> tuple[Literal["jsx", "text"], str]:
         """Process one context turn and return streamed payload content."""
@@ -318,7 +315,11 @@ class ComplianceContextOrchestrator:
                 question_key=render_model.question_key,
                 impact=candidate.impact,
             )
-            briefing = self._personalize_briefing(briefing=briefing, context_profile=context_profile)
+            briefing = await self._personalize_briefing(
+                briefing=briefing,
+                question_prompt=render_model.prompt,
+                context_profile=context_profile,
+            )
             payload = QuestionCardPayload(
                 session_id=session_id,
                 standard_keys=standard_keys,
@@ -1290,9 +1291,10 @@ class ComplianceContextOrchestrator:
             impact=briefing.impact,
         )
 
-    def _personalize_briefing(
+    async def _personalize_briefing(
         self,
         briefing: QuestionBriefing,
+        question_prompt: str,
         context_profile: dict[str, Any],
     ) -> QuestionBriefing:
         employee_count = context_profile.get("context.org_employee_count")
@@ -1309,7 +1311,8 @@ class ComplianceContextOrchestrator:
                 f"Organisationskontext Tätigkeitsbereich: {activity_scope}"
             ).strip()
 
-        personalized_evidence: list[QuestionBriefingEvidence] = []
+        personalized_evidence = []
+        source_evidence: list[dict[str, str]] = []
         for item in briefing.evidence:
             hint = item.hint
             if size_hint:
@@ -1318,20 +1321,47 @@ class ComplianceContextOrchestrator:
                 hint = f"{hint} Produktionsnachweise bevorzugt ergänzen.".strip()
             elif has_production is False:
                 hint = f"{hint} Fokus auf Service-/Prozessnachweise.".strip()
-            personalized_evidence.append(
-                QuestionBriefingEvidence(
-                    title=item.title,
-                    hint=hint,
-                    example=item.example,
-                )
+            evidence_item = {
+                "title": item.title,
+                "hint": hint,
+                "example": item.example,
+            }
+            source_evidence.append(evidence_item)
+            personalized_evidence.append(evidence_item)
+
+        llm_personalization = await self.assist_service.personalize_briefing(
+            question_prompt=question_prompt,
+            summary=personalized_summary,
+            evidence_items=source_evidence,
+            context_profile=context_profile,
+        )
+        if llm_personalization is not None:
+            candidate_summary = llm_personalization.summary.strip()
+            if candidate_summary:
+                personalized_summary = candidate_summary
+
+            for idx, hint in enumerate(llm_personalization.evidence_hints):
+                if idx >= len(personalized_evidence):
+                    break
+                hint_text = str(hint).strip()
+                if hint_text:
+                    personalized_evidence[idx]["hint"] = hint_text
+
+        evidence_models = [
+            QuestionBriefingEvidence(
+                title=item["title"],
+                hint=item["hint"],
+                example=item["example"],
             )
+            for item in personalized_evidence
+        ]
 
         return QuestionBriefing(
             document=briefing.document,
             clause=briefing.clause,
             chunk=briefing.chunk,
             summary=personalized_summary,
-            evidence=personalized_evidence,
+            evidence=evidence_models,
             impact=briefing.impact,
         )
 

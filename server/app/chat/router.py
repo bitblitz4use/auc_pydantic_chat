@@ -151,7 +151,10 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
                 media_type="text/event-stream",
             )
 
-        orchestrator = ComplianceContextOrchestrator(neo4j_driver=neo4j_driver)
+        orchestrator = ComplianceContextOrchestrator(
+            neo4j_driver=neo4j_driver,
+            model_id=model_id,
+        )
         try:
             _kind, payload = await orchestrator.handle_turn(body_data)
         except Exception as error:
@@ -225,6 +228,7 @@ async def context_assist(request: Request) -> Response:
             {"kind": "text", "payload": "Ungültiger Request-Body für Context-Assist."},
             status_code=400,
         )
+    model_id = _resolve_model_id(body_data)
 
     neo4j_driver = getattr(request.app.state, "neo4j_driver", None)
     if neo4j_driver is None:
@@ -233,7 +237,10 @@ async def context_assist(request: Request) -> Response:
             status_code=503,
         )
 
-    orchestrator = ComplianceContextOrchestrator(neo4j_driver=neo4j_driver)
+    orchestrator = ComplianceContextOrchestrator(
+        neo4j_driver=neo4j_driver,
+        model_id=model_id,
+    )
     try:
         kind, payload = await orchestrator.handle_turn(body_data)
         return JSONResponse({"kind": kind, "payload": payload})
