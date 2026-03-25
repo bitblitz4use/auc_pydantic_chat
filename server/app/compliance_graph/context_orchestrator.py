@@ -213,6 +213,8 @@ class ComplianceContextOrchestrator:
                 )
 
         stale_answer_reason = ""
+        include_transition_cue = False
+        has_explicit_control = context_input.control is not None
         if context_input.control is not None:
             action = context_input.control.action
             control_reason = (context_input.control.reason or "").strip()
@@ -224,6 +226,8 @@ class ComplianceContextOrchestrator:
                 )
                 return ("text", status_text)
             if action == "pause":
+                if interaction_mode == "paused":
+                    return ("text", "Fragebogen ist bereits pausiert.")
                 await self._set_interaction_mode(
                     session_id=session_id,
                     mode="paused",
@@ -231,6 +235,8 @@ class ComplianceContextOrchestrator:
                 )
                 return ("text", "Fragebogen ist pausiert. Du kannst normal weiter chatten.")
             if action == "stop":
+                if interaction_mode == "stopped":
+                    return ("text", "Fragebogen ist bereits gestoppt.")
                 if not control_confirm:
                     return (
                         "text",
@@ -243,17 +249,21 @@ class ComplianceContextOrchestrator:
                 )
                 return ("text", "Fragebogen wurde gestoppt. Du kannst jederzeit mit Resume fortsetzen.")
             if action == "resume":
+                if interaction_mode == "active":
+                    return ("text", "Fragebogen ist bereits aktiv.")
                 await self._set_interaction_mode(
                     session_id=session_id,
                     mode="active",
                     reason=control_reason or "user_control_resume",
                 )
                 interaction_mode = "active"
+                include_transition_cue = await self._consume_transition_cue_flag(session_id=session_id)
 
         if (
             context_input.answer is None
             and context_input.assist is None
             and latest_user_text
+            and not has_explicit_control
             and not self._is_context_bootstrap_text(latest_user_text)
         ):
             implied_action = self._detect_control_intent(latest_user_text)
@@ -285,6 +295,7 @@ class ComplianceContextOrchestrator:
                         reason="implicit_resume_intent",
                     )
                     interaction_mode = "active"
+                    include_transition_cue = await self._consume_transition_cue_flag(session_id=session_id)
             else:
                 if interaction_mode == "active":
                     await self._set_interaction_mode(
@@ -421,6 +432,7 @@ class ComplianceContextOrchestrator:
                 standard_keys=standard_keys,
                 context_profile=context_profile,
                 missing_keys=missing_context_keys,
+                include_transition_cue=include_transition_cue,
             )
             if context_payload is None:
                 return (
@@ -453,15 +465,17 @@ class ComplianceContextOrchestrator:
                 question_prompt=render_model.prompt,
                 context_profile=context_profile,
             )
-            conversation = await self._build_question_conversation_cue(
-                session_id=session_id,
-                stage="graph",
-                question_prompt=render_model.prompt,
-                context_profile=context_profile,
-                unanswered_questions=progress.unanswered_questions,
-                requirements_open=progress.requirements_open,
-                impact=candidate.impact,
-            )
+            conversation = None
+            if include_transition_cue:
+                conversation = await self._build_question_conversation_cue(
+                    session_id=session_id,
+                    stage="graph",
+                    question_prompt=render_model.prompt,
+                    context_profile=context_profile,
+                    unanswered_questions=progress.unanswered_questions,
+                    requirements_open=progress.requirements_open,
+                    impact=candidate.impact,
+                )
             payload = QuestionCardPayload(
                 session_id=session_id,
                 standard_keys=standard_keys,
@@ -579,7 +593,8 @@ class ComplianceContextOrchestrator:
                 s.created_at = datetime(),
                 s.status = "active",
                 s.context_status = "missing",
-                s.interaction_mode = "active"
+                s.interaction_mode = "active",
+                s.emit_transition_cue_once = false
             SET s.conversation_id = coalesce(s.conversation_id, $conversation_id)
             """,
             session_id=session_id,
@@ -675,6 +690,8 @@ class ComplianceContextOrchestrator:
         mode: Literal["active", "paused", "stopped"],
         reason: str = "",
     ) -> None:
+        previous_mode = await self._load_interaction_mode(session_id=session_id)
+        emit_transition_cue_once = mode == "active" and previous_mode in {"paused", "stopped"}
         async with self.neo4j_driver.session() as session:
             await session.run(
                 """
@@ -682,12 +699,28 @@ class ComplianceContextOrchestrator:
                 SET
                     s.interaction_mode = $mode,
                     s.interaction_reason = $reason,
-                    s.interaction_updated_at = datetime()
+                    s.interaction_updated_at = datetime(),
+                    s.emit_transition_cue_once = $emit_transition_cue_once
                 """,
                 session_id=session_id,
                 mode=mode,
                 reason=reason,
+                emit_transition_cue_once=emit_transition_cue_once,
             )
+
+    async def _consume_transition_cue_flag(self, session_id: str) -> bool:
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                WITH s, coalesce(s.emit_transition_cue_once, false) AS should_emit
+                SET s.emit_transition_cue_once = false
+                RETURN should_emit AS should_emit
+                """,
+                session_id=session_id,
+            )
+            row = await result.single()
+        return bool(row.get("should_emit")) if row else False
 
     async def _set_pending_question_key(self, session_id: str, question_key: str) -> None:
         async with self.neo4j_driver.session() as session:
@@ -952,6 +985,7 @@ class ComplianceContextOrchestrator:
         standard_keys: list[str],
         context_profile: dict[str, Any],
         missing_keys: list[str],
+        include_transition_cue: bool = False,
     ) -> QuestionCardPayload | None:
         if not missing_keys:
             return None
@@ -974,17 +1008,19 @@ class ComplianceContextOrchestrator:
         )
         required_total = len([item for item in CONTEXT_QUESTION_ORDER if item.required])
         current_index = max(1, required_total - len(missing_keys) + 1)
-        conversation = await self._build_question_conversation_cue(
-            session_id=session_id,
-            stage="context",
-            question_prompt=question.prompt,
-            context_profile=context_profile,
-            question_index=current_index,
-            total_questions=required_total,
-            unanswered_questions=len(missing_keys),
-            requirements_open=0,
-            impact=0,
-        )
+        conversation = None
+        if include_transition_cue:
+            conversation = await self._build_question_conversation_cue(
+                session_id=session_id,
+                stage="context",
+                question_prompt=question.prompt,
+                context_profile=context_profile,
+                question_index=current_index,
+                total_questions=required_total,
+                unanswered_questions=len(missing_keys),
+                requirements_open=0,
+                impact=0,
+            )
         return QuestionCardPayload(
             session_id=session_id,
             standard_keys=standard_keys,
@@ -1108,14 +1144,12 @@ class ComplianceContextOrchestrator:
         lead_text = self._compact_conversation_text(cue.lead_text if cue else "")
         followup_text = self._compact_conversation_text(cue.followup_text if cue else "")
 
-        # Deterministic minimal fallback for key moments only.
+        # Deterministic fallback only for transition-triggered cue moments.
         if not lead_text and not followup_text:
-            if stage == "context" and question_index == 1:
-                lead_text = (
-                    "Lass uns zuerst gemeinsam mehr ueber deine Organisation herausfinden."
-                )
-            elif (unanswered_questions or 0) <= 2 and (unanswered_questions or 0) > 0:
-                followup_text = "Fast geschafft. Noch wenige Antworten, dann geht es weiter."
+            if stage == "context":
+                lead_text = "Weiter geht's - wir nehmen den Fragebogen wieder auf."
+            else:
+                followup_text = "Super, wir sind wieder im Flow."
 
         if not lead_text and not followup_text:
             return None
