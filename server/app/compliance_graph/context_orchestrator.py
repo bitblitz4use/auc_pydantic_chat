@@ -27,6 +27,7 @@ from app.compliance_graph.context_contract import (
     QuestionRenderModel,
     parse_context_session_input,
     resolve_conversation_id,
+    resolve_latest_user_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,11 +172,13 @@ class ComplianceContextOrchestrator:
         self.neo4j_driver = neo4j_driver
         self.assist_service = ContextAssistService(model_id=model_id)
 
-    async def handle_turn(self, body_data: dict[str, Any]) -> tuple[Literal["jsx", "text"], str]:
+    async def handle_turn(self, body_data: dict[str, Any]) -> tuple[Literal["jsx", "text", "handoff"], str]:
         """Process one context turn and return streamed payload content."""
         await self._ensure_constraints()
         context_input = parse_context_session_input(body_data)
         conversation_id = resolve_conversation_id(body_data)
+        latest_user_text = (context_input.free_text or resolve_latest_user_text(body_data)).strip()
+        latest_user_text = re.sub(r"\n?\u200bctx-\d+\s*$", "", latest_user_text).strip()
         session_id = context_input.session_id.strip() if context_input.session_id else ""
         if not session_id and conversation_id:
             recovered_session_id = await self._resolve_session_id_for_conversation(conversation_id)
@@ -196,6 +199,7 @@ class ComplianceContextOrchestrator:
             conversation_id=conversation_id,
             standard_keys=standard_keys,
         )
+        interaction_mode = await self._load_interaction_mode(session_id=session_id)
 
         context_profile = await self._load_context_profile(session_id=session_id)
         selected_from_context = self._extract_selected_standards(context_profile)
@@ -209,6 +213,98 @@ class ComplianceContextOrchestrator:
                 )
 
         stale_answer_reason = ""
+        if context_input.control is not None:
+            action = context_input.control.action
+            control_reason = (context_input.control.reason or "").strip()
+            control_confirm = bool(context_input.control.confirm)
+            if action == "status":
+                status_text = await self._build_interaction_status_text(
+                    session_id=session_id,
+                    interaction_mode=interaction_mode,
+                )
+                return ("text", status_text)
+            if action == "pause":
+                await self._set_interaction_mode(
+                    session_id=session_id,
+                    mode="paused",
+                    reason=control_reason or "user_control_pause",
+                )
+                return ("text", "Fragebogen ist pausiert. Du kannst normal weiter chatten.")
+            if action == "stop":
+                if not control_confirm:
+                    return (
+                        "text",
+                        "Soll ich den Fragebogen wirklich stoppen? Sende Stop erneut mit Bestätigung.",
+                    )
+                await self._set_interaction_mode(
+                    session_id=session_id,
+                    mode="stopped",
+                    reason=control_reason or "user_control_stop",
+                )
+                return ("text", "Fragebogen wurde gestoppt. Du kannst jederzeit mit Resume fortsetzen.")
+            if action == "resume":
+                await self._set_interaction_mode(
+                    session_id=session_id,
+                    mode="active",
+                    reason=control_reason or "user_control_resume",
+                )
+                interaction_mode = "active"
+
+        if (
+            context_input.answer is None
+            and context_input.assist is None
+            and latest_user_text
+            and not self._is_context_bootstrap_text(latest_user_text)
+        ):
+            implied_action = self._detect_control_intent(latest_user_text)
+            if implied_action is not None:
+                if implied_action == "status":
+                    status_text = await self._build_interaction_status_text(
+                        session_id=session_id,
+                        interaction_mode=interaction_mode,
+                    )
+                    return ("text", status_text)
+                if implied_action == "pause":
+                    await self._set_interaction_mode(
+                        session_id=session_id,
+                        mode="paused",
+                        reason="implicit_pause_intent",
+                    )
+                    return ("text", "Fragebogen ist pausiert. Du kannst normal weiter chatten.")
+                if implied_action == "stop":
+                    await self._set_interaction_mode(
+                        session_id=session_id,
+                        mode="stopped",
+                        reason="implicit_stop_intent",
+                    )
+                    return ("text", "Fragebogen wurde gestoppt. Mit 'resume' kannst du wieder einsteigen.")
+                if implied_action == "resume":
+                    await self._set_interaction_mode(
+                        session_id=session_id,
+                        mode="active",
+                        reason="implicit_resume_intent",
+                    )
+                    interaction_mode = "active"
+            else:
+                if interaction_mode == "active":
+                    await self._set_interaction_mode(
+                        session_id=session_id,
+                        mode="paused",
+                        reason="auto_pause_for_free_chat",
+                    )
+                return ("handoff", latest_user_text)
+
+        if interaction_mode in {"paused", "stopped"} and context_input.answer is None and context_input.assist is None:
+            if interaction_mode == "paused":
+                return ("text", "Fragebogen ist pausiert. Sende 'resume' zum Fortsetzen oder chatte normal weiter.")
+            return ("text", "Fragebogen ist gestoppt. Sende 'resume', falls du ihn wieder aufnehmen möchtest.")
+        if interaction_mode in {"paused", "stopped"} and (
+            context_input.answer is not None or context_input.assist is not None
+        ):
+            if interaction_mode == "paused":
+                return ("text", "Fragebogen ist pausiert. Bitte zuerst 'resume' senden, bevor du Antworten übermittelst.")
+            return ("text", "Fragebogen ist gestoppt. Bitte zuerst 'resume' senden, bevor du Antworten übermittelst.")
+
         if context_input.assist is not None:
             assist_payload = await self._handle_assist_request(
                 session_id=session_id,
@@ -223,6 +319,10 @@ class ComplianceContextOrchestrator:
                     "text",
                     "Assist-Aktion konnte nicht ausgeführt werden. Bitte Frage und Tool-Konfiguration prüfen.",
                 )
+            await self._set_pending_question_key(
+                session_id=session_id,
+                question_key=assist_payload.question.question_key,
+            )
             return ("jsx", self._build_question_jsx(assist_payload))
 
         if context_input.answer is not None:
@@ -327,6 +427,10 @@ class ComplianceContextOrchestrator:
                     "text",
                     "Kontextphase konnte nicht fortgesetzt werden. Bitte prüfen Sie die Kontextkonfiguration.",
                 )
+            await self._set_pending_question_key(
+                session_id=session_id,
+                question_key=context_payload.question.question_key,
+            )
             return ("jsx", self._build_question_jsx(context_payload))
 
         await self._recompute_session_state(session_id=session_id)
@@ -365,6 +469,10 @@ class ComplianceContextOrchestrator:
                 conversation=conversation,
                 question_briefing=briefing,
                 progress=progress,
+            )
+            await self._set_pending_question_key(
+                session_id=session_id,
+                question_key=render_model.question_key,
             )
             return ("jsx", self._build_question_jsx(payload))
 
@@ -470,7 +578,8 @@ class ComplianceContextOrchestrator:
             ON CREATE SET
                 s.created_at = datetime(),
                 s.status = "active",
-                s.context_status = "missing"
+                s.context_status = "missing",
+                s.interaction_mode = "active"
             SET s.conversation_id = coalesce(s.conversation_id, $conversation_id)
             """,
             session_id=session_id,
@@ -517,6 +626,120 @@ class ComplianceContextOrchestrator:
         if isinstance(value, str) and value.strip():
             return value.strip()
         return None
+
+    @staticmethod
+    def _is_context_bootstrap_text(user_text: str) -> bool:
+        lowered = user_text.strip().lower()
+        if not lowered:
+            return True
+        return lowered in {"compliance context resume", "compliance context start"}
+
+    @staticmethod
+    def _detect_control_intent(
+        user_text: str,
+    ) -> Literal["pause", "resume", "stop", "status"] | None:
+        normalized = " ".join(user_text.strip().lower().split())
+        if not normalized:
+            return None
+        if any(token in normalized for token in ("status", "fortschritt", "where am i", "wo stehe ich")):
+            return "status"
+        if any(token in normalized for token in ("pause", "paus", "später", "later", "break")):
+            return "pause"
+        if any(token in normalized for token in ("stop", "beenden", "abbrechen", "cancel questionnaire")):
+            return "stop"
+        if any(token in normalized for token in ("resume", "weiter", "fortsetzen", "continue")):
+            return "resume"
+        return None
+
+    async def _load_interaction_mode(
+        self,
+        session_id: str,
+    ) -> Literal["active", "paused", "stopped"]:
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                RETURN coalesce(s.interaction_mode, "active") AS interaction_mode
+                """,
+                session_id=session_id,
+            )
+            row = await result.single()
+        value = str(row.get("interaction_mode") or "active") if row else "active"
+        if value not in {"active", "paused", "stopped"}:
+            return "active"
+        return value  # type: ignore[return-value]
+
+    async def _set_interaction_mode(
+        self,
+        session_id: str,
+        mode: Literal["active", "paused", "stopped"],
+        reason: str = "",
+    ) -> None:
+        async with self.neo4j_driver.session() as session:
+            await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                SET
+                    s.interaction_mode = $mode,
+                    s.interaction_reason = $reason,
+                    s.interaction_updated_at = datetime()
+                """,
+                session_id=session_id,
+                mode=mode,
+                reason=reason,
+            )
+
+    async def _set_pending_question_key(self, session_id: str, question_key: str) -> None:
+        async with self.neo4j_driver.session() as session:
+            await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                SET s.pending_question_key = $question_key
+                """,
+                session_id=session_id,
+                question_key=question_key,
+            )
+
+    async def _build_interaction_status_text(
+        self,
+        session_id: str,
+        interaction_mode: Literal["active", "paused", "stopped"],
+    ) -> str:
+        pending_question_key = ""
+        async with self.neo4j_driver.session() as session:
+            pending_result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                RETURN coalesce(s.pending_question_key, "") AS pending_question_key
+                """,
+                session_id=session_id,
+            )
+            pending_row = await pending_result.single()
+            if pending_row:
+                pending_question_key = str(pending_row.get("pending_question_key") or "").strip()
+        profile = await self._load_context_profile(session_id=session_id)
+        missing_context_keys = self._missing_required_context_keys(profile)
+        if missing_context_keys:
+            text = (
+                f"Fragebogen-Status: {interaction_mode}\n"
+                f"- Fehlende Basisangaben: {len(missing_context_keys)}\n"
+                "- Mit 'resume' geht es weiter."
+            )
+            if pending_question_key:
+                text += f"\n- Letzte Frage: {pending_question_key}"
+            return text
+        await self._recompute_session_state(session_id=session_id)
+        progress = await self._load_progress(session_id=session_id)
+        text = (
+            f"Fragebogen-Status: {interaction_mode}\n"
+            f"- Offen: {progress.requirements_open}\n"
+            f"- Addressiert: {progress.requirements_addressed}\n"
+            f"- Gaps: {progress.requirements_gap}\n"
+            f"- Unbeantwortete Fragen: {progress.unanswered_questions}"
+        )
+        if pending_question_key:
+            text += f"\n- Letzte Frage: {pending_question_key}"
+        return text
 
     async def _validate_answer_target(self, session_id: str, question_key: str) -> tuple[bool, str]:
         async with self.neo4j_driver.session() as session:

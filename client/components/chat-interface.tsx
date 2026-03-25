@@ -44,7 +44,7 @@ import { TaskModeSelector, type TaskMode } from "@/components/ai-elements/task-m
 import { DocumentCitation } from "@/components/ai-elements/document-citation";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { useChat } from "@ai-sdk/react";
-import { CheckIcon, GlobeIcon, FileText } from "lucide-react";
+import { CheckIcon, GlobeIcon, FileText, Pause, Play, Activity, Square } from "lucide-react";
 import { SimpleChatTransport } from "@/lib/simple-chat-transport";
 import { memo, useCallback, useState, useEffect, useMemo, useRef } from "react";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
@@ -70,6 +70,8 @@ type PersistedContextRuntime = {
   standardKeys?: string[];
   conversationId?: string;
 };
+
+type ContextInteractionMode = "active" | "paused" | "stopped";
 
 function createClientConversationId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -162,6 +164,7 @@ export function ChatInterface() {
   const [contextSessionId, setContextSessionId] = useState<string | null>(null);
   const [contextStandardKeys, setContextStandardKeys] = useState<string[]>([]);
   const [contextConversationId, setContextConversationId] = useState<string | null>(null);
+  const [contextInteractionMode, setContextInteractionMode] = useState<ContextInteractionMode>("active");
   const contextSendNonceRef = useRef(0);
   const contextAutoResumeKeyRef = useRef<string | null>(null);
 
@@ -416,6 +419,53 @@ export function ChatInterface() {
     [contextBodyBase, contextStandardKeys, ensureContextConversationId]
   );
 
+  const submitContextControl = useCallback(
+    (
+      action: "pause" | "resume" | "stop" | "status",
+      options?: { reason?: string; confirm?: boolean }
+    ) => {
+      const conversationId = ensureContextConversationId();
+      setLastSentTaskMode("context");
+      if (action === "pause") setContextInteractionMode("paused");
+      if (action === "resume") setContextInteractionMode("active");
+      if (action === "stop") setContextInteractionMode("stopped");
+      const label =
+        action === "pause"
+          ? "Pause questionnaire"
+          : action === "resume"
+            ? "Resume questionnaire"
+            : action === "stop"
+              ? "Stop questionnaire"
+              : "Questionnaire status";
+      sendMessage(
+        { text: withContextNonce(label) },
+        {
+          body: {
+            ...contextBodyBase,
+            conversationId,
+            contextSession: {
+              session_id: contextSessionId ?? undefined,
+              standard_keys: contextStandardKeys.length > 0 ? contextStandardKeys : undefined,
+              control: {
+                action,
+                reason: options?.reason,
+                confirm: options?.confirm,
+              },
+            },
+          },
+        }
+      );
+    },
+    [
+      contextBodyBase,
+      contextSessionId,
+      contextStandardKeys,
+      ensureContextConversationId,
+      sendMessage,
+      withContextNonce,
+    ]
+  );
+
   const contextRuntimeValue = useMemo(
     () => ({
       submitAnswer: submitContextAnswer,
@@ -453,6 +503,7 @@ export function ChatInterface() {
                   standard_keys: contextStandardKeys.length
                     ? contextStandardKeys
                     : undefined,
+                  free_text: userTyped || undefined,
                 },
               },
             }
@@ -500,6 +551,7 @@ export function ChatInterface() {
           ensureContextConversationId,
           contextSessionId,
           contextStandardKeys,
+          submitContextControl,
           withContextNonce,
         ]
       );
@@ -575,6 +627,11 @@ export function ChatInterface() {
           <PromptInputAttachmentsDisplay />
           <PromptInputBody>
             <div className="flex flex-col w-full">
+              {taskMode === "context" && (
+                <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">
+                  Questionnaire mode: {contextInteractionMode}
+                </div>
+              )}
               {/* Document Citation (when in write mode) - above textarea */}
               {taskMode === "write" && activeDocument && (
                 <div className="px-3 pt-2">
@@ -844,6 +901,18 @@ export function ChatInterface() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return;
+    const text = getMessageText(last);
+    const match = text.match(/Fragebogen-Status:\s*(active|paused|stopped)/i);
+    if (!match) return;
+    const mode = match[1].toLowerCase();
+    if (mode === "active" || mode === "paused" || mode === "stopped") {
+      setContextInteractionMode(mode);
+    }
+  }, [messages]);
+
   return (
     <ContextQuestionRuntimeProvider value={contextRuntimeValue}>
     <div className="flex h-full flex-col bg-background">
@@ -934,6 +1003,48 @@ export function ChatInterface() {
               </KbdGroup>
             </div>
           </div>
+          {taskMode === "context" && (
+            <div className="absolute -top-7 right-4 z-10">
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-1 shadow-sm">
+                <PromptInputButton
+                  onClick={() => submitContextControl("pause", { reason: "ui_pause" })}
+                  variant="ghost"
+                  className="size-8 rounded-md p-0"
+                  title="Pause questionnaire"
+                  aria-label="Pause questionnaire"
+                >
+                  <Pause className="size-4" />
+                </PromptInputButton>
+                <PromptInputButton
+                  onClick={() => submitContextControl("resume", { reason: "ui_resume" })}
+                  variant="ghost"
+                  className="size-8 rounded-md p-0"
+                  title="Resume questionnaire"
+                  aria-label="Resume questionnaire"
+                >
+                  <Play className="size-4" />
+                </PromptInputButton>
+                <PromptInputButton
+                  onClick={() => submitContextControl("status", { reason: "ui_status" })}
+                  variant="ghost"
+                  className="size-8 rounded-md p-0"
+                  title="Questionnaire status"
+                  aria-label="Questionnaire status"
+                >
+                  <Activity className="size-4" />
+                </PromptInputButton>
+                <PromptInputButton
+                  onClick={() => submitContextControl("stop", { reason: "ui_stop", confirm: true })}
+                  variant="ghost"
+                  className="size-8 rounded-md p-0"
+                  title="Stop questionnaire"
+                  aria-label="Stop questionnaire"
+                >
+                  <Square className="size-4" />
+                </PromptInputButton>
+              </div>
+            </div>
+          )}
           
           <PromptInputProvider>
             <PromptInputWithController />

@@ -29,6 +29,16 @@ class ContextAssistInput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class ContextControlInput(BaseModel):
+    """Deterministic questionnaire control actions."""
+
+    action: Literal["pause", "resume", "stop", "status"]
+    reason: str | None = None
+    confirm: bool | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class ContextSessionInput(BaseModel):
     """Session payload submitted on each context turn."""
 
@@ -36,6 +46,8 @@ class ContextSessionInput(BaseModel):
     standard_keys: list[str] | None = None
     answer: ContextAnswerInput | None = None
     assist: ContextAssistInput | None = None
+    control: ContextControlInput | None = None
+    free_text: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -174,3 +186,32 @@ def resolve_conversation_id(body_data: dict[str, Any]) -> str | None:
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
     return None
+
+
+def resolve_latest_user_text(body_data: dict[str, Any]) -> str:
+    """Extract latest user text from AI SDK message payload."""
+    nested = body_data.get("body")
+    messages = None
+    if isinstance(nested, dict) and isinstance(nested.get("messages"), list):
+        messages = nested.get("messages")
+    elif isinstance(body_data.get("messages"), list):
+        messages = body_data.get("messages")
+    if not isinstance(messages, list):
+        return ""
+
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        parts = message.get("parts")
+        if isinstance(parts, list):
+            text = "".join(
+                str(part.get("text") or "")
+                for part in parts
+                if isinstance(part, dict) and part.get("type") == "text"
+            ).strip()
+            if text:
+                return text
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""

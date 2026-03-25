@@ -208,17 +208,31 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         )
         try:
             kind, payload = await orchestrator.handle_turn(body_data)
-            segments = _split_context_payload_segments(kind=kind, payload=payload)
+            if kind == "handoff":
+                task_mode = TaskMode.ASK
+                updated = dict(body_data)
+                updated["taskMode"] = "ask"
+                nested = _nested_body(updated)
+                if isinstance(nested, dict):
+                    nested["taskMode"] = "ask"
+                    updated["body"] = nested
+                body_bytes = json.dumps(updated).encode("utf-8")
+            else:
+                segments = _split_context_payload_segments(kind=kind, payload=payload)
+                return StreamingResponse(
+                    event_stream_content(segments),
+                    media_type="text/event-stream",
+                )
         except Exception as error:
             logger.exception("❌ Context orchestrator failed: %s", error)
             segments = [
                 "Kontextmodus konnte den Turn nicht verarbeiten. "
                 "Bitte erneut versuchen."
             ]
-        return StreamingResponse(
-            event_stream_content(segments),
-            media_type="text/event-stream",
-        )
+            return StreamingResponse(
+                event_stream_content(segments),
+                media_type="text/event-stream",
+            )
 
     # Recreate request body stream with possibly updated body
     call_count = [0]
