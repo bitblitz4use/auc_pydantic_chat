@@ -9,6 +9,13 @@ FIXED_HEADING_BLOCKLIST = [
     "table of contents",
     "vorwort",
     "einleitung",
+    "bild",
+    "abbildung",
+    "figure",
+    "tabelle",
+    "table",
+    "anhang",
+    "appendix",
 ]
 
 

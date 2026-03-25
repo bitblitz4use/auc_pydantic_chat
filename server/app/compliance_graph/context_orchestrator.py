@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
@@ -36,6 +37,27 @@ STATE_PRECEDENCE: dict[str, int] = {
     "addressed": 3,
     "open": 4,
 }
+
+NON_NORMATIVE_CLAUSE_TOKENS = (
+    "bild",
+    "abbildung",
+    "figure",
+    "table",
+    "tabelle",
+    "anhang",
+    "appendix",
+)
+
+NORMATIVE_SIGNAL_TOKENS = (
+    " muss ",
+    " müssen ",
+    " hat ",
+    " haben ",
+    " soll ",
+    " sollen ",
+    " shall ",
+    " should ",
+)
 
 
 @dataclass(slots=True)
@@ -1260,11 +1282,12 @@ class ComplianceContextOrchestrator:
                 MATCH (q:DiagnosticQuestion {question_key: $question_key})-[:INFLUENCES]->(ru:RequirementUnit)
                 MATCH (d)-[:HAS_CHILD*1..]->(c:Clause)-[:CONTAINS_REQUIREMENT]->(ru)
                 WHERE NOT EXISTS { MATCH (s)-[:EXCLUDES]->(ru) }
+                WITH DISTINCT d, c, ru
                 OPTIONAL MATCH (ch:NormativeChunk)-[:SOURCE_FOR]->(ru)
+                WITH d, c, ru, head(collect(ch)) AS source_chunk
                 OPTIONAL MATCH (ru)-[:VERIFIED_BY]->(ev:EvidenceType)
-                WITH d, c, ru, ch, collect(DISTINCT ev)[0..3] AS evidence_nodes
-                ORDER BY c.clause_path, ru.ru_key, ch.chunk_key
-                LIMIT 1
+                WITH d, c, ru, source_chunk, collect(DISTINCT ev)[0..3] AS evidence_nodes
+                ORDER BY ru.ru_key
                 RETURN
                     coalesce(d.standard_key, "") AS standard_key,
                     coalesce(d.title, "") AS document_title,
@@ -1272,52 +1295,182 @@ class ComplianceContextOrchestrator:
                     coalesce(c.clause_id, "") AS clause_id,
                     coalesce(c.clause_path, "") AS clause_path,
                     coalesce(c.heading_text, "") AS heading_text,
-                    coalesce(ch.chunk_key, "") AS chunk_key,
-                    left(coalesce(ch.text_contextualized, ch.text_raw, ""), 280) AS chunk_preview,
-                    coalesce(ru.title, left(coalesce(ru.statement, ""), 180)) AS summary,
-                    [ev IN evidence_nodes | {
-                        title: coalesce(ev.title, ""),
-                        hint: coalesce(ev.hint, ""),
-                        example: coalesce(ev.example, "")
-                    }] AS evidence
+                    count(DISTINCT ru) AS clause_impact,
+                    collect(DISTINCT {
+                        ru_key: coalesce(ru.ru_key, ""),
+                        title: coalesce(ru.title, ""),
+                        statement: coalesce(ru.statement, ""),
+                        chunk_key: coalesce(source_chunk.chunk_key, ""),
+                        chunk_preview: left(coalesce(source_chunk.text_contextualized, source_chunk.text_raw, ""), 280),
+                        evidence: [ev IN evidence_nodes | {
+                            title: coalesce(ev.title, ""),
+                            hint: coalesce(ev.hint, ""),
+                            example: coalesce(ev.example, "")
+                        }]
+                    }) AS requirements
+                ORDER BY clause_impact DESC, clause_path, clause_id
+                LIMIT 25
                 """,
                 session_id=session_id,
                 question_key=question_key,
             )
-            row = await result.single()
+            rows = await result.data()
 
-        if not row:
+        clause_row = self._select_anchor_clause_candidate(rows)
+        if clause_row is None:
             return briefing
 
-        evidence_items = [
-            QuestionBriefingEvidence(
-                title=str(item.get("title", "")),
-                hint=str(item.get("hint", "")),
-                example=str(item.get("example", "")),
-            )
-            for item in (row.get("evidence") or [])
-            if isinstance(item, dict)
+        requirement_rows = [
+            item for item in (clause_row.get("requirements") or []) if isinstance(item, dict)
         ]
+        chunk_ref = next(
+            (
+                req
+                for req in requirement_rows
+                if str(req.get("chunk_preview", "")).strip()
+            ),
+            requirement_rows[0] if requirement_rows else {},
+        )
+        summary = self._compose_clause_summary(requirement_rows)
+        evidence_items = self._collect_clause_evidence(requirement_rows, limit=6)
 
         return QuestionBriefing(
             document=QuestionBriefingDocument(
-                standard_key=str(row.get("standard_key", "")),
-                title=str(row.get("document_title", "")),
-                version_label=str(row.get("version_label", "")),
+                standard_key=str(clause_row.get("standard_key", "")),
+                title=str(clause_row.get("document_title", "")),
+                version_label=str(clause_row.get("version_label", "")),
             ),
             clause=QuestionBriefingClause(
-                clause_id=str(row.get("clause_id", "")),
-                clause_path=str(row.get("clause_path", "")),
-                heading_text=str(row.get("heading_text", "")),
+                clause_id=str(clause_row.get("clause_id", "")),
+                clause_path=str(clause_row.get("clause_path", "")),
+                heading_text=str(clause_row.get("heading_text", "")),
             ),
             chunk=QuestionBriefingChunk(
-                chunk_key=str(row.get("chunk_key", "")),
-                preview=str(row.get("chunk_preview", "")),
+                chunk_key=str(chunk_ref.get("chunk_key", "")),
+                preview=str(chunk_ref.get("chunk_preview", "")),
             ),
-            summary=str(row.get("summary", "")),
+            summary=summary,
             evidence=evidence_items,
             impact=briefing.impact,
         )
+
+    @staticmethod
+    def _select_anchor_clause_candidate(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not rows:
+            return None
+
+        def rank(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
+            clause_path = str(row.get("clause_path", "") or "")
+            heading_text = str(row.get("heading_text", "") or "")
+            is_non_normative = ComplianceContextOrchestrator._looks_non_normative_clause(
+                clause_path=clause_path,
+                heading_text=heading_text,
+            )
+            has_numeric_path = ComplianceContextOrchestrator._looks_numeric_clause_path(clause_path)
+            requirements = row.get("requirements") or []
+            normative_hits = ComplianceContextOrchestrator._count_normative_signals(requirements)
+            impact_value = int(row.get("clause_impact") or 0)
+            return (
+                0 if not is_non_normative else 1,
+                0 if has_numeric_path else 1,
+                -normative_hits,
+                -impact_value,
+                clause_path.casefold(),
+            )
+
+        ranked = sorted(
+            [row for row in rows if isinstance(row, dict)],
+            key=rank,
+        )
+        return ranked[0] if ranked else None
+
+    @staticmethod
+    def _looks_non_normative_clause(clause_path: str, heading_text: str) -> bool:
+        joined = f"{clause_path} {heading_text}".casefold()
+        return any(token in joined for token in NON_NORMATIVE_CLAUSE_TOKENS)
+
+    @staticmethod
+    def _looks_numeric_clause_path(clause_path: str) -> bool:
+        value = (clause_path or "").strip()
+        if not value:
+            return False
+        return bool(re.search(r"(^|[\s/§])\d", value))
+
+    @staticmethod
+    def _count_normative_signals(requirements: Any) -> int:
+        if not isinstance(requirements, list):
+            return 0
+        text_parts: list[str] = []
+        for item in requirements:
+            if not isinstance(item, dict):
+                continue
+            title = " ".join(str(item.get("title", "")).split())
+            statement = " ".join(str(item.get("statement", "")).split())
+            if title:
+                text_parts.append(title)
+            if statement:
+                text_parts.append(statement)
+        haystack = f" {' '.join(text_parts).casefold()} "
+        return sum(haystack.count(token) for token in NORMATIVE_SIGNAL_TOKENS)
+
+    @staticmethod
+    def _compose_clause_summary(requirements: list[dict[str, Any]]) -> str:
+        snippets: list[str] = []
+        seen: set[str] = set()
+        for req in requirements:
+            title = " ".join(str(req.get("title", "")).split())
+            statement = " ".join(str(req.get("statement", "")).split())
+            candidate = title or statement
+            if not candidate:
+                continue
+            dedupe_key = candidate.casefold()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            snippets.append(candidate)
+            if len(snippets) >= 3:
+                break
+        if not snippets:
+            return ""
+        if len(snippets) == 1:
+            return snippets[0]
+        if len(snippets) == 2:
+            return f"Schwerpunkte dieser Frage: {snippets[0]} sowie {snippets[1]}."
+        return f"Schwerpunkte dieser Frage: {snippets[0]}; {snippets[1]}; sowie {snippets[2]}."
+
+    @staticmethod
+    def _collect_clause_evidence(
+        requirements: list[dict[str, Any]],
+        limit: int = 6,
+    ) -> list[QuestionBriefingEvidence]:
+        collected: list[QuestionBriefingEvidence] = []
+        seen: set[tuple[str, str, str]] = set()
+        for req in requirements:
+            raw_items = req.get("evidence")
+            if not isinstance(raw_items, list):
+                continue
+            for raw in raw_items:
+                if not isinstance(raw, dict):
+                    continue
+                title = " ".join(str(raw.get("title", "")).split())
+                hint = " ".join(str(raw.get("hint", "")).split())
+                example = " ".join(str(raw.get("example", "")).split())
+                if not hint:
+                    continue
+                dedupe_key = (title.casefold(), hint.casefold(), example.casefold())
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                collected.append(
+                    QuestionBriefingEvidence(
+                        title=title,
+                        hint=hint,
+                        example=example,
+                    )
+                )
+                if len(collected) >= limit:
+                    return collected
+        return collected
 
     async def _personalize_briefing(
         self,
@@ -1325,33 +1478,14 @@ class ComplianceContextOrchestrator:
         question_prompt: str,
         context_profile: dict[str, Any],
     ) -> QuestionBriefing:
-        employee_count = context_profile.get("context.org_employee_count")
-        size_hint = self._size_hint(employee_count)
-        activity_scope = str(context_profile.get("context.org_activity_scope") or "").strip()
-        has_production = context_profile.get("context.org_has_production")
-
         personalized_summary = briefing.summary
-        if size_hint:
-            personalized_summary = f"Kontext ({size_hint}): {personalized_summary}".strip()
-        if activity_scope:
-            personalized_summary = (
-                f"{personalized_summary}\n"
-                f"Organisationskontext Tätigkeitsbereich: {activity_scope}"
-            ).strip()
 
         personalized_evidence = []
         source_evidence: list[dict[str, str]] = []
         for item in briefing.evidence:
-            hint = item.hint
-            if size_hint:
-                hint = f"{hint} (Ausprägung für {size_hint}).".strip()
-            if has_production is True:
-                hint = f"{hint} Produktionsnachweise bevorzugt ergänzen.".strip()
-            elif has_production is False:
-                hint = f"{hint} Fokus auf Service-/Prozessnachweise.".strip()
             evidence_item = {
                 "title": item.title,
-                "hint": hint,
+                "hint": item.hint,
                 "example": item.example,
             }
             source_evidence.append(evidence_item)
@@ -1362,6 +1496,8 @@ class ComplianceContextOrchestrator:
             summary=personalized_summary,
             evidence_items=source_evidence,
             context_profile=context_profile,
+            clause_path=briefing.clause.clause_path,
+            clause_heading=briefing.clause.heading_text,
         )
         if llm_personalization is not None:
             candidate_summary = llm_personalization.summary.strip()

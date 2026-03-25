@@ -90,6 +90,13 @@ Qualitätsmaßstab:
 - Jeder Satz muss für die Organisation handlungsrelevant sein.
 - Beziehe Aussagen explizit auf Profilfakten (z. B. Größe, Tätigkeitsbereich, Produktion ja/nein, Branche).
 - Nenne bevorzugte Nachweisarten so, dass ein Audit-Team morgen damit arbeiten kann.
+- Wiederhole NICHT den Organisationssteckbrief; erkläre stattdessen die Anforderung im Organisationskontext.
+- Wenn `clause_path`/`clause_heading` nach Bild/Abbildung/Tabelle/Anhang aussieht, nutze diese Info nicht als inhaltlichen Schwerpunkt.
+
+Formatvorgabe für `summary`:
+- Maximal 2-3 Sätze.
+- Satz 1: Was fordert die Norm in diesem Themenbereich konkret?
+- Satz 2-3: Was bedeutet das für diese Organisation praktisch (bezogen auf Kontextprofil)?
 
 Sprache: Deutsch.
 Ausgabe strikt im strukturierten Schema.
@@ -230,6 +237,8 @@ class ContextAssistService:
         summary: str,
         evidence_items: list[dict[str, str]],
         context_profile: dict[str, Any],
+        clause_path: str = "",
+        clause_heading: str = "",
     ) -> BriefingPersonalizationResult | None:
         summary_text = summary.strip()
         if not summary_text and not evidence_items:
@@ -238,6 +247,8 @@ class ContextAssistService:
         payload = {
             "context_profile": context_profile,
             "question_prompt": question_prompt,
+            "clause_path": clause_path,
+            "clause_heading": clause_heading,
             "summary": summary_text,
             "evidence": evidence_items,
         }
@@ -245,11 +256,13 @@ class ContextAssistService:
             "Kontextprofil und Ausgangstext:\n"
             f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
             "Aufgabe:\n"
-            "1) Personalisiere die Zusammenfassung für den konkreten Organisationskontext.\n"
-            "2) Überarbeite Evidence-Hinweise so, dass sie praktisch und auditierbar sind.\n"
-            "3) Ergänze nur wertstiftende Konkretisierung (keine erfundenen Fakten).\n"
-            "4) Vermeide Wiederholung und Floskeln.\n"
-            "5) `evidence_hints` muss dieselbe Reihenfolge wie die Eingabe-Evidence beibehalten."
+            "1) Personalisiere die Zusammenfassung für den konkreten Organisationskontext, "
+            "ohne die Firmendarstellung nur nachzuerzählen.\n"
+            "2) Stelle den Bezug Normanforderung -> praktische Umsetzung in der Organisation klar dar.\n"
+            "3) Überarbeite Evidence-Hinweise so, dass sie praktisch und auditierbar sind.\n"
+            "4) Ergänze nur wertstiftende Konkretisierung (keine erfundenen Fakten).\n"
+            "5) Vermeide Wiederholung und Floskeln.\n"
+            "6) `evidence_hints` muss dieselbe Reihenfolge wie die Eingabe-Evidence beibehalten."
         )
         try:
             result = await self.personalize_briefing_agent.run(prompt)
