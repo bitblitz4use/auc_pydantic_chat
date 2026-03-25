@@ -18,6 +18,7 @@ from app.providers.router import router as providers_router
 from app.sources.router import router as sources_router
 from app.storage.router import router as storage_router
 from app.neo4j import close_neo4j_driver, ensure_neo4j_driver
+from app.qdrant import close_qdrant_client, ensure_qdrant_client
 from app.storage.client import ensure_bucket_exists
 
 logger = logging.getLogger(__name__)
@@ -32,10 +33,13 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Failed to initialize MinIO bucket: {e}")
 
     await ensure_neo4j_driver(app)
+    await ensure_qdrant_client(app)
     neo4j_driver = app.state.neo4j_driver
+    qdrant_client = app.state.qdrant_client
     try:
         yield
     finally:
+        await close_qdrant_client(qdrant_client)
         await close_neo4j_driver(neo4j_driver)
 
 

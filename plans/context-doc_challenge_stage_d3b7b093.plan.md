@@ -1,6 +1,6 @@
 ---
 name: context-doc challenge stage
-overview: Define a precise implementation plan to add session-scoped uploaded context documents to the compliance context flow, including ingest, storage, retrieval, and deterministic challenge state integration while keeping Docling and Pydantic AI native-first.
+overview: Define a precise implementation plan to add session-scoped uploaded context documents to the compliance context flow, including ingest, storage, retrieval, and deterministic challenge-state execution policy (agent-confirmed baseline + manual override support) while keeping Docling and Pydantic AI native-first.
 todos:
   - id: schema-session-context-doc
     content: Define and implement Neo4j session-layer schema extensions for context documents, chunks, and challenge state.
@@ -16,6 +16,9 @@ todos:
     status: pending
   - id: challenge-evaluator-state
     content: Add structured Pydantic AI challenge evaluator and materialize challenge state with precedence rules.
+    status: pending
+  - id: challenge-execution-policy
+    content: Add challenge execution policy with agent-confirmed full run, job lifecycle, and manual/automatic state merge semantics.
     status: pending
   - id: contracts-api-backward-compat
     content: Extend context contracts and chat payload handling without breaking existing context flows.
@@ -46,10 +49,18 @@ flowchart TD
   uploadApi --> storageRaw[MinIORawPlusMarkdown]
   uploadApi --> doclingParse[DoclingConvertAndChunk]
   doclingParse --> sessionGraphWrite[WriteContextDocumentAndChunksToSessionLayer]
-  sessionGraphWrite --> retrieval[HybridRetrievalLexicalPlusSemantic]
+  sessionGraphWrite --> ingestReady[IngestReadyNoAutoFullChallenge]
+  ingestReady --> agentPrompt[AgentAsksRunFullChallengeNow]
+  agentPrompt -->|RunNow| challengeJob[StartSessionChallengeJob]
+  agentPrompt -->|NotNow| questionnaireFlow[ContinueQuestionnaireFlow]
+  challengeJob --> retrieval[HybridRetrievalLexicalPlusSemantic]
   retrieval --> challengeEval[PydanticAIChallengeEvaluation]
-  challengeEval --> challengeState[WriteSessionChallengeState]
+  challengeEval --> challengeState[WriteAutoChallengeState]
+  questionnaireFlow --> manualState[WriteManualSessionState]
+  manualState --> effectiveState[ComputeEffectiveStateManualOverridesAuto]
+  challengeState --> effectiveState
   challengeState --> orchestrator[ContextOrchestratorRecompute]
+  effectiveState --> orchestrator
   orchestrator --> jsxCard[CtxQuestionCardWithDocumentEvidence]
 ```
 
@@ -64,8 +75,15 @@ flowchart TD
   - `MATCHES_REQUIREMENT` (chunk -> requirement candidate link with score/method)
   - `HAS_CHALLENGE_STATE` (session -> requirement state from docs)
 - Add deterministic precedence integration between existing `HAS_STATE` and new challenge state:
-  - recommended effective order: `not_applicable` > `gap` > `unclear` > `addressed` > `open`
-  - challenge state can promote `gap/unclear/addressed`, but cannot override `not_applicable`.
+  - model explicit sources per requirement in session:
+    - `auto_challenge_state` (from context-document evaluation)
+    - `manual_state` (from questionnaire/manual user answers)
+    - `effective_state` (materialized for counters/progress)
+  - recommended effective precedence:
+    - `not_applicable` > `manual_state` > `auto_challenge_state` > `open`
+  - within both manual and auto values, keep deterministic order:
+    - `gap` > `unclear` > `addressed` > `open`
+  - challenge state can promote `gap/unclear/addressed`, but cannot override `not_applicable` and must be overridable by manual state.
 - Add indexes/constraints for `context_document_id`, `context_chunk_id`, `(session_id, ru_key)` effective-state integrity.
 - Persist citation-grade chunk metadata required by card rendering:
   - `page_no` (or page range where available)
@@ -106,11 +124,15 @@ Primary files to change:
   4. sanitize/filter non-normative noise
   5. persist `ContextDocument` + `ContextChunk` into session layer with page/section metadata
   6. index chunks in Qdrant collection(s) scoped by `session_id` and `context_document_id`
-  7. emit job status for UI/orchestrator polling
+  7. emit ingest job status for UI/orchestrator polling
+- Important execution policy:
+  - completing ingest/indexing does **not** auto-start a full-document challenge run
+  - after ingest is ready, orchestrator marks session as challenge-ready and can prompt the user to run full challenge
 - Reuse existing conversion principles from master pipeline for consistency and provenance shape.
 - Vectorization boundary (explicit):
   - vectorize uploaded context chunks only (during ingest/indexing)
   - do not vectorize JSX/card markup
+  - use configured embedding runtime from environment (`EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`) for chunk vectorization
 
 Primary files to add/extend:
 
@@ -148,13 +170,34 @@ Primary files:
   - `insufficient_evidence` -> `unclear`
 - Materialize both views:
   - business-facing challenge state (for card section)
-  - mapped engine state (for counters/progress/effective requirement state)
+  - mapped engine state (auto state source for counters/progress/effective requirement state)
 - Materialize session evidence/challenge edges and integrate into progress counters and completion logic.
 - Update question briefing payload to include a new additive section with:
   - top 3 correlated context chunks
   - document name, page, section heading/path
   - per-chunk verdict rationale and confidence
   - explicit citation-ready references (`chunk_key`, page, heading)
+
+## Workstream 5B: Challenge Execution Policy (Compute Control + Merge Semantics)
+
+- Add explicit challenge execution modes:
+  - `manual_confirmed_full_run` (default baseline)
+  - `incremental_on_active_question` (question-level challenge while user answers)
+  - optional deferred `scheduled/background` mode
+- Agent behavior rule:
+  - if indexed context docs exist and no baseline challenge has run yet, ask user:
+    - "Run challenge process for the whole document now?"
+  - do not auto-run baseline without explicit user confirmation
+- Add challenge job lifecycle tracked per session:
+  - `queued | running | completed | failed | cancelled`
+  - include counts/progress (`requirements_total`, processed, failed, duration)
+- Merge policy (deterministic):
+  - `not_applicable` always wins
+  - manual answer-derived state overrides auto challenge-derived state
+  - auto challenge fills gaps where no manual state exists
+- Recompute policy:
+  - recompute `effective_state` and counters after each challenge batch and at job completion
+  - keep flow resumable and idempotent for retries/re-runs
 
 Primary files:
 
@@ -167,6 +210,8 @@ Primary files:
 - Add server routes:
   - `POST /api/compliance-graph/context-documents/upload` (session upload)
   - `GET /api/compliance-graph/context-documents/{id}/status`
+  - `POST /api/compliance-graph/sessions/{session_id}/context-challenge/run` (explicit full challenge trigger)
+  - `GET /api/compliance-graph/sessions/{session_id}/context-challenge/status`
   - optional debug: `GET /api/compliance-graph/sessions/{session_id}/context-evidence`
 - Extend existing context turn payload schema to carry file-upload references and status updates.
 - Keep backward compatibility for existing context interactions (`answer`, `assist`, `control`).
@@ -183,12 +228,16 @@ Primary files:
   - already used: `docling`, `pydantic_ai`, `neo4j`.
 - Qdrant-first retrieval stack (preferred baseline for this stage):
   - `qdrant-client` (required)
-  - `fastembed` (or `fastembed-gpu` where hardware is available) for local embedding generation used by Qdrant client
+  - embedding provider/model fixed for this stage:
+    - `EMBEDDING_PROVIDER=openai`
+    - `EMBEDDING_MODEL=text-embedding-3-small`
+  - dense vectors are generated via the configured provider/model above.
 - Dependency gate:
   - start with one vector stack only (Qdrant hybrid dense+sparse)
   - avoid parallel retrieval stacks (`faiss`, separate Neo4j vector path) in this stage
 - Optional future alternatives (deferred):
-  - provider-side embedding APIs via model provider abstraction if local embedding runtime is not preferred
+  - local embedding runtime via `fastembed` / `fastembed-gpu`
+  - provider-side model switch via model provider abstraction
 
 ## Workstream 8: Test, Validation, and Rollout
 
@@ -196,11 +245,20 @@ Primary files:
   - answer type `file_upload` validation
   - ingest idempotency + session partition safety
   - retrieval ranking determinism
-  - challenge-state precedence and recompute behavior
+  - challenge-state merge precedence (`not_applicable` > manual > auto > open)
+  - challenge recompute behavior after incremental and full runs
+- Orchestrator/interaction tests:
+  - prompt appears when context docs are indexed but baseline challenge has not run
+  - "not now" keeps questionnaire flow unchanged
+  - explicit "run now" starts challenge job and updates job status
+- Session-state tests:
+  - manual answers override auto challenge outcomes for same requirement
+  - auto challenge still populates requirements with no manual signal
 - Integration tests:
   - full flow: context facts -> upload -> challenge-enhanced question cards
   - resume session with already indexed context docs
   - stale/failed ingest status handling
+  - cancelled/failed full challenge run with recovery retry
   - no-upload/no-index fallback keeps existing questionnaire behavior unchanged
 - Graph validation queries:
   - context document/chunk counts per session
@@ -223,7 +281,9 @@ Primary docs to update:
 - Session-scoped context document ingest and storage model
 - Upload-capable context question step
 - Qdrant hybrid retrieval + structured challenge evaluator
-- Deterministic effective-state integration and progress counters
+- Challenge execution policy with user-confirmed full-run trigger + job lifecycle
+- Deterministic effective-state integration where manual answers override auto challenge state
 - Updated JSX cards with additive document-grounded evidence section (including citation metadata)
+- Counter-level UI integration for effective states (`open`, `addressed`, `gap`, `unclear`, `not_applicable`)
 - Validation queries and rollout safeguards
 

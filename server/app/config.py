@@ -65,6 +65,20 @@ class AppConfig(BaseSettings):
         default="",
         description="Neo4j password",
     )
+
+    # Qdrant (https://python-client.qdrant.tech/)
+    qdrant_url: str = Field(
+        default="",
+        description='Qdrant URL, e.g. "http://localhost:6333"',
+    )
+    qdrant_collection_name: str = Field(
+        default="",
+        description="Qdrant collection name",
+    )
+    qdrant_api_key: str = Field(
+        default="",
+        description="Qdrant API key (optional, e.g. Qdrant Cloud)",
+    )
     
     # Available models per provider
     # Format: provider_slug -> list of model names (JSON string in .env)
