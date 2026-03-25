@@ -1,0 +1,581 @@
+% !TeX program = xelatex
+\documentclass[11pt,a4paper]{article}
+\usepackage{geometry}
+\usepackage{fontspec}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\geometry{margin=2.5cm}
+\defaultfontfeatures{Ligatures=TeX}
+\setmainfont{Latin Modern Roman}
+\setmonofont{Latin Modern Mono}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  pdftitle={Nichtkonformitaeten Context-Challenge},
+}
+
+% Monospace for keys, paths, and machine-oriented values (compile-safe).
+\newcommand{\coded}[1]{\texttt{\detokenize{#1}}}
+\setlength{\emergencystretch}{2em}
+\sloppy
+
+\title{Bericht: Nichtkonformitäten aus der Context-Challenge}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Zweck dieses Berichts}
+
+Dieser Bericht ist eine \textbf{Prüfunterlage für Fach- und Management-Review}. Er fasst alle bewerteten Nichtkonformitäten mit Status \coded{needs_improvement} zusammen und hilft bei der Frage:
+
+\begin{quote}
+\textbf{``Ist die Aussage des LLM mit der Quelle auf der genannten Seite nachvollziehbar?''}
+\end{quote}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Quelldokument:} \coded{alpe_system_handbuch.pdf}
+  \item \textbf{Referenzstandard:} \coded{ÖNORM EN ISO 9001:2015}
+  \item \textbf{Gesamtzahl Findings:} \coded{43}
+  \item \textbf{Abgedeckter Challenge-Status:} \coded{needs_improvement}
+\end{itemize}
+
+\section{Prüfentscheidung pro Finding (empfohlene Logik)}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Validiert:} Die LLM-Begründung wird auf der genannten Seite klar bestätigt.
+  \item \textbf{Teilweise validiert:} Einzelne Teile passen, aber wesentliche Aussagen fehlen.
+  \item \textbf{Nicht validiert:} Die Seite stützt die LLM-Aussage nicht ausreichend.
+  \item \textbf{Rückfrage nötig:} Aussage oder Quelle ist mehrdeutig; Zusatznachweis erforderlich.
+\end{itemize}
+
+\section{Management-Überblick}
+
+\subsection{Kennzahlen}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Findings nach Confidence}
+    \begin{itemize}[leftmargin=*]
+      \item \coded{0.75}: \coded{7} Findings
+      \item \coded{0.70}: \coded{30} Findings
+      \item \coded{0.60}: \coded{6} Findings
+    \end{itemize}
+  \item \textbf{Durchschnittliche Confidence (alle Findings):} \coded{0.694}
+  \item \textbf{Hauptmuster:} Prozesse sind grundsätzlich vorhanden, aber es fehlen oft klare und prüfbare Nachweise für die konkrete Klauselanforderung.
+\end{itemize}
+
+\subsection{Dominante Lückenthemen}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Dokumentationsspezifität} \\
+    Es fehlen explizite Nachweise dazu, wer freigegeben hat, was geändert wurde, wann überwacht wurde und welcher Nachweis die Erfüllung belegt.
+  \item \textbf{Planungs- und Steuerungsdetails} \\
+    Entwicklungsplanung, Verifizierung, Änderungssteuerung und Zielplanung sind beschrieben, aber nicht ausreichend klauselspezifisch.
+  \item \textbf{Awareness und Kommunikation} \\
+    Für Qualitätspolitik/-ziele sowie Kommunikationsregeln (\coded{mit wem}, \coded{worüber}) fehlen direkte operative Nachweise.
+  \item \textbf{Audit und Messtechnik} \\
+    Nachweise zum internen Auditprogramm und zur messtechnischen Rückführbarkeit sind nicht vollständig belegt.
+  \item \textbf{Verträge und Kundenanforderungen} \\
+    Die Klärung abweichender oder impliziter Kundenanforderungen ist nicht explizit nachgewiesen.
+\end{enumerate}
+
+\subsection{Klausel-Hotspots (nach Anzahl)}
+
+\begin{itemize}[leftmargin=*]
+  \item \coded{8.3.2 Entwicklungsplanung}: \coded{4}
+  \item \coded{8.2.3 Überprüfung der Anforderungen}: \coded{3}
+  \item \coded{10.2 Nichtkonformität und Korrekturmaßnahmen}: \coded{3}
+  \item \coded{7.3 Bewusstsein}: \coded{3}
+  \item \coded{9.1.1 Allgemeines}: \coded{2}
+  \item \coded{9.2 Internes Audit}: \coded{2}
+  \item \coded{8.5.1 Steuerung der Produktion/Dienstleistungserbringung}: \coded{2}
+  \item \coded{8.3.6 Entwicklungsänderungen}: \coded{2}
+  \item \coded{7.1.5.2 Messtechnische Rückführbarkeit}: \coded{2}
+  \item \coded{7.4 Kommunikation}: \coded{2}
+  \item \coded{6.2 Qualitätsziele und Planung}: \coded{2}
+  \item \coded{4.3 Anwendungsbereich}: \coded{2}
+  \item \coded{2 Normative Verweisungen}: \coded{2}
+\end{itemize}
+
+\subsection{Wiederkehrendes Evidenzmuster}
+
+Über viele Findings hinweg stammen die Top-Chunks wiederholt aus:
+
+\begin{itemize}[leftmargin=*]
+  \item \coded{2.4.4.1 KOMPETENZEN} (p.29/30)
+  \item \coded{2.8.3 PLANUNG VON ÄNDERUNGEN} (p.37)
+  \item \coded{2.2 FÜHRUNG} (p.14)
+  \item \coded{2.5.2 STEUERUNG EXTERN BEREITGESTELLTER PROZESSE\ldots} (p.31)
+  \item \coded{3.3.6.x DOKUMENTATION/LENKUNG} (p.60--62)
+\end{itemize}
+
+Das deutet auf eine starke generische Management-Abdeckung hin, jedoch auf eine unzureichende klauselspezifische Evidenzverknüpfung für mehrere ISO-9001-Verpflichtungen.
+
+\section{Priorisierter Maßnahmen-Backlog (Vorschlag)}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Auditprogramm-Paket (9.2)} \\
+    Explizites Auditprogramm-Nachweispaket erstellen/anhängen: Frequenz, Methoden, Kriterien, Verantwortlichkeiten, Ergebnisse, Aufbewahrung.
+  \item \textbf{Monitoring-/Messsteuerungs-Paket (9.1.1, 7.1.5.2)} \\
+    Explizite Matrizen ergänzen für was/wann/wie gemessen wird, Prüfungen bei ungültigen Messmitteln und erforderliche Korrekturmaßnahmen.
+  \item \textbf{Entwicklungsplanungs-Paket (8.3.2/8.3.4/8.3.5/8.3.6)} \\
+    Vorlagen ergänzen, die Phasen, Ressourcen, Verifizierungsnachweise, Annahmekriterien und Änderungsautorisierung/Aufbewahrung belegen.
+  \item \textbf{Kommunikations- und Awareness-Paket (7.3/7.4/8.2.1)} \\
+    Rollenbasierte Kommunikationsmatrix und Awareness-Nachweise ergänzen (Trainings-Logs, Bestätigungen, Taktung).
+  \item \textbf{Governance-Paket dokumentierte Information (7.5.3, 8.5.6, 8.6, 8.7.2)} \\
+    Rückverfolgbarkeitsfelder stärken: Identität Freigebender, Änderungsergebnis, Nichtkonformitätsdetail, Freigabeautorität.
+\end{enumerate}
+
+\section{Hinweise zur Nutzung in Reviews}
+
+\begin{itemize}[leftmargin=*]
+  \item Dieser Bericht zeigt die Bewertungen strukturiert als Prüfnachweis je Finding.
+  \item Für belastbare Entscheidungen sollte je \coded{ru\_key} eine direkte Zuordnung gepflegt werden zu:
+    \begin{itemize}[leftmargin=*]
+      \item autoritativem Anforderungstext,
+      \item konkretem Evidenzauszug,
+      \item Gap-Statement,
+      \item Maßnahmeverantwortung/Datum/Status.
+    \end{itemize}
+\end{itemize}
+
+\section{Detaillierte Prüfblätter je Finding (alle 43)}
+
+Jedes Prüfblatt enthält: \coded{ru\_key}, Klausel, Bewertung, Begründung und eine primäre Fundstelle im Originaldokument (\coded{heading\_path}, \coded{page\_no}).
+
+
+\subsection*{F01}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/a-6-dokumentierte-informationen::ru::df08837a2505}
+  \item \textbf{Klausel:} A.6 Dokumentierte Informationen
+  \item \textbf{Anforderung (ru\_statement):} An den Stellen dieser Internationalen Norm, an denen auf 'Information' anstatt auf 'dokumentierte Information' verwiesen wird, besteht keine Anforderung, dass diese Information zu dokumentieren ist.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Evidenz-Chunks zeigen, dass die Organisation dokumentierte Informationen unterhält und Wissen in Bezug auf Kundenanforderungen und Risiken verwaltet. Es wird jedoch nicht explizit darauf eingegangen, wie Informationen, auf die in der Standardnorm verwiesen wird, dokumentiert oder behandelt werden, was darauf hinweist, dass es Verbesserungsbedarf gibt, um den Anforderungen der Norm gerecht zu werden.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.1.2. VERSTEHEN DER ERFORDERNISSE UND ERWARTUNGEN INTERESSIERTER PARTEIEN | page_no: 11}
+\end{itemize}
+
+\subsection*{F02}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/andere-internationale-normen-des-iso-tc-176-zu-qualit-tsmanagement-und-qualit-tsmanagementsystemen::ru::e0744b693f1f}
+  \item \textbf{Klausel:} Andere Internationale Normen des ISO/TC 176 zu Qualitätsmanagement und Qualitätsmanagementsystemen
+  \item \textbf{Anforderung (ru\_statement):} ISO 10012 enthält Leitlinien für die Steuerung von Messprozessen und die metrologische Bestätigung von Messmitteln, die für die Unterstützung und den Nachweis der Übereinstimmung mit metrologischen Anforderungen eingeset
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Dokumente beschreiben Elemente des Qualitätsmanagements gemäß ISO 9001, jedoch fehlen spezifische Informationen über die Umsetzung der Leitlinien aus ISO 10012 zur Steuerung von Messprozessen und zur metrologischen Bestätigung der Messmittel. Eine tiefere Analyse oder spezifische Hinweise zu den Messprozessen und den verwendeten Messmitteln sind nicht vorhanden, was auf Verbesserungsbedarf hinweist.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.1.3.1. DIE WECHELWIRKUNG VON PROZESSEN | page_no: 12}
+\end{itemize}
+
+\subsection*{F03}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/4-3-festlegen-des-anwendungsbereichs-des-qualit-tsmanagementsystems::ru::4abd01c3763e}
+  \item \textbf{Klausel:} 4.3 Festlegen des Anwendungsbereichs des Qualitätsmanagementsystems
+  \item \textbf{Anforderung (ru\_statement):} Der Anwendungsbereich muss eine Begründung für jede Anforderung dieser Internationalen Norm liefern, die von der Organisation als nicht zutreffend hinsichtlich des Anwendungsbereiches ihres Qualitätsmanagementsystems bes
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Der Anwendungsbereich des Qualitätsmanagementsystems muss eine spezifische Begründung für die Anforderungen liefern, die nicht zutreffen. Während die Evidenz zeigt, dass das Managementsystem mehrere Aspekte der Normen integriert, fehlt eine explizite Erklärung zur rechtfertigenden Begründung der nicht zutreffenden Anforderungen im Anwendungsbereich. Das Managementsystem sollte außerdem sicherstellen, dass diese Begründungen dokumentiert werden und erreichbar sind.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.2. FÜHRUNG | page_no: 14}
+\end{itemize}
+
+\subsection*{F04}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-3-bewusstsein::ru::19649d16a217}
+  \item \textbf{Klausel:} 7.3 Bewusstsein
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss sicherstellen, dass die Personen sich der Qualitätspolitik bewusst sind.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Organisation beschreibt, dass die oberste Leitung sich zu den Grundsätzen des Managementsystems bekennt und dass spezifische Rollen und Verantwortlichkeiten festgelegt sind. Es wird jedoch nicht explizit erwähnt, wie die Mitarbeiter über die Qualitätspolitik informiert werden oder wie deren Bewusstsein aktiv gefördert wird.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.2. FÜHRUNG | page_no: 14}
+\end{itemize}
+
+\subsection*{F05}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-3-bewusstsein::ru::238a6c30e51a}
+  \item \textbf{Klausel:} 7.3 Bewusstsein
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss sicherstellen, dass die Personen sich der relevanten Qualitätsziele bewusst sind.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Evidenz zeigt, dass die Organisation Qualitätsziele formuliert hat und dass Führungsverantwortung für die Vermittlung relevanter Ziele vorhanden ist. Es werden auch Kompetenzen beschrieben, die für die Qualitätssicherung wichtig sind. Allerdings fehlen spezifische Nachweise darüber, wie die Mitarbeiter aktiv über die relevanten Qualitätsziele informiert und geschult werden, um ein vollständiges Bewusstsein zu schaffen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.2. FÜHRUNG | page_no: 14}
+\end{itemize}
+
+\subsection*{F06}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-3-bewusstsein::ru::fcfa882e48cc}
+  \item \textbf{Klausel:} 7.3 Bewusstsein
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss sicherstellen, dass die Personen sich der Folgen einer Nichterfüllung der Anforderungen des Qualitätsmanagementsystems bewusst sind.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Evidenzstücke zeigen, dass die Organisation Rollen und Verantwortlichkeiten definiert hat, jedoch fehlen spezifische Hinweise darauf, wie das Bewusstsein der Mitarbeiter über die Folgen der Nichterfüllung der Anforderungen des Qualitätsmanagementsystems sichergestellt wird. Es wird nicht ausdrücklich erwähnt, wie diese Informationen an die Mitarbeiter vermittelt werden und inwieweit die Schulungen oder Informationsmaßnahmen umgesetzt werden, um dieses Bewusstsein zu fördern.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.2. FÜHRUNG | page_no: 14}
+\end{itemize}
+
+\subsection*{F07}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-4-3-informationen-f-r-externe-anbieter::ru::bd7e6b14fb64}
+  \item \textbf{Klausel:} 8.4.3 Informationen für externe Anbieter
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss die Angemessenheit der Anforderungen vor deren Bekanntgabe gegenüber externen Anbietern sicherstellen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Organisation hat Mechanismen zur Sicherstellung der Anforderungsgerechtigkeit gegenüber externen Anbietern implementiert, wie z.B. Machbarkeitsprüfungen und kontinuierliche Überwachung der Anforderungen. Es liegen jedoch Hinweise vor, die darauf hindeuten, dass die Informationen möglicherweise nicht regelmäßig genug aktualisiert werden oder dass nicht in jedem Fall sichergestellt wird, dass alle Anforderungen vor Bekanntgabe getestet werden, was eine Verbesserung benötigt.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.2.5.6. KOMMUNIKATIONS- UND INFORMATIONSSTRATEGIEN | page_no: 18}
+\end{itemize}
+
+\subsection*{F08}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-2-entwicklungsplanung::ru::fda36051e40a}
+  \item \textbf{Klausel:} 8.3.2 Entwicklungsplanung
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bei der Entwicklungsplanung die benötigten dokumentierten Informationen, um zu bestätigen, dass die Anforderungen an die Entwicklung erfüllt wurden, berücksichtigen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Organisation hat Prozesse zur Dokumentation und Überprüfung der Anforderungen implementiert, jedoch ist nicht konkret beschrieben, wie alle benötigten dokumentierten Informationen zur Bestätigung der Entwicklungsanforderungen systematisch erfasst werden. Es wird zwar auf den Wissenserhalt und die Dokumentation von Erkenntnissen hingewiesen, doch die spezifischen erforderlichen Informationen für die Entwicklungsplanung sind nicht vollständig erörtert.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.2.8.2. BINDENDE VERPFLICHTUNGEN (RECHTSMANAGEMENT) | page_no: 23}
+\end{itemize}
+
+\subsection*{F09}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-5-entwicklungsergebnisse::ru::7cc33c828dcd}
+  \item \textbf{Klausel:} 8.3.5 Entwicklungsergebnisse
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss sicherstellen, dass die Entwicklungsergebnisse Anforderungen an die Überwachung und Messung, soweit zutreffend, sowie Annahmekriterien enthalten oder auf sie verweisen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die vorliegenden Texte zeigen, dass die Organisation Maßnahmen zur Überwachung und Kontrolle von Qualitätsstandards sowie zur Planung von Veränderungen trifft. Es wird jedoch nicht explizit erwähnt, dass die Entwicklungsergebnisse Annahmekriterien für die Überwachung und Messung beinhalten oder darauf verweisen. Somit gibt es Verbesserungspotenzial in der Dokumentation.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.2.8.2. BINDENDE VERPFLICHTUNGEN (RECHTSMANAGEMENT) | page_no: 23}
+\end{itemize}
+
+\subsection*{F10}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-6-entwicklungs-nderungen::ru::b114c8f023e8}
+  \item \textbf{Klausel:} 8.3.6 Entwicklungsänderungen
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss dokumentierte Informationen zu den eingeleiteten Maßnahmen zur Vorbeugung nachteiliger Auswirkungen aufbewahren.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Organisation führt Maßnahmen zur Risiko- und Chancenbewertung durch und plant gezielte Maßnahmen zur Minimierung unerwünschter Auswirkungen, jedoch gibt es keine spezifischen Informationen darüber, welche dokumentierten Informationen zu den eingeleiteten Maßnahmen zur Vorbeugung nachteiliger Auswirkungen aufbewahrt werden müssen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.3.1. MAßNAHMEN ZUM UMGANG MIT RISIKEN UND CHANCEN | page_no: 26}
+\end{itemize}
+
+\subsection*{F11}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/10-2-nichtkonformit-t-und-korrekturma-nahmen::ru::86dc04ac0e48}
+  \item \textbf{Klausel:} 10.2 Nichtkonformität und Korrekturmaßnahmen
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bestimmen, ob vergleichbare Nichtkonformitäten bestehen oder möglicherweise auftreten könnten.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.75}
+  \item \textbf{Warum (LLM):} Die Evidenz zeigt, dass die Organisation Prozesse zur Identifizierung und Handhabung von Nichtkonformitäten implementiert hat, jedoch fehlt die spezifische Nennung, dass vergleichbare Nichtkonformitäten regelmäßig bestimmt werden. Es wird auf kontinuierliche Verbesserung und das systematische Management von Nichtkonformitäten hingewiesen, jedoch sind die Verfahren ungenügend spezifiziert, um vollständige Konformität zu gewährleisten.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F12}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/9-1-1-allgemeines::ru::2b46b77b9c3d}
+  \item \textbf{Klausel:} 9.1.1 Allgemeines
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bestimmen, was überwacht und gemessen werden muss.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.75}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Nachweise deuten darauf hin, dass die Organisation Maßnahmen zur Überwachung und Messung implementiert hat, einschließlich der Überwachung von Prozessleistungen und der Durchführung von Risiko- und Chancenbewertungen. Allerdings sind keine spezifischen Elemente dokumentiert, die klar angeben, was genau überwacht und gemessen werden muss, um den Anforderungen des Standards vollständig zu entsprechen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F13}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/4-3-festlegen-des-anwendungsbereichs-des-qualit-tsmanagementsystems::ru::250b7ff96927}
+  \item \textbf{Klausel:} 4.3 Festlegen des Anwendungsbereichs des Qualitätsmanagementsystems
+  \item \textbf{Anforderung (ru\_statement):} Der Anwendungsbereich des Qualitätsmanagementsystems der Organisation muss als dokumentierte Information verfügbar sein und aufrechterhalten werden.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Evidenz beschreibt die Dokumentation des Managementsystems und die Kontrolle der Dokumente, jedoch fehlt spezifische Information über den Anwendungsbereich des Qualitätsmanagementsystems und ob dieser als dokumentierte Information verfügbar ist und aufrechterhalten wird.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F14}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/6-2-qualit-tsziele-und-planung-zu-deren-erreichung::ru::6ace20cf8fec}
+  \item \textbf{Klausel:} 6.2 Qualitätsziele und Planung zu deren Erreichung
+  \item \textbf{Anforderung (ru\_statement):} Bei der Planung zum Erreichen der Qualitätsziele muss die Organisation bestimmen was getan wird.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Organisation hat Maßnahmen zur Risiko- und Chancenbewertung sowie zur Kompetenzerhebung beschrieben. Es gibt Prozesse zur Planung von Änderungen und zur Definition der Schnittstellen, was darauf hindeutet, dass sie ermöglichen, zu bestimmen, was getan werden muss, um die Ziele zu erreichen. Allerdings fehlen spezifische Informationen darüber, wie die Identifikation und Planung von Maßnahmen zur Erreichung der Qualitätsziele konkret durchgeführt wird.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F15}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-1-5-2-messtechnische-r-ckf-hrbarkeit-n1::ru::318a16ee3fca}
+  \item \textbf{Klausel:} 7.1.5.2 Messtechnische Rückführbarkeit N1)
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bestimmen, ob die Gültigkeit früherer Messergebnisse beeinträchtigt wurde, wenn das Messmittel für seinen vorgesehenen Einsatz ungeeignet ist.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die zur Verfügung gestellten Evidenzstücke beziehen sich auf Kompetenzen, Wirksamkeitsprüfungen und Prozessvalidierungen, bieten jedoch keinen spezifischen Nachweis über die Ermittlung der Gültigkeit früherer Messergebnisse bei ungeeigneten Messmitteln. Es wird zwar die Bedeutung von Wirksamkeit und Überwachung angesprochen, jedoch fehlen konkrete Details oder Verfahren zur Adressierung der Anforderungen der Compliance-Norm.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F16}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-1-5-2-messtechnische-r-ckf-hrbarkeit-n1::ru::667186cd7389}
+  \item \textbf{Klausel:} 7.1.5.2 Messtechnische Rückführbarkeit N1)
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss geeignete Maßnahmen einleiten, wenn die Gültigkeit früherer Messergebnisse beeinträchtigt wurde.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Organisation hat Prozesse zur Überprüfung und Bewertung von Maßnahmen in ihrer Qualitätsmanagementsystemdokumentation beschrieben. Es gibt jedoch keine spezifischen Hinweise, dass geeignete Maßnahmen eingeleitet werden, wenn die Gültigkeit früherer Messergebnisse beeinträchtigt wurde, was direkt auf die Anforderung abzielt.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F17}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-1-betriebliche-planung-und-steuerung::ru::00eb9ecc70e7}
+  \item \textbf{Klausel:} 8.1 Betriebliche Planung und Steuerung
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss die Anforderungen an die Produkte und Dienstleistungen bestimmen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Evidenz zeigt, dass die Organisation Anforderungen an Produkte und Dienstleistungen bestimmt und externe Anbieter entsprechend ausgewählt werden, jedoch sind die spezifischen Schritte zur Bestimmung dieser Anforderungen nicht detailliert beschrieben. Der Beschaffungsprozess und die Überprüfung von externen Dienstleistungen sind vorhanden, es fehlen jedoch klare Hinweise darauf, wie die Anforderungen direkt für alle Produkte und Dienstleistungen erfasst werden. Daher ist eine Verbesserung der Prozesse notwendig.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F18}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-2-entwicklungsplanung::ru::4088b6c11b81}
+  \item \textbf{Klausel:} 8.3.2 Entwicklungsplanung
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bei der Entwicklungsplanung die erforderlichen Prozessphasen, einschließlich zutreffender Überprüfungen der Entwicklung, berücksichtigen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.60}
+  \item \textbf{Warum (LLM):} Die Organisation berücksichtigt Prozessphasen, jedoch sind die spezifischen Überprüfungsmaßnahmen in der Entwicklungsplanung nicht ausreichend beschrieben. Es gibt allgemeine Hinweise zur Systematik von Prozessen und Verantwortlichkeiten, was auf einen Bedarf an weiteren Details in der Umsetzung hinweist.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F19}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-2-entwicklungsplanung::ru::7ea594f4c97b}
+  \item \textbf{Klausel:} 8.3.2 Entwicklungsplanung
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bei der Entwicklungsplanung die Art, die Dauer und den Umfang der Entwicklungstätigkeiten berücksichtigen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.60}
+  \item \textbf{Warum (LLM):} Die Evidenz belegt, dass die Organisation bei der Planungs- und Steuerungsphase sowohl Qualifikationen als auch Risiken berücksichtigt. Allerdings gibt es keine spezifischen Referenzen zu den Aspekten Art, Dauer und Umfang der Entwicklungstätigkeiten im Kontext der Entwicklungsplanung, was bedeutet, dass hier Verbesserungsbedarf besteht.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 29}
+\end{itemize}
+
+\subsection*{F20}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-6-freigabe-von-produkten-und-dienstleistungen::ru::71edb5ba1c95}
+  \item \textbf{Klausel:} 8.6 Freigabe von Produkten und Dienstleistungen
+  \item \textbf{Anforderung (ru\_statement):} Die dokumentierten Informationen müssen die Rückverfolgbarkeit zu Personen enthalten, welche die Freigabe autorisiert haben.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Evidenzen zeigen eine teilweise Rückverfolgbarkeit von Dokumenten und Freigaben, jedoch fehlt eine klare Zuordnung von Personen, die die Freigabe autorisiert haben, sowie spezifische Informationen zu den dokumentierten Freigaben selbst.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 30}
+\end{itemize}
+
+\subsection*{F21}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-7-2-die-organisation-muss-dokumentierte-informationen-aufbewahren-die::ru::2b4b48d88694}
+  \item \textbf{Klausel:} 8.7.2 Die Organisation muss dokumentierte Informationen aufbewahren, die
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss dokumentierte Informationen aufbewahren, die die Nichtkonformität beschreiben.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Es gibt Hinweise darauf, dass dokumentierte Informationen bezüglich der Nichtkonformität aufbewahrt werden, allerdings könnte die Spezifität der Informationen zur Nichtkonformität verbessert werden. Die Erwähnung von Dokumenten, die Ergebnisse und den Umgang mit Nichtkonformitäten regeln, deutet darauf hin, dass diese Informationen vorhanden sind, ist jedoch nicht explizit belegt.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 30}
+\end{itemize}
+
+\subsection*{F22}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/9-2-internes-audit::ru::a1b49b00c0d1}
+  \item \textbf{Klausel:} 9.2 Internes Audit
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss dokumentierte Information als Nachweis der Verwirklichung des Auditprogramms und der Ergebnisse der Audits aufbewahren.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.60}
+  \item \textbf{Warum (LLM):} Die vorliegenden Evidenzstücke weisen darauf hin, dass dokumentierte Informationen bezüglich interner Audits und jeweiliger Verfahren vorhanden sind. Es wird jedoch nicht explizit erwähnt, dass die Ergebnisse der Audits als umfassender Nachweis aufbewahrt werden. Es gibt Hinweise auf die Durchführung interner Audits und die zugehörige Dokumentation, jedoch fehlt der klare Bezug zur Aufbewahrung der Auditprogramme und Ergebnisse, um die Vorgabe vollständig zu erfüllen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.4.4.1. KOMPETENZEN | page_no: 30}
+\end{itemize}
+
+
+\subsection*{F23}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-4-steuerungsma-nahmen-f-r-die-entwicklung::ru::063fd1273cd2}
+  \item \textbf{Klausel:} 8.3.4 Steuerungsmaßnahmen für die Entwicklung
+  \item \textbf{Anforderung (ru\_statement):} Verifizierungstätigkeiten müssen durchgeführt werden, um sicherzustellen, dass die Entwicklungsergebnisse die in den Entwicklungseingaben enthaltenen Anforderungen erfüllen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Evidenzstücke verdeutlichen die Notwendigkeit von Kontrolltätigkeiten und die Qualifikation des Personals für Verifizierungstätigkeiten. Dennoch fehlt eine direkte Bestätigung, dass Verifizierungstätigkeiten systematisch durchgeführt werden, um sicherzustellen, dass Entwicklungsergebnisse die Anforderungen erfüllen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.5.2. STEUERUNG EXTERN BEREITGESTELLTER PROZESSE, PRODUKTE UND DIENSTLEISTUNGEN | page_no: 31}
+\end{itemize}
+
+\subsection*{F24}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-2-entwicklungsplanung::ru::52eacdb0c92d}
+  \item \textbf{Klausel:} 8.3.2 Entwicklungsplanung
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bei der Entwicklungsplanung den internen und externen Ressourcenbedarf für die Entwicklung von Produkten und Dienstleistungen berücksichtigen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.60}
+  \item \textbf{Warum (LLM):} Die vorliegenden Evidenzen zeigen, dass die Organisation Verantwortung für externe Partner und deren Auswahlkriterien übernimmt, was auf eine Berücksichtigung externer Ressourcen hinweist. Jedoch gibt es keine explizite Angabe, dass der interne Ressourcenbedarf in gleicher Weise konkret berücksichtigt wird. Daher besteht Raum für Verbesserung in der Dokumentation und dem Nachweis dieser Aspekte in der Entwicklungsplanung.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.5.2. STEUERUNG EXTERN BEREITGESTELLTER PROZESSE, PRODUKTE UND DIENSTLEISTUNGEN | page_no: 31}
+\end{itemize}
+
+\subsection*{F25}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/6-2-qualit-tsziele-und-planung-zu-deren-erreichung::ru::830b4f9d95ac}
+  \item \textbf{Klausel:} 6.2 Qualitätsziele und Planung zu deren Erreichung
+  \item \textbf{Anforderung (ru\_statement):} Die Qualitätsziele müssen zutreffende Anforderungen berücksichtigen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Evidenz bezieht sich auf Qualitätsziele, die Kundenzufriedenheit, Fehlerreduktion und termingerechte Lieferung betrachten. Die relevanten Anforderungen an diese Ziele sind jedoch nicht vollständig dokumentiert, und es fehlen spezifische Informationen darüber, wie diese Ziele die zutreffenden Anforderungen berücksichtigen. Es gibt allgemeine Aussagen über die Unternehmenspolitik und die Verpflichtung zur Übererfüllung der Kundenanforderungen, jedoch keine spezifischen Anklänge an die Analyse oder Berücksichtigung der relevanten Anforderungen im Rahmen der Qualitätsziele.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.5.6. TÄTIGKEITEN NACH LIEFERUNG UND FREIGABE | page_no: 32}
+\end{itemize}
+
+\subsection*{F26}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-5-3-lenkung-dokumentierter-information::ru::4091c1ddec17}
+  \item \textbf{Klausel:} 7.5.3 Lenkung dokumentierter Information
+  \item \textbf{Anforderung (ru\_statement):} Dokumentierte Information externer Herkunft, die von der Organisation als notwendig für Planung und Betrieb des Qualitätsmanagementsystems bestimmt wurde, muss angemessen gekennzeichnet und gelenkt werden.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.75}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Evidenzen zeigen, dass es Prozesse zur Kennzeichnung und Steuerung von Dokumenten gibt, jedoch sind spezifische Details zu externen Informationen, die als notwendig für den Betrieb des Qualitätsmanagementsystems definiert wurden, nicht ausreichend dokumentiert. Obwohl die Kennzeichnung von Originalen und nicht-gelenkten Kopien erwähnt wird, fehlen klare Richtlinien oder Prozesse für die systematische Handhabung und Kontrolle von externen Informationen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.8.3. PLANUNG VON ÄNDERUNGEN | page_no: 37}
+\end{itemize}
+
+\subsection*{F27}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/9-2-internes-audit::ru::c74bc323c81b}
+  \item \textbf{Klausel:} 9.2 Internes Audit
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss ein oder mehrere Auditprogramme planen, aufbauen, verwirklichen und aufrechterhalten, einschließlich der Häufigkeit von Audits, Methoden, Verantwortlichkeiten, Anforderungen an die Planung sowie Ber
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.75}
+  \item \textbf{Warum (LLM):} Die Organisation hat Mechanismen zur Planung und Kontrolle von Änderungen im Managementsystem, jedoch gibt es keine spezifischen Informationen über die Etablierung und Aufrechterhaltung eines Auditprogramms, das die erforderlichen Elemente wie Häufigkeit, Methoden und Verantwortlichkeiten beachtet. Die Evidenz bezieht sich zwar auf die Verantwortung und das Engagement der Führung, lässt jedoch vermissen, dass ein erklärtes Auditprogramm existiert und die dazugehörigen Anforderungen klar abgedeckt sind.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.8.3. PLANUNG VON ÄNDERUNGEN | page_no: 37}
+\end{itemize}
+
+\subsection*{F28}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/2-normative-verweisungen::ru::c0e8e1082e6d}
+  \item \textbf{Klausel:} 2 Normative Verweisungen
+  \item \textbf{Anforderung (ru\_statement):} Bei undatierten Verweisungen gilt die letzte Ausgabe des in Bezug genommenen Dokuments (einschließlich aller Änderungen).
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die dokumentierten Verfahren zur Änderungskontrolle und Dokumentenlenkung zeigen, dass Änderungen am Managementsystem geplant und kontrolliert durchgeführt werden. Es wird jedoch nicht explizit erwähnt, dass bei undatierten Verweisungen die letzte Ausgabe des in Bezug genommenen Dokuments gilt, was eine Verbesserung in der Dokumentationspraxis erfordert.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.8.3. PLANUNG VON ÄNDERUNGEN | page_no: 37}
+\end{itemize}
+
+\subsection*{F29}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-2-3-berpr-fung-der-anforderungen-f-r-produkte-und-dienstleistungen::ru::9ec947281297}
+  \item \textbf{Klausel:} 8.2.3 Überprüfung der Anforderungen für Produkte und Dienstleistungen
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss sicherstellen, dass Anforderungen im Vertrag oder Auftrag, die sich von den zuvor festgelegten unterscheiden, geklärt werden.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Evidenzstücke beschreiben Prozesse zur Planung von Änderungen und die Berücksichtigung von Kundenanforderungen, jedoch fehlt eine spezifische Bestätigung, dass abweichende Anforderungen im Vertrag oder Auftrag systematisch geklärt werden. Empfehlungen zur methodischen Ermittlung von Anforderungen und zur Überprüfung von rechtlichen Verpflichtungen könnten auf die Notwendigkeit hinweisen, Anpassungen bei Änderungen im Vertrag vorzunehmen, aber konkrete Verfahren zur Klärung von unterschiedlichen Anforderungen sind nicht dokumentiert.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 2.8.3. PLANUNG VON ÄNDERUNGEN | page_no: 37}
+\end{itemize}
+
+\subsection*{F30}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-2-3-berpr-fung-der-anforderungen-f-r-produkte-und-dienstleistungen::ru::c40408a928a1}
+  \item \textbf{Klausel:} 8.2.3 Überprüfung der Anforderungen für Produkte und Dienstleistungen
+  \item \textbf{Anforderung (ru\_statement):} Die Kundenanforderungen müssen vor der Annahme von der Organisation bestätigt werden, wenn der Kunde keine dokumentierte Angabe über seine Anforderungen macht.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.75}
+  \item \textbf{Warum (LLM):} Die Evidenz belegt, dass die Organisation Kundenanforderungen systematisch steuert und diese in den Verbesserungsprozess einfließen. Es fehlen jedoch spezifische Hinweise zur Bestätigung von Anforderungen, wenn diese nicht dokumentiert sind.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.2. UNSERE UNTERNEHMENSPOLITIK | page_no: 38}
+\end{itemize}
+
+\subsection*{F31}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/10-2-nichtkonformit-t-und-korrekturma-nahmen::ru::3538913bb3f6}
+  \item \textbf{Klausel:} 10.2 Nichtkonformität und Korrekturmaßnahmen
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss dokumentierte Informationen aufbewahren als Nachweis der Art der Nichtkonformität sowie jeder daraufhin getroffenen Maßnahme.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Beweise belegen, dass die Organisation dokumentierte Informationen aufbewahrt, die zur Nachverfolgung von Nichtkonformitäten und Maßnahmen dienen. Es gibt jedoch keinen spezifischen Nachweis, dass diese Informationen umfassend alle Arten der Nichtkonformität und alle getroffenen Maßnahmen abdecken. Zudem könnte eine detailliertere Dokumentation oder spezifische Prozesse zur Handhabung dieser Informationen erforderlich sein.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: Datenschutz und Compliance (DSGVO) | page_no: 57}
+\end{itemize}
+
+\subsection*{F32}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-5-1-steuerung-der-produktion-und-der-dienstleistungserbringung::ru::313a938a9611}
+  \item \textbf{Klausel:} 8.5.1 Steuerung der Produktion und der Dienstleistungserbringung
+  \item \textbf{Anforderung (ru\_statement):} Falls zutreffend, müssen beherrschte Bedingungen die Durchführung von Maßnahmen zur Verhinderung menschlicher Fehler enthalten.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Informationen zeigen, dass das Unternehmen Maßnahmen zur Verhinderung von Fehlern implementiert und eine Fehlerkultur fördert. Jedoch fehlt eine klare Erwähnung kontrollierter Bedingungen, die spezifisch auf die Durchführung von Maßnahmen zur Verhinderung menschlicher Fehler ausgerichtet sind. Daher besteht Verbesserungspotential in der dokumentierten Steuerung dieser Prozesse.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: Der Weg zur 'Zero-Malware-Resilience' | page_no: 58}
+\end{itemize}
+
+\subsection*{F33}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-2-3-berpr-fung-der-anforderungen-f-r-produkte-und-dienstleistungen::ru::8f8a3a52fc08}
+  \item \textbf{Klausel:} 8.2.3 Überprüfung der Anforderungen für Produkte und Dienstleistungen
+  \item \textbf{Anforderung (ru\_statement):} Die Überprüfung muss die vom Kunden nicht angegebenen Anforderungen, die jedoch für den festgelegten oder den beabsichtigten Gebrauch, soweit bekannt, notwendig sind, einschließen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Kontextdokumente zeigen, dass die Anforderungen an die Überprüfung und das Verständnis der Erwartungen von interessierten Parteien systematisch behandelt werden. Allerdings wird nicht spezifisch erwähnt, wie die vom Kunden nicht angegebenen Anforderungen in die Überprüfung integriert werden, um den festgelegten oder beabsichtigten Gebrauch zu gewährleisten.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.3.6.2. UNSERE AUFBAU UNSERER DOKUMENTATION | page_no: 60}
+\end{itemize}
+
+\subsection*{F34}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-5-6-berwachung-von-nderungen::ru::1dab697eff9b}
+  \item \textbf{Klausel:} 8.5.6 Überwachung von Änderungen
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss dokumentierte Informationen aufbewahren, in denen die Ergebnisse der Überprüfung von Änderungen, die Personen, die die Änderung autorisiert haben, sowie jegliche notwendige Tätigkeiten, die sich aus
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Informationen belegen, dass Änderungen im Managementsystem dokumentiert und überprüft werden. Allerdings fehlt eine spezifische Erwähnung, dass die Ergebnisse der Überprüfung der Änderungen, die autorisierenden Personen und die notwendigen Tätigkeiten dokumentiert werden, was die Konformität mit der Anforderung beeinträchtigt.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.3.6.2. UNSERE AUFBAU UNSERER DOKUMENTATION | page_no: 60}
+\end{itemize}
+
+\subsection*{F35}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/9-1-1-allgemeines::ru::9389f778b027}
+  \item \textbf{Klausel:} 9.1.1 Allgemeines
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bestimmen, wann die Überwachung und Messung durchzuführen sind.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.60}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Evidenzen erwähnen allgemeine Prüfzyklen und die Überwachung sowie die Analyse von Kennzahlen, jedoch sind keine spezifischen Angaben dazu vorhanden, wann genau die Überwachung und Messung durchgeführt werden müssen. Dies deutet auf einen Verbesserungspotenzial hin, da diese spezifischen Zeitpunkte nicht klar definiert sind.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.3.6.2. UNSERE AUFBAU UNSERER DOKUMENTATION | page_no: 60}
+\end{itemize}
+
+\subsection*{F36}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/2-normative-verweisungen::ru::0c5554986fd5}
+  \item \textbf{Klausel:} 2 Normative Verweisungen
+  \item \textbf{Anforderung (ru\_statement):} Die folgenden Dokumente, die in diesem Dokument teilweise oder als Ganzes zitiert werden, sind für die Anwendung dieses Dokuments erforderlich.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Zitation und Nutzung der Dokumente wird in den bereitgestellten Evidenzen angesprochen, aber es fehlt eine klare und konsistente Vorgehensweise zur Anwendung und Notwendigkeit dieser Dokumente im gesamten System. Insbesondere wird keine eindeutige Anforderung oder Übereinstimmung in Bezug auf die Notwendigkeit spezifischer Dokumente erwähnt, die für die Anwendung wichtig sind.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.3.6.2.2. WORKFLOW: ERSTELLUNG, FREIGABE UND VERÖFFENTLICHUNG | page_no: 61}
+\end{itemize}
+
+\subsection*{F37}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-2-1-kommunikation-mit-den-kunden::ru::2bf915161aa9}
+  \item \textbf{Klausel:} 8.2.1 Kommunikation mit den Kunden
+  \item \textbf{Anforderung (ru\_statement):} Die Kommunikation mit Kunden muss den Umgang mit Anfragen, Verträgen oder Aufträgen, einschließlich Änderungen, umfassen.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.60}
+  \item \textbf{Warum (LLM):} Die vorliegenden Informationen zeigen, dass das Unternehmen über Kommunikationsstrategien und Prozesse zur Handhabung von Anforderungen und Änderungen verfügt. Allerdings könnte eine klarere Dokumentation und Beschreibung spezifischer Kommunikationspraktiken bezüglich Kundenanfragen und Vertragsmanagement hilfreich sein, um den vollständigen Anforderungen der Norm gerecht zu werden.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.3.7.3. UMGANG MIT EIGENTUM VON KUNDEN UND PARTNERN | page_no: 66}
+\end{itemize}
+
+\subsection*{F38}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/10-2-nichtkonformit-t-und-korrekturma-nahmen::ru::2e0dea88735d}
+  \item \textbf{Klausel:} 10.2 Nichtkonformität und Korrekturmaßnahmen
+  \item \textbf{Anforderung (ru\_statement):} Korrekturmaßnahmen müssen den Auswirkungen der aufgetretenen Nichtkonformitäten angemessen sein.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die bereitgestellten Informationen deuten darauf hin, dass Korrekturmaßnahmen in Zusammenhang mit Nichtkonformitäten geregelt sind. Es fehlen jedoch spezifische Details darüber, wie diese Maßnahmen konkret auf die Auswirkungen der Nichtkonformitäten abgestimmt werden. Der PDCA-Zyklus wird erwähnt, was auf eine systematische Verbesserung hinweist, jedoch gibt es keine expliziten Hinweise darauf, dass die Korrekturmaßnahmen immer adäquat den Auswirkungen angepasst werden. Daher wird ein Status 'needs improvement' vergeben.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.3.11. A-011 ... CAPA & VERBESSERUNG | page_no: 78}
+\end{itemize}
+
+\subsection*{F39}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-5-1-steuerung-der-produktion-und-der-dienstleistungserbringung::ru::bd2f89f3158c}
+  \item \textbf{Klausel:} 8.5.1 Steuerung der Produktion und der Dienstleistungserbringung
+  \item \textbf{Anforderung (ru\_statement):} Falls zutreffend, müssen beherrschte Bedingungen die Durchführung von Überwachungs- und Messtätigkeiten in geeigneten Phasen enthalten, um zu verifizieren, dass die Kriterien zur Steuerung von Prozessen oder Ergebnissen
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.75}
+  \item \textbf{Warum (LLM):} Es gibt Hinweise auf Überwachungs- und Messtätigkeiten in verschiedenen Kontexten, jedoch fehlen konkrete Beispiele oder spezifische Details über die Umsetzung in den bereitgestellten Evidenzstücken. Die Informationsbasis reicht aus, um eine teilweise Einhaltung zu erkennen, aber es sind zusätzliche Informationen erforderlich, um eine vollständige Einhaltung zu bestätigen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: 3.3.12. A-012 ... REVIEW-PROZESS (MMR, IQA,...) | page_no: 80}
+\end{itemize}
+
+\subsection*{F40}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-4-kommunikation::ru::02bb418ad39c}
+  \item \textbf{Klausel:} 7.4 Kommunikation
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bestimmen, mit wem kommuniziert wird.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Beweisdokumente erwähnen die Verpflichtung der Geschäftsführung zur kontinuierlichen Verbesserung und zur Prüfung der IT-Sicherheitsstrategie im Kontext der Erwartungen der interessierten Parteien. Es wird jedoch nicht konkret darauf eingegangen, mit wem genau kommuniziert wird. Daher ist die Anforderung teilweiser erforderlich, jedoch nicht vollständig erfüllt.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: Die Rolle der Geschäftsführung in der IT-Governance | page_no: 83}
+\end{itemize}
+
+\subsection*{F41}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/7-4-kommunikation::ru::4ead9e82bd33}
+  \item \textbf{Klausel:} 7.4 Kommunikation
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss bestimmen, worüber sie kommunizieren wird.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Die Evidenz deutet darauf hin, dass die Organisation Kommunikationsstrategien im Kontext der IT-Governance und Wissensmanagement hat, jedoch keine spezifischen Aussagen darüber gemacht wurden, worüber die Organisation konkret kommunizieren wird, was es schwierig macht, die volle Konformität mit der Anforderung zu bestätigen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: Die Rolle der Geschäftsführung in der IT-Governance | page_no: 83}
+\end{itemize}
+
+\subsection*{F42}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/8-3-6-entwicklungs-nderungen::ru::dc957d303c76}
+  \item \textbf{Klausel:} 8.3.6 Entwicklungsänderungen
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss dokumentierte Informationen zur Autorisierung der Änderungen aufbewahren.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.70}
+  \item \textbf{Warum (LLM):} Es gibt Hinweise darauf, dass die Organisation dokumentierte Informationen zur Autorisierung von Änderungen aufbewahrt, jedoch sind die spezifischen Prozesse und Nachweise zur Autorisierung im Kontext der präsentierten Dokumentation nicht klar erkennbar. Während die Dokumentation und ihre Überprüfung angesprochen werden, fehlt eine direkte Bezugnahme auf die Autorisierung von Änderungen selbst.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: Die Rolle der Geschäftsführung in der IT-Governance | page_no: 83}
+\end{itemize}
+
+\subsection*{F43}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{ru\_key:} \coded{ÖNORM_EN_ISO_9001_2015_11/a-4-risikobasiertes-denken::ru::c8b917a8acfe}
+  \item \textbf{Klausel:} A.4 Risikobasiertes Denken
+  \item \textbf{Anforderung (ru\_statement):} Die Organisation muss entscheiden, ob dokumentierte Informationen als Nachweis für die Bestimmung von Risiken aufzubewahren sind.
+  \item \textbf{Status / Confidence:} \coded{needs_improvement | Confidence: 0.75}
+  \item \textbf{Warum (LLM):} Die Organisation hat Prozesse zur Risikobewertung und der Sicherung von Informationen beschrieben, jedoch ist nicht eindeutig dokumentiert, ob spezielle Nachweise für die Bestimmung von Risiken aufbewahrt werden müssen. Es fehlt an klaren Aussagen dazu, dass dokumentierte Informationen explizit als Nachweis für die Bestimmung von Risiken physisch aufbewahrt werden sollen.
+  \item \textbf{Primaere Fundstelle:} \coded{heading_path: Die Rolle der Geschäftsführung in der IT-Governance | page_no: 85}
+\end{itemize}
+\end{document}
