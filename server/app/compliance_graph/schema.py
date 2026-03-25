@@ -37,6 +37,7 @@ class IngestedRequirement(BaseModel):
     statement: str
     title: str
     language: str
+    source_chunk_keys: list[str] = Field(default_factory=list)
     evidence_hints: list[IngestedEvidenceHint] = Field(default_factory=list)
 
 
@@ -50,6 +51,17 @@ class IngestedChunk(BaseModel):
     heading_text: str
     text_contextualized: str
     text_raw: str
+
+
+class IngestedClauseUnit(BaseModel):
+    """Clause-level extraction unit composed from one or more chunks."""
+
+    standard_key: str
+    clause_id: str
+    clause_path: str
+    heading_text: str
+    text_contextualized: str
+    source_chunk_keys: list[str] = Field(default_factory=list)
     requirements: list[IngestedRequirement] = Field(default_factory=list)
 
 

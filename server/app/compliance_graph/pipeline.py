@@ -1,6 +1,7 @@
 """End-to-end POC pipeline: Docling -> chunks -> extraction -> Neo4j."""
 
 import asyncio
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -20,6 +21,7 @@ from app.compliance_graph.schema import (
     ComplianceIngestRequestMetadata,
     ComplianceIngestResponse,
     FIXED_HEADING_BLOCKLIST,
+    IngestedClauseUnit,
     IngestedChunk,
     IngestedDiagnosticQuestion,
     IngestedRequirement,
@@ -28,6 +30,14 @@ from app.config import config
 
 logger = logging.getLogger(__name__)
 
+DOCLING_DROP_LABELS = {
+    "picture",
+    "chart",
+    "table",
+    "caption",
+    "page_header",
+    "page_footer",
+}
 
 class ComplianceGraphIngestionPipeline:
     """Concept-aligned ingestion pipeline for the master graph POC."""
@@ -55,26 +65,31 @@ class ComplianceGraphIngestionPipeline:
         )
         if conversion_result.document is None:
             raise ValueError("Docling conversion returned no document.")
+        removed_items = self._sanitize_docling_document(conversion_result.document)
+        if removed_items > 0:
+            logger.info("Docling pre-filter removed %s non-normative items.", removed_items)
 
         chunks_total, chunks = await asyncio.to_thread(
             self._build_chunks,
             conversion_result.document,
             metadata.standard_key,
         )
-        for chunk in chunks:
+        clause_units = self._build_clause_units(chunks)
+        for unit in clause_units:
             statements = await extractor.extract(
-                chunk_text=chunk.text_contextualized,
-                clause_path=chunk.clause_path,
+                chunk_text=unit.text_contextualized,
+                clause_path=unit.clause_path,
                 language=metadata.language,
             )
             for index, statement in enumerate(statements):
-                ru_key = extractor.make_requirement_identity(chunk.chunk_key, statement, index)
-                chunk.requirements.append(
+                ru_key = extractor.make_requirement_identity(unit.clause_id, statement, index)
+                unit.requirements.append(
                     IngestedRequirement(
                         ru_key=ru_key,
                         statement=statement,
                         title=extractor.summarize_title(statement),
                         language=metadata.language,
+                        source_chunk_keys=list(unit.source_chunk_keys),
                     )
                 )
 
@@ -84,32 +99,37 @@ class ComplianceGraphIngestionPipeline:
                     "title": requirement.title,
                     "statement": requirement.statement,
                 }
-                for requirement in chunk.requirements
+                for requirement in unit.requirements
             ]
             grouped_evidence = await evidence_extractor.extract(
                 standard_key=metadata.standard_key,
-                clause_path=chunk.clause_path,
+                clause_path=unit.clause_path,
                 requirements=requirement_payload,
                 language=metadata.language,
             )
-            for requirement in chunk.requirements:
+            for requirement in unit.requirements:
                 requirement.evidence_hints.extend(grouped_evidence.get(requirement.ru_key, []))
 
         questions = await self._extract_questions(
             question_extractor=question_extractor,
             metadata=metadata,
-            chunks=chunks,
+            clause_units=clause_units,
         )
 
-        await self._persist(metadata=metadata, chunks=chunks, questions=questions)
+        await self._persist(
+            metadata=metadata,
+            chunks=chunks,
+            clause_units=clause_units,
+            questions=questions,
+        )
 
-        requirement_count = sum(len(chunk.requirements) for chunk in chunks)
+        requirement_count = sum(len(unit.requirements) for unit in clause_units)
         evidence_count = sum(
             len(requirement.evidence_hints)
-            for chunk in chunks
-            for requirement in chunk.requirements
+            for unit in clause_units
+            for requirement in unit.requirements
         )
-        clause_count = len({chunk.clause_id for chunk in chunks})
+        clause_count = len(clause_units)
         influence_count = sum(len(question.influences) for question in questions)
         return ComplianceIngestResponse(
             standard_key=metadata.standard_key,
@@ -171,6 +191,54 @@ class ComplianceGraphIngestionPipeline:
         return len(raw_chunks), built
 
     @staticmethod
+    def _build_clause_units(chunks: list[IngestedChunk]) -> list[IngestedClauseUnit]:
+        grouped: dict[str, list[IngestedChunk]] = {}
+        clause_order: list[str] = []
+        for chunk in chunks:
+            if chunk.clause_id not in grouped:
+                grouped[chunk.clause_id] = []
+                clause_order.append(chunk.clause_id)
+            grouped[chunk.clause_id].append(chunk)
+
+        units: list[IngestedClauseUnit] = []
+        for clause_id in clause_order:
+            clause_chunks = grouped[clause_id]
+            if not clause_chunks:
+                continue
+            first = clause_chunks[0]
+            combined_text = "\n\n".join(
+                " ".join((item.text_contextualized or "").split())
+                for item in clause_chunks
+                if (item.text_contextualized or "").strip()
+            )
+            if not combined_text:
+                continue
+            units.append(
+                IngestedClauseUnit(
+                    standard_key=first.standard_key,
+                    clause_id=first.clause_id,
+                    clause_path=first.clause_path,
+                    heading_text=first.heading_text,
+                    text_contextualized=combined_text,
+                    source_chunk_keys=[item.chunk_key for item in clause_chunks],
+                )
+            )
+        return units
+
+    @staticmethod
+    def _sanitize_docling_document(docling_document) -> int:
+        to_delete = []
+        for item, _ in docling_document.iterate_items(with_groups=False, traverse_pictures=True):
+            label_raw = getattr(item, "label", "")
+            label = str(getattr(label_raw, "value", label_raw) or "").strip().lower()
+            if label in DOCLING_DROP_LABELS:
+                to_delete.append(item)
+        if not to_delete:
+            return 0
+        docling_document.delete_items(node_items=to_delete)
+        return len(to_delete)
+
+    @staticmethod
     def _extract_headings(chunk) -> list[str]:
         meta = getattr(chunk, "meta", None)
         headings = getattr(meta, "headings", None) if meta else None
@@ -200,11 +268,13 @@ class ComplianceGraphIngestionPipeline:
         self,
         metadata: ComplianceIngestRequestMetadata,
         chunks: list[IngestedChunk],
+        clause_units: list[IngestedClauseUnit],
         questions: list[IngestedDiagnosticQuestion],
     ) -> None:
         async with self.neo4j_driver.session() as session:
             await session.execute_write(self._write_document, metadata)
             await session.execute_write(self._write_chunks, chunks)
+            await session.execute_write(self._write_requirements, clause_units)
             await session.execute_write(self._write_questions, metadata.standard_key, questions)
 
     @staticmethod
@@ -251,26 +321,37 @@ class ComplianceGraphIngestionPipeline:
                 text_raw=chunk.text_raw,
                 order=order,
             )
-            for requirement in chunk.requirements:
+
+    @staticmethod
+    async def _write_requirements(tx, clause_units: list[IngestedClauseUnit]) -> None:
+        for unit in clause_units:
+            for requirement in unit.requirements:
                 await tx.run(
                     """
                     MATCH (c:Clause {clause_id: $clause_id})
-                    MATCH (ch:NormativeChunk {chunk_key: $chunk_key})
                     MERGE (ru:RequirementUnit {ru_key: $ru_key})
                     SET ru.statement = $statement,
                         ru.title = $title,
                         ru.language = $language,
                         ru.status = "draft"
                     MERGE (c)-[:CONTAINS_REQUIREMENT]->(ru)
-                    MERGE (ch)-[:SOURCE_FOR]->(ru)
                     """,
-                    clause_id=chunk.clause_id,
-                    chunk_key=chunk.chunk_key,
+                    clause_id=unit.clause_id,
                     ru_key=requirement.ru_key,
                     statement=requirement.statement,
                     title=requirement.title,
                     language=requirement.language,
                 )
+                for chunk_key in requirement.source_chunk_keys:
+                    await tx.run(
+                        """
+                        MATCH (ch:NormativeChunk {chunk_key: $chunk_key})
+                        MATCH (ru:RequirementUnit {ru_key: $ru_key})
+                        MERGE (ch)-[:SOURCE_FOR]->(ru)
+                        """,
+                        chunk_key=chunk_key,
+                        ru_key=requirement.ru_key,
+                    )
                 for evidence in requirement.evidence_hints:
                     await tx.run(
                         """
@@ -296,28 +377,41 @@ class ComplianceGraphIngestionPipeline:
         self,
         question_extractor: ComplianceQuestionExtractor,
         metadata: ComplianceIngestRequestMetadata,
-        chunks: list[IngestedChunk],
+        clause_units: list[IngestedClauseUnit],
     ) -> list[IngestedDiagnosticQuestion]:
-        questions_by_key: dict[str, IngestedDiagnosticQuestion] = {}
-        for chunk in chunks:
+        questions_by_clause_prompt: dict[
+            tuple[str, str, str], IngestedDiagnosticQuestion
+        ] = {}
+        for unit in clause_units:
             requirement_payload = [
                 {
                     "ru_key": requirement.ru_key,
                     "title": requirement.title,
                     "statement": requirement.statement,
                 }
-                for requirement in chunk.requirements
+                for requirement in unit.requirements
             ]
             extracted = await question_extractor.extract(
                 standard_key=metadata.standard_key,
-                clause_path=chunk.clause_path,
+                clause_path=unit.clause_path,
                 requirements=requirement_payload,
                 language=metadata.language,
             )
             for question in extracted:
-                existing = questions_by_key.get(question.question_key)
+                normalized_prompt = self._normalize_prompt(question.prompt)
+                if not normalized_prompt:
+                    continue
+                dedupe_key = (unit.clause_id, normalized_prompt, question.answer_type)
+                existing = questions_by_clause_prompt.get(dedupe_key)
                 if existing is None:
-                    questions_by_key[question.question_key] = question
+                    question.question_key = self._canonical_question_key(
+                        standard_key=metadata.standard_key,
+                        clause_id=unit.clause_id,
+                        normalized_prompt=normalized_prompt,
+                        answer_type=question.answer_type,
+                    )
+                    question.prompt = " ".join(question.prompt.split())
+                    questions_by_clause_prompt[dedupe_key] = question
                     continue
                 seen_influences = {
                     (edge.ru_key, edge.mode, edge.when_value) for edge in existing.influences
@@ -328,7 +422,25 @@ class ComplianceGraphIngestionPipeline:
                         continue
                     existing.influences.append(edge)
                     seen_influences.add(edge_key)
-        return list(questions_by_key.values())
+        return list(questions_by_clause_prompt.values())
+
+    @staticmethod
+    def _normalize_prompt(prompt: str) -> str:
+        normalized = re.sub(r"[^\w\s]", " ", prompt.casefold())
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    @staticmethod
+    def _canonical_question_key(
+        standard_key: str,
+        clause_id: str,
+        normalized_prompt: str,
+        answer_type: str,
+    ) -> str:
+        standard_token = re.sub(r"[^a-zA-Z0-9._-]+", ".", standard_key).strip(".").lower()
+        digest = hashlib.sha1(
+            f"{standard_key}|{clause_id}|{normalized_prompt}|{answer_type}".encode("utf-8")
+        ).hexdigest()
+        return f"{standard_token}.clause.{digest[:16]}"
 
     @staticmethod
     async def _write_questions(
