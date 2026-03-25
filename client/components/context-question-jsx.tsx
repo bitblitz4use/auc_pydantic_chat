@@ -11,19 +11,27 @@ import {
   createContext,
   memo,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 import { GlobeIcon, SparklesIcon } from "lucide-react";
 
-type QuestionAnswerType = "boolean" | "single_choice" | "multi_choice" | "text" | "number";
+type QuestionAnswerType = "boolean" | "single_choice" | "multi_choice" | "text" | "number" | "file_upload";
+
+type FileUploadAnswerValue = {
+  context_document_id: string;
+  ingest_status: string;
+  filename?: string;
+  ingest_job_id?: string;
+};
 
 export type ContextAnswerSubmission = {
   sessionId: string;
   standardKeys: string[];
   questionKey: string;
-  value: boolean | string | string[] | number;
+  value: boolean | string | string[] | number | FileUploadAnswerValue;
 };
 
 export type ContextAssistSubmission = {
@@ -42,6 +50,22 @@ type ContextAssistResponse = {
 type ContextQuestionRuntimeValue = {
   submitAnswer: (submission: ContextAnswerSubmission) => void;
   requestAssist: (submission: ContextAssistSubmission) => Promise<ContextAssistResponse>;
+  uploadContextDocument: (submission: {
+    sessionId: string;
+    file: File;
+  }) => Promise<FileUploadAnswerValue | null>;
+  getContextDocumentStatus: (contextDocumentId: string) => Promise<FileUploadAnswerValue | null>;
+  runContextChallenge: (sessionId: string) => Promise<boolean>;
+  getContextChallengeStatus: (sessionId: string) => Promise<{
+    challenge_job_id: string;
+    status: string;
+    requirements_total: number;
+    processed: number;
+    failed: number;
+    duration_ms: number;
+    baseline_confirmed_run: boolean;
+  } | null>;
+  continueContextSession: (sessionId: string) => void;
   submitting: boolean;
 };
 
@@ -97,8 +121,29 @@ export type QuestionPayload = {
     impact?: {
       requirements_count?: number;
     };
+    context_challenge?: {
+      status?: string;
+      run_recommended?: boolean;
+      note?: string;
+      chunks?: Array<{
+        chunk_key?: string;
+        document_title?: string;
+        page_no?: string;
+        heading_path?: string;
+        source_ref?: string;
+        method?: string;
+        confidence?: number;
+        rationale?: string;
+      }>;
+    };
   };
   progress?: ProgressPayload;
+};
+
+type ChallengeStatusPayload = {
+  session_id: string;
+  challenge_job_id?: string;
+  status?: string;
 };
 
 const ContextQuestionRuntimeContext = createContext<ContextQuestionRuntimeValue | null>(null);
@@ -137,6 +182,21 @@ function decodePayload(payloadB64: string): QuestionPayload | null {
     const json = new TextDecoder("utf-8").decode(bytes);
     const parsed = JSON.parse(json) as QuestionPayload;
     if (!parsed?.session_id || !parsed?.question?.question_key) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function decodeChallengeStatusPayload(payloadB64: string): ChallengeStatusPayload | null {
+  try {
+    const binary = atob(payloadB64);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const json = new TextDecoder("utf-8").decode(bytes);
+    const parsed = JSON.parse(json) as ChallengeStatusPayload;
+    if (!parsed?.session_id) {
       return null;
     }
     return parsed;
@@ -212,6 +272,19 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
     question?.answer_type === "boolean" && typeof question.prefill_value === "boolean"
       ? question.prefill_value
       : null;
+  const initialUploadValue: FileUploadAnswerValue | null =
+    question?.answer_type === "file_upload" &&
+    question.prefill_value &&
+    typeof question.prefill_value === "object"
+      ? {
+          context_document_id: String(
+            (question.prefill_value as Record<string, unknown>).context_document_id || ""
+          ),
+          ingest_status: String((question.prefill_value as Record<string, unknown>).ingest_status || ""),
+          filename: String((question.prefill_value as Record<string, unknown>).filename || ""),
+          ingest_job_id: String((question.prefill_value as Record<string, unknown>).ingest_job_id || ""),
+        }
+      : null;
 
   const [booleanValue, setBooleanValue] = useState<boolean | null>(initialBoolean);
   const [singleValue, setSingleValue] = useState<string>(initialSingle);
@@ -219,6 +292,11 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   const [textValue, setTextValue] = useState<string>(initialText);
   const [numberValue, setNumberValue] = useState<string>(initialNumber);
   const [assistLoadingTool, setAssistLoadingTool] = useState<"rewrite" | "web_lookup" | null>(null);
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
+  const [uploadValue, setUploadValue] = useState<FileUploadAnswerValue | null>(initialUploadValue);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [challengeBusy, setChallengeBusy] = useState(false);
   const [assistNote, setAssistNote] = useState<string>(
     typeof question?.assist_note === "string" ? question.assist_note : ""
   );
@@ -247,11 +325,37 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
     (question.answer_type === "number" &&
       Boolean(numberValue.trim()) &&
       Number.isFinite(Number(numberValue)) &&
-      Number(numberValue) >= 0);
+      Number(numberValue) >= 0) ||
+    (question.answer_type === "file_upload" &&
+      Boolean(uploadValue?.context_document_id) &&
+      uploadValue?.ingest_status !== "failed");
+
+  useEffect(() => {
+    if (question.answer_type !== "file_upload") {
+      return;
+    }
+    if (!uploadValue?.context_document_id) {
+      return;
+    }
+    if (!["queued", "running", "processing"].includes(uploadValue.ingest_status)) {
+      return;
+    }
+    let cancelled = false;
+    const interval = window.setInterval(() => {
+      void runtime.getContextDocumentStatus(uploadValue.context_document_id).then((latest) => {
+        if (cancelled || !latest) return;
+        setUploadValue(latest);
+      });
+    }, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [question.answer_type, runtime, uploadValue]);
 
   const submit = () => {
     if (disabled) return;
-    let value: boolean | string | string[] | number;
+    let value: boolean | string | string[] | number | FileUploadAnswerValue;
     if (question.answer_type === "boolean") {
       if (booleanValue === null) return;
       value = booleanValue;
@@ -265,6 +369,9 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       const normalized = Number(numberValue);
       if (!Number.isFinite(normalized) || normalized < 0) return;
       value = normalized;
+    } else if (question.answer_type === "file_upload") {
+      if (!uploadValue?.context_document_id) return;
+      value = uploadValue;
     } else {
       const trimmed = textValue.trim();
       if (!trimmed) return;
@@ -277,6 +384,36 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       questionKey: question.question_key,
       value,
     });
+  };
+
+  const uploadContextDocument = () => {
+    if (disabled || uploadBusy || !selectedUploadFile) return;
+    setUploadBusy(true);
+    setUploadError("");
+    void runtime
+      .uploadContextDocument({
+        sessionId: payload.session_id,
+        file: selectedUploadFile,
+      })
+      .then((result) => {
+        if (!result) {
+          setUploadError("Upload fehlgeschlagen.");
+          return;
+        }
+        setUploadValue(result);
+      })
+      .catch(() => {
+        setUploadError("Upload fehlgeschlagen.");
+      })
+      .finally(() => setUploadBusy(false));
+  };
+
+  const triggerChallengeRun = () => {
+    if (challengeBusy) return;
+    setChallengeBusy(true);
+    void runtime
+      .runContextChallenge(payload.session_id)
+      .finally(() => setChallengeBusy(false));
   };
 
   const requestAssist = (tool: "rewrite" | "web_lookup") => {
@@ -419,6 +556,48 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
           </div>
         )}
 
+        {(briefing?.context_challenge?.note || (briefing?.context_challenge?.chunks?.length ?? 0) > 0) && (
+          <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Dokumentbasierte Challenge
+            </p>
+            {briefing?.context_challenge?.note && (
+              <p className="mt-1 text-sm text-foreground">{briefing.context_challenge.note}</p>
+            )}
+            {(briefing?.context_challenge?.chunks?.length ?? 0) > 0 && (
+              <div className="mt-2 space-y-2">
+                {briefing?.context_challenge?.chunks?.slice(0, 3).map((chunk, idx) => (
+                  <div
+                    key={`${chunk.chunk_key || "chunk"}-${idx}`}
+                    className="rounded-md border border-border bg-background/60 p-2 text-xs"
+                  >
+                    <p className="font-medium text-foreground">
+                      {chunk.document_title || "Dokument"} {chunk.page_no ? `· Seite ${chunk.page_no}` : ""}
+                    </p>
+                    <p className="text-muted-foreground">{chunk.heading_path || chunk.source_ref || chunk.chunk_key}</p>
+                    {chunk.rationale && <p className="mt-1 text-muted-foreground">{chunk.rationale}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {briefing?.context_challenge?.run_recommended && (
+              <button
+                type="button"
+                onClick={triggerChallengeRun}
+                disabled={challengeBusy || disabled}
+                className={cn(
+                  "mt-2 inline-flex rounded-md border border-border px-2.5 py-1 text-xs",
+                  challengeBusy || disabled
+                    ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-70"
+                    : "bg-background hover:bg-muted/60"
+                )}
+              >
+                {challengeBusy ? "Challenge startet..." : "Vollständigen Challenge-Lauf starten"}
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mt-4">
           {question.answer_type === "boolean" && (
             <div className="flex gap-2">
@@ -507,6 +686,41 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
               placeholder="Antwort eingeben"
             />
           )}
+
+          {question.answer_type === "file_upload" && (
+            <div className="space-y-2">
+              <input
+                type="file"
+                disabled={disabled || uploadBusy}
+                onChange={(event) => setSelectedUploadFile(event.target.files?.[0] ?? null)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={uploadContextDocument}
+                  disabled={disabled || uploadBusy || !selectedUploadFile}
+                  className={cn(
+                    "inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium",
+                    disabled || uploadBusy || !selectedUploadFile
+                      ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-60"
+                      : "bg-background hover:bg-muted/60"
+                  )}
+                >
+                  {uploadBusy ? "Upload läuft..." : "Dokument hochladen"}
+                </button>
+                {uploadValue?.context_document_id && (
+                  <span className="text-xs text-muted-foreground">
+                    Status: {uploadValue.ingest_status || "queued"}
+                  </span>
+                )}
+              </div>
+              {uploadValue?.filename && (
+                <p className="text-xs text-muted-foreground">Datei: {uploadValue.filename}</p>
+              )}
+              {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
+            </div>
+          )}
         </div>
 
         <div className="mt-4 border-t border-border pt-3">
@@ -530,8 +744,107 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   );
 }
 
+function CtxChallengeStatusCard({ payloadB64 = "" }: { payloadB64?: string }) {
+  const runtime = useContextQuestionRuntime();
+  const payload = useMemo(() => decodeChallengeStatusPayload(payloadB64), [payloadB64]);
+  const [status, setStatus] = useState<string>(payload?.status || "queued");
+  const [processed, setProcessed] = useState<number>(0);
+  const [requirementsTotal, setRequirementsTotal] = useState<number>(0);
+  const [failed, setFailed] = useState<number>(0);
+  const [durationMs, setDurationMs] = useState<number>(0);
+  const [autoContinued, setAutoContinued] = useState(false);
+
+  useEffect(() => {
+    if (!payload?.session_id) {
+      return;
+    }
+    let cancelled = false;
+    const poll = () => {
+      void runtime.getContextChallengeStatus(payload.session_id).then((res) => {
+        if (cancelled || !res) return;
+        setStatus(res.status || "unknown");
+        setProcessed(Number(res.processed || 0));
+        setRequirementsTotal(Number(res.requirements_total || 0));
+        setFailed(Number(res.failed || 0));
+        setDurationMs(Number(res.duration_ms || 0));
+      });
+    };
+    poll();
+    const interval = window.setInterval(poll, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [payload?.session_id, runtime]);
+
+  if (!payload?.session_id) {
+    return (
+      <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm">
+        Challenge-Statuskarte konnte nicht geladen werden.
+      </div>
+    );
+  }
+
+  const pct =
+    requirementsTotal > 0 ? Math.round(Math.min(100, (processed / requirementsTotal) * 100)) : 0;
+  const done = status === "completed";
+  const failedState = status === "failed" || status === "cancelled";
+
+  useEffect(() => {
+    if (!payload?.session_id || autoContinued) {
+      return;
+    }
+    if (status !== "completed") {
+      return;
+    }
+    setAutoContinued(true);
+    runtime.continueContextSession(payload.session_id);
+  }, [autoContinued, payload?.session_id, runtime, status]);
+
+  return (
+    <div className="w-full max-w-3xl rounded-lg border bg-card p-5 shadow-sm">
+      <h3 className="text-sm font-semibold text-foreground">Challenge-Lauf wird ausgeführt</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Status: {status}
+        {durationMs > 0 ? ` · Dauer: ${(durationMs / 1000).toFixed(1)}s` : ""}
+      </p>
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn(
+            "h-full transition-all",
+            failedState ? "bg-destructive" : done ? "bg-emerald-500" : "bg-primary"
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {requirementsTotal > 0
+          ? `${processed}/${requirementsTotal} Anforderungen verarbeitet`
+          : "Verarbeitungsfortschritt wird ermittelt..."}
+        {failed > 0 ? ` · Fehler: ${failed}` : ""}
+      </p>
+      {!done && !failedState && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          <Shimmer>Bitte warten, der vollständige Dokument-Check läuft...</Shimmer>
+        </p>
+      )}
+      {done && (
+        <p className="mt-2 text-xs text-emerald-600">
+          Challenge-Lauf abgeschlossen. Der Fragebogen setzt sich mit den aktualisierten Zuständen fort.
+        </p>
+      )}
+      {failedState && (
+        <p className="mt-2 text-xs text-destructive">
+          Challenge-Lauf konnte nicht abgeschlossen werden. Du kannst ihn erneut starten.
+        </p>
+      )}
+    </div>
+  );
+}
+
 const CONTEXT_JSX_COMPONENTS = {
   CtxQuestionCard,
+  CtxChallengeStatusCard,
 } as const;
 
 export const ContextAssistantJsxPreview = memo(function ContextAssistantJsxPreview({

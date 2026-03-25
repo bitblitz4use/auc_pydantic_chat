@@ -15,6 +15,8 @@ from neo4j import AsyncDriver
 
 from app.compliance_graph.context_assist import ContextAssistService
 from app.compliance_graph.context_contract import (
+    ContextChallengeBriefing,
+    ContextChallengeChunkEvidence,
     ProgressCounters,
     QuestionBriefing,
     QuestionBriefingChunk,
@@ -29,6 +31,7 @@ from app.compliance_graph.context_contract import (
     resolve_conversation_id,
     resolve_latest_user_text,
 )
+from app.compliance_graph.context_document_service import ContextDocumentService
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +156,11 @@ CONTEXT_QUESTION_ORDER: list[_ContextQuestionDef] = [
         assist_tools=["rewrite"],
     ),
     _ContextQuestionDef(
+        key="context.org_handbook_upload",
+        prompt="Unternehmenshandbuch / Kontextdokument hochladen",
+        answer_type="file_upload",
+    ),
+    _ContextQuestionDef(
         key="context.org_selected_standards",
         prompt="Standards / Gesetze / Regulierungen",
         answer_type="multi_choice",
@@ -161,6 +169,7 @@ CONTEXT_QUESTION_ORDER: list[_ContextQuestionDef] = [
 ]
 
 CONTEXT_QUESTION_BY_KEY = {item.key: item for item in CONTEXT_QUESTION_ORDER}
+CHALLENGE_CONFIRM_QUESTION_KEY = "context.run_full_challenge_now"
 
 
 class ComplianceContextOrchestrator:
@@ -168,9 +177,16 @@ class ComplianceContextOrchestrator:
 
     _constraints_ready: bool = False
 
-    def __init__(self, neo4j_driver: AsyncDriver, model_id: str | None = None):
+    def __init__(
+        self,
+        neo4j_driver: AsyncDriver,
+        model_id: str | None = None,
+        qdrant_client: Any | None = None,
+    ):
         self.neo4j_driver = neo4j_driver
         self.assist_service = ContextAssistService(model_id=model_id)
+        self.model_id = model_id
+        self.qdrant_client = qdrant_client
 
     async def handle_turn(self, body_data: dict[str, Any]) -> tuple[Literal["jsx", "text", "handoff"], str]:
         """Process one context turn and return streamed payload content."""
@@ -338,6 +354,32 @@ class ComplianceContextOrchestrator:
 
         if context_input.answer is not None:
             question_key = context_input.answer.question_key
+            if question_key == CHALLENGE_CONFIRM_QUESTION_KEY:
+                normalized = self._normalize_answer(
+                    value=context_input.answer.value,
+                    answer_type="boolean",
+                    allowed_values=[],
+                )
+                if normalized is None:
+                    return (
+                        "text",
+                        "Bitte Ja oder Nein auswählen, um den vollständigen Challenge-Lauf zu starten oder zu überspringen.",
+                    )
+                await self._record_challenge_prompt_decision(
+                    session_id=session_id,
+                    run_now=bool(normalized),
+                )
+                if bool(normalized):
+                    challenge_service = ContextDocumentService(
+                        neo4j_driver=self.neo4j_driver,
+                        qdrant_client=self.qdrant_client,
+                        model_id=self.model_id,
+                    )
+                    run_result = await challenge_service.run_full_challenge(
+                        session_id=session_id,
+                        model_id=self.model_id,
+                    )
+                    return ("jsx", self._build_challenge_status_jsx(run_result))
             context_question_def = CONTEXT_QUESTION_BY_KEY.get(question_key)
             if context_question_def is not None:
                 allowed_values = context_question_def.allowed_values or []
@@ -445,6 +487,22 @@ class ComplianceContextOrchestrator:
             )
             return ("jsx", self._build_question_jsx(context_payload))
 
+        should_prompt_baseline = await self._should_prompt_context_challenge_baseline(session_id=session_id)
+        if should_prompt_baseline:
+            await self._mark_context_challenge_prompted(session_id=session_id)
+            await self._recompute_session_state(session_id=session_id)
+            progress = await self._load_progress(session_id=session_id)
+            confirm_payload = self._build_challenge_confirmation_payload(
+                session_id=session_id,
+                standard_keys=standard_keys,
+                progress=progress,
+            )
+            await self._set_pending_question_key(
+                session_id=session_id,
+                question_key=confirm_payload.question.question_key,
+            )
+            return ("jsx", self._build_question_jsx(confirm_payload))
+
         await self._recompute_session_state(session_id=session_id)
         progress = await self._load_progress(session_id=session_id)
         candidates = await self._load_next_question_candidates(session_id=session_id)
@@ -505,6 +563,91 @@ class ComplianceContextOrchestrator:
         )
         return ("text", no_candidate_text)
 
+    async def _should_prompt_context_challenge_baseline(self, session_id: str) -> bool:
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                OPTIONAL MATCH (s)-[:HAS_CONTEXT_DOCUMENT]->(d:ContextDocument)
+                RETURN
+                    coalesce(s.context_challenge_baseline_confirmed_run, false) AS baseline_run,
+                    coalesce(s.context_challenge_prompted_once, false) AS prompted_once,
+                    count(
+                        CASE
+                            WHEN coalesce(d.ingest_status, "") IN ["completed", "completed_with_warnings"] THEN 1
+                        END
+                    ) AS completed_docs
+                """,
+                session_id=session_id,
+            )
+            row = await result.single()
+        if not row:
+            return False
+        baseline_run = bool(row.get("baseline_run"))
+        prompted_once = bool(row.get("prompted_once"))
+        completed_docs = int(row.get("completed_docs") or 0)
+        return completed_docs > 0 and not baseline_run and not prompted_once
+
+    async def _mark_context_challenge_prompted(self, session_id: str) -> None:
+        async with self.neo4j_driver.session() as session:
+            await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                SET s.context_challenge_prompted_once = true
+                """,
+                session_id=session_id,
+            )
+
+    async def _record_challenge_prompt_decision(self, *, session_id: str, run_now: bool) -> None:
+        async with self.neo4j_driver.session() as session:
+            await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                SET
+                    s.context_challenge_prompted_once = true,
+                    s.context_challenge_last_decision = $decision,
+                    s.context_challenge_last_decision_at = datetime()
+                """,
+                session_id=session_id,
+                decision="run_now" if run_now else "not_now",
+            )
+
+    @staticmethod
+    def _build_challenge_confirmation_payload(
+        *,
+        session_id: str,
+        standard_keys: list[str],
+        progress: ProgressCounters,
+    ) -> QuestionCardPayload:
+        return QuestionCardPayload(
+            session_id=session_id,
+            standard_keys=standard_keys,
+            question=QuestionRenderModel(
+                question_key=CHALLENGE_CONFIRM_QUESTION_KEY,
+                prompt="Kontextdokumente sind indexiert. Vollständigen Challenge-Lauf jetzt starten?",
+                answer_type="boolean",
+                allowed_values=[],
+                options=[],
+                assist_tools=[],
+                prefill_value=None,
+                assist_note="Ja startet den Baseline-Lauf, Nein setzt den Fragebogen direkt fort.",
+                language="de",
+            ),
+            conversation=None,
+            question_briefing=None,
+            progress=progress,
+        )
+
+    @staticmethod
+    def _build_challenge_status_jsx(run_result: dict[str, Any]) -> str:
+        payload = {
+            "session_id": str(run_result.get("session_id", "")),
+            "challenge_job_id": str(run_result.get("challenge_job_id", "")),
+            "status": str(run_result.get("status", "queued")),
+        }
+        encoded = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("ascii")
+        return f'<CtxChallengeStatusCard payloadB64="{encoded}" />'
+
     async def _ensure_constraints(self) -> None:
         if ComplianceContextOrchestrator._constraints_ready:
             return
@@ -525,6 +668,24 @@ class ComplianceContextOrchestrator:
                 """
                 CREATE CONSTRAINT context_fact_id_unique IF NOT EXISTS
                 FOR (f:ContextFact) REQUIRE f.context_fact_id IS UNIQUE
+                """
+            )
+            await session.run(
+                """
+                CREATE CONSTRAINT context_document_id_unique IF NOT EXISTS
+                FOR (d:ContextDocument) REQUIRE d.context_document_id IS UNIQUE
+                """
+            )
+            await session.run(
+                """
+                CREATE CONSTRAINT context_chunk_id_unique IF NOT EXISTS
+                FOR (c:ContextChunk) REQUIRE c.context_chunk_id IS UNIQUE
+                """
+            )
+            await session.run(
+                """
+                CREATE CONSTRAINT session_requirement_state_id_unique IF NOT EXISTS
+                FOR (rs:SessionRequirementState) REQUIRE rs.state_id IS UNIQUE
                 """
             )
         ComplianceContextOrchestrator._constraints_ready = True
@@ -941,6 +1102,15 @@ class ComplianceContextOrchestrator:
             elif item.answer_type == "multi_choice":
                 if not isinstance(value, list) or len(value) == 0:
                     missing.append(item.key)
+            elif item.answer_type == "file_upload":
+                if not isinstance(value, dict):
+                    missing.append(item.key)
+                    continue
+                status = str(value.get("ingest_status") or "").strip().lower()
+                if not str(value.get("context_document_id") or "").strip():
+                    missing.append(item.key)
+                elif status in {"failed", "unknown"}:
+                    missing.append(item.key)
         return missing
 
     @staticmethod
@@ -1291,6 +1461,21 @@ class ComplianceContextOrchestrator:
                 return int(numeric)
             return numeric
 
+        if at == "file_upload":
+            if not isinstance(value, dict):
+                return None
+            context_document_id = str(value.get("context_document_id") or "").strip()
+            if not context_document_id:
+                return None
+            ingest_status = str(value.get("ingest_status") or "queued").strip().lower()
+            filename = str(value.get("filename") or "").strip()
+            return {
+                "context_document_id": context_document_id,
+                "ingest_status": ingest_status,
+                "filename": filename,
+                "ingest_job_id": str(value.get("ingest_job_id") or "").strip(),
+            }
+
         return None
 
     async def _upsert_answer(
@@ -1498,6 +1683,24 @@ class ComplianceContextOrchestrator:
     ) -> None:
         await tx.run(
             """
+            MATCH (s:Session {session_id: $session_id})
+            UNWIND $rows AS row
+            MATCH (ru:RequirementUnit {ru_key: row.ru_key})
+            MERGE (rs:SessionRequirementState {state_id: $session_id + "::" + row.ru_key})
+            SET
+                rs.session_id = $session_id,
+                rs.ru_key = row.ru_key,
+                rs.manual_state = row.state,
+                rs.manual_source_question_key = row.source_question_key,
+                rs.updated_at = datetime()
+            MERGE (s)-[:HAS_REQUIREMENT_STATE]->(rs)
+            MERGE (rs)-[:FOR_REQUIREMENT]->(ru)
+            """,
+            session_id=session_id,
+            rows=states,
+        )
+        await tx.run(
+            """
             MATCH (s:Session {session_id: $session_id})-[r:EXCLUDES]->(:RequirementUnit)
             DELETE r
             """,
@@ -1526,16 +1729,32 @@ class ComplianceContextOrchestrator:
         await tx.run(
             """
             MATCH (s:Session {session_id: $session_id})
-            UNWIND $rows AS row
-            MATCH (ru:RequirementUnit {ru_key: row.ru_key})
+            MATCH (s)-[:HAS_REQUIREMENT_STATE]->(rs:SessionRequirementState)-[:FOR_REQUIREMENT]->(ru:RequirementUnit)
+            WITH s, rs, ru,
+                 coalesce(rs.manual_state, "open") AS manual_state,
+                 coalesce(rs.auto_challenge_state, "open") AS auto_state
+            WITH s, rs, ru,
+                CASE
+                    WHEN manual_state = "not_applicable" THEN "not_applicable"
+                    WHEN manual_state IN ["gap", "unclear", "addressed"] THEN manual_state
+                    WHEN auto_state IN ["gap", "unclear", "addressed"] THEN auto_state
+                    ELSE "open"
+                END AS effective_state
+            SET
+                rs.effective_state = effective_state,
+                rs.updated_at = datetime()
             MERGE (s)-[rel:HAS_STATE]->(ru)
             SET
-                rel.state = row.state,
-                rel.source_question_key = row.source_question_key,
+                rel.state = effective_state,
+                rel.source = CASE
+                    WHEN coalesce(rs.manual_state, "open") IN ["not_applicable", "gap", "unclear", "addressed"] THEN "manual_state"
+                    WHEN coalesce(rs.auto_challenge_state, "open") IN ["gap", "unclear", "addressed"] THEN "auto_challenge_state"
+                    ELSE "open"
+                END,
+                rel.source_question_key = coalesce(rs.manual_source_question_key, ""),
                 rel.updated_at = datetime()
             """,
             session_id=session_id,
-            rows=states,
         )
 
     async def _load_progress(self, session_id: str) -> ProgressCounters:
@@ -1631,7 +1850,7 @@ class ComplianceContextOrchestrator:
 
     def _validate_question_candidate(self, candidate: _QuestionCandidate) -> QuestionRenderModel | None:
         answer_type = candidate.answer_type.strip().lower()
-        if answer_type not in {"boolean", "single_choice", "multi_choice", "text", "number"}:
+        if answer_type not in {"boolean", "single_choice", "multi_choice", "text", "number", "file_upload"}:
             logger.warning("Skipping invalid question answer_type for %s", candidate.question_key)
             return None
         if not candidate.prompt.strip():
@@ -1662,7 +1881,12 @@ class ComplianceContextOrchestrator:
         question_key: str,
         impact: int,
     ) -> QuestionBriefing:
+        context_challenge = await self._load_context_challenge_briefing(
+            session_id=session_id,
+            question_key=question_key,
+        )
         briefing = QuestionBriefing(
+            context_challenge=context_challenge,
             impact=QuestionBriefingImpact(requirements_count=max(0, int(impact or 0)))
         )
         async with self.neo4j_driver.session() as session:
@@ -1741,7 +1965,97 @@ class ComplianceContextOrchestrator:
             ),
             summary=summary,
             evidence=evidence_items,
+            context_challenge=context_challenge,
             impact=briefing.impact,
+        )
+
+    async def _load_context_challenge_briefing(
+        self,
+        *,
+        session_id: str,
+        question_key: str,
+    ):
+        async with self.neo4j_driver.session() as session:
+            status_result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                OPTIONAL MATCH (s)-[:HAS_CONTEXT_DOCUMENT]->(d:ContextDocument)
+                RETURN
+                    coalesce(s.context_challenge_ready, false) AS challenge_ready,
+                    coalesce(s.context_challenge_baseline_confirmed_run, false) AS baseline_run,
+                    coalesce(s.challenge_status, "idle") AS challenge_status,
+                    count(d) AS document_count,
+                    count(
+                        CASE
+                            WHEN coalesce(d.ingest_status, "") IN ["completed", "completed_with_warnings"] THEN 1
+                        END
+                    ) AS completed_docs
+                """,
+                session_id=session_id,
+            )
+            status_row = await status_result.single()
+
+            evidence_result = await session.run(
+                """
+                MATCH (q:DiagnosticQuestion {question_key: $question_key})-[:INFLUENCES]->(ru:RequirementUnit)
+                MATCH (ch:ContextChunk)-[m:MATCHES_REQUIREMENT {session_id: $session_id}]->(ru)
+                OPTIONAL MATCH (s:Session {session_id: $session_id})-[hs:HAS_CHALLENGE_STATE]->(ru)
+                OPTIONAL MATCH (d:ContextDocument {context_document_id: ch.context_document_id})
+                RETURN
+                    ch.context_chunk_id AS chunk_key,
+                    coalesce(d.filename, "") AS document_title,
+                    coalesce(ch.page_no, "") AS page_no,
+                    coalesce(ch.heading_path, "") AS heading_path,
+                    coalesce(ch.source_ref, "") AS source_ref,
+                    coalesce(m.method, "hybrid") AS method,
+                    coalesce(m.score, 0.0) AS score,
+                    coalesce(hs.confidence, 0.0) AS confidence,
+                    coalesce(hs.rationale, "") AS rationale
+                ORDER BY score DESC, chunk_key
+                LIMIT 3
+                """,
+                session_id=session_id,
+                question_key=question_key,
+            )
+            evidence_rows = await evidence_result.data()
+
+        ready = bool(status_row.get("challenge_ready")) if status_row else False
+        baseline_run = bool(status_row.get("baseline_run")) if status_row else False
+        challenge_status = str(status_row.get("challenge_status") or "") if status_row else ""
+        completed_docs = int(status_row.get("completed_docs") or 0) if status_row else 0
+        document_count = int(status_row.get("document_count") or 0) if status_row else 0
+
+        note = ""
+        run_recommended = False
+        if document_count <= 0:
+            note = "Noch keine Kontextdokumente hochgeladen."
+        elif completed_docs <= 0:
+            note = "Dokument-Indexierung läuft noch."
+        elif not baseline_run and ready:
+            note = "Dokumente sind indexiert. Starte den vollständigen Challenge-Lauf für Baseline-Ergebnisse."
+            run_recommended = True
+        elif challenge_status in {"queued", "running"}:
+            note = "Challenge-Lauf wird aktuell berechnet."
+
+        chunks = [
+            ContextChallengeChunkEvidence(
+                chunk_key=str(row.get("chunk_key", "")),
+                document_title=str(row.get("document_title", "")),
+                page_no=str(row.get("page_no", "")),
+                heading_path=str(row.get("heading_path", "")),
+                source_ref=str(row.get("source_ref", "")),
+                method=str(row.get("method", "")),
+                confidence=float(row.get("confidence") or 0.0),
+                rationale=str(row.get("rationale", "")),
+            )
+            for row in evidence_rows
+            if str(row.get("chunk_key", "")).strip()
+        ]
+        return ContextChallengeBriefing(
+            status=challenge_status,
+            run_recommended=run_recommended,
+            note=note,
+            chunks=chunks,
         )
 
     @staticmethod

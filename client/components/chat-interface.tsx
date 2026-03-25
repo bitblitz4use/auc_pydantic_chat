@@ -298,7 +298,12 @@ export function ChatInterface() {
       if (Array.isArray(value)) {
         return value.join(" · ");
       }
-      return value;
+      if (typeof value === "object" && value !== null) {
+        const filename = String((value as Record<string, unknown>).filename || "").trim();
+        const status = String((value as Record<string, unknown>).ingest_status || "").trim();
+        return filename ? `${filename} (${status || "queued"})` : `Upload (${status || "queued"})`;
+      }
+      return String(value);
     },
     []
   );
@@ -419,6 +424,150 @@ export function ChatInterface() {
     [contextBodyBase, contextStandardKeys, ensureContextConversationId]
   );
 
+  const uploadContextDocument = useCallback(
+    async (submission: {
+      sessionId: string;
+      file: File;
+    }): Promise<{
+      context_document_id: string;
+      ingest_status: string;
+      filename?: string;
+      ingest_job_id?: string;
+    } | null> => {
+      try {
+        const formData = new FormData();
+        formData.append("file", submission.file);
+        formData.append("session_id", submission.sessionId);
+        const response = await fetch(apiUrl.contextDocumentUpload(), {
+          method: "POST",
+          body: formData,
+        });
+        const data = (await response.json()) as Record<string, unknown>;
+        if (!response.ok) {
+          return null;
+        }
+        const contextDocumentId = String(data.context_document_id || "").trim();
+        if (!contextDocumentId) {
+          return null;
+        }
+        return {
+          context_document_id: contextDocumentId,
+          ingest_status: String(data.status || data.ingest_status || "queued"),
+          filename: String(data.filename || submission.file.name || ""),
+          ingest_job_id: String(data.ingest_job_id || ""),
+        };
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
+  const getContextDocumentStatus = useCallback(
+    async (
+      contextDocumentId: string
+    ): Promise<{
+      context_document_id: string;
+      ingest_status: string;
+      filename?: string;
+      ingest_job_id?: string;
+    } | null> => {
+      try {
+        const response = await fetch(apiUrl.contextDocumentStatus(contextDocumentId), {
+          method: "GET",
+        });
+        const data = (await response.json()) as Record<string, unknown>;
+        if (!response.ok) {
+          return null;
+        }
+        return {
+          context_document_id: String(data.context_document_id || contextDocumentId),
+          ingest_status: String(data.ingest_status || "unknown"),
+          filename: String(data.filename || ""),
+          ingest_job_id: String(data.ingest_job_id || ""),
+        };
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
+  const runContextChallenge = useCallback(async (sessionId: string): Promise<boolean> => {
+    try {
+      const response = await fetch(apiUrl.contextChallengeRun(sessionId), {
+        method: "POST",
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const continueContextSession = useCallback(
+    (sessionId: string) => {
+      const conversationId = ensureContextConversationId();
+      setContextSessionId(sessionId);
+      setLastSentTaskMode("context");
+      sendMessage(
+        { text: withContextNonce("Compliance context resume") },
+        {
+          body: {
+            ...contextBodyBase,
+            conversationId,
+            contextSession: {
+              session_id: sessionId,
+              standard_keys: contextStandardKeys.length > 0 ? contextStandardKeys : undefined,
+            },
+          },
+        }
+      );
+    },
+    [
+      contextBodyBase,
+      contextStandardKeys,
+      ensureContextConversationId,
+      sendMessage,
+      withContextNonce,
+    ]
+  );
+
+  const getContextChallengeStatus = useCallback(
+    async (
+      sessionId: string
+    ): Promise<{
+      challenge_job_id: string;
+      status: string;
+      requirements_total: number;
+      processed: number;
+      failed: number;
+      duration_ms: number;
+      baseline_confirmed_run: boolean;
+    } | null> => {
+      try {
+        const response = await fetch(apiUrl.contextChallengeStatus(sessionId), {
+          method: "GET",
+        });
+        const data = (await response.json()) as Record<string, unknown>;
+        if (!response.ok) {
+          return null;
+        }
+        return {
+          challenge_job_id: String(data.challenge_job_id || ""),
+          status: String(data.status || "idle"),
+          requirements_total: Number(data.requirements_total || 0),
+          processed: Number(data.processed || 0),
+          failed: Number(data.failed || 0),
+          duration_ms: Number(data.duration_ms || 0),
+          baseline_confirmed_run: Boolean(data.baseline_confirmed_run),
+        };
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
+
   const submitContextControl = useCallback(
     (
       action: "pause" | "resume" | "stop" | "status",
@@ -470,9 +619,23 @@ export function ChatInterface() {
     () => ({
       submitAnswer: submitContextAnswer,
       requestAssist: requestContextAssist,
+      uploadContextDocument,
+      getContextDocumentStatus,
+      runContextChallenge,
+      getContextChallengeStatus,
+      continueContextSession,
       submitting: status === "submitted" || status === "streaming",
     }),
-    [status, submitContextAnswer, requestContextAssist]
+    [
+      status,
+      submitContextAnswer,
+      requestContextAssist,
+      uploadContextDocument,
+      getContextDocumentStatus,
+      runContextChallenge,
+      getContextChallengeStatus,
+      continueContextSession,
+    ]
   );
 
   // Component that uses the controller to clear text immediately
@@ -943,7 +1106,9 @@ export function ChatInterface() {
                               <div className="space-y-3">
                                 {textParts.map((part, idx) => {
                                   const rawPart = part.trim();
-                                  const isJsxCard = rawPart.startsWith("<CtxQuestionCard");
+                                  const isJsxCard =
+                                    rawPart.startsWith("<CtxQuestionCard") ||
+                                    rawPart.startsWith("<CtxChallengeStatusCard");
                                   if (isJsxCard) {
                                     return (
                                       <div

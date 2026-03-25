@@ -183,3 +183,19 @@ When you move beyond the POC endpoint, add:
 - deterministic rule catalog for contextualization
 
 The current endpoint is intentionally a clean master-ingestion foundation for that stage.
+
+## 9) Session context-document endpoints (implemented)
+
+Additional routes were added for session-scoped ingest/challenge runtime:
+
+- `POST /api/compliance-graph/context-documents/upload`
+  - multipart: `file`, `session_id`
+  - returns `context_document_id`, ingest job metadata
+- `GET /api/compliance-graph/context-documents/{id}/status`
+  - ingest lifecycle for one uploaded document
+- `POST /api/compliance-graph/sessions/{session_id}/context-challenge/run`
+  - explicit baseline full challenge trigger
+- `GET /api/compliance-graph/sessions/{session_id}/context-challenge/status`
+  - job lifecycle and counters
+- `GET /api/compliance-graph/sessions/{session_id}/context-evidence`
+  - debug view for requirement/chunk traceability

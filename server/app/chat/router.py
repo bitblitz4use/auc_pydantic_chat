@@ -205,6 +205,7 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         orchestrator = ComplianceContextOrchestrator(
             neo4j_driver=neo4j_driver,
             model_id=model_id,
+            qdrant_client=getattr(request.app.state, "qdrant_client", None),
         )
         try:
             kind, payload = await orchestrator.handle_turn(body_data)
@@ -306,6 +307,7 @@ async def context_assist(request: Request) -> Response:
     orchestrator = ComplianceContextOrchestrator(
         neo4j_driver=neo4j_driver,
         model_id=model_id,
+        qdrant_client=getattr(request.app.state, "qdrant_client", None),
     )
     try:
         kind, payload = await orchestrator.handle_turn(body_data)

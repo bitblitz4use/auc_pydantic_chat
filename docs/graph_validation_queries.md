@@ -201,3 +201,47 @@ OPTIONAL MATCH p3=(q:DiagnosticQuestion {standard_key: d.standard_key})-[:INFLUE
 RETURN d, c, p1, p2, pE, p3, q
 LIMIT 200;
 ```
+
+---
+
+## 11) Session context-document integrity checks
+
+### 11.1 Context documents/chunks per session
+
+```cypher
+MATCH (s:Session {session_id: $session_id})
+OPTIONAL MATCH (s)-[:HAS_CONTEXT_DOCUMENT]->(d:ContextDocument)
+OPTIONAL MATCH (d)-[:HAS_CONTEXT_CHUNK]->(ch:ContextChunk)
+RETURN
+  s.session_id AS session_id,
+  count(DISTINCT d) AS documents,
+  count(DISTINCT ch) AS chunks,
+  collect(DISTINCT d.ingest_status) AS ingest_statuses;
+```
+
+### 11.2 Challenge traceability from requirement to chunk
+
+```cypher
+MATCH (s:Session {session_id: $session_id})-[hs:HAS_CHALLENGE_STATE]->(ru:RequirementUnit)
+OPTIONAL MATCH (ch:ContextChunk)-[m:MATCHES_REQUIREMENT {session_id: $session_id}]->(ru)
+RETURN
+  ru.ru_key AS ru_key,
+  hs.challenge_state AS challenge_state,
+  hs.confidence AS confidence,
+  count(ch) AS matched_chunks,
+  max(m.score) AS top_score
+ORDER BY top_score DESC, ru_key
+LIMIT 200;
+```
+
+### 11.3 Effective-state consistency
+
+```cypher
+MATCH (s:Session {session_id: $session_id})-[h:HAS_STATE]->(ru:RequirementUnit)
+OPTIONAL MATCH (s)-[:HAS_REQUIREMENT_STATE]->(rs:SessionRequirementState {ru_key: ru.ru_key})
+RETURN
+  h.state AS materialized_state,
+  rs.effective_state AS effective_state,
+  count(*) AS count
+ORDER BY materialized_state, effective_state;
+```

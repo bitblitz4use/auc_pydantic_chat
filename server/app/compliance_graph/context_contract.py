@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SUPPORTED_ANSWER_TYPES = {"boolean", "single_choice", "multi_choice", "text", "number"}
+SUPPORTED_ANSWER_TYPES = {"boolean", "single_choice", "multi_choice", "text", "number", "file_upload"}
 
 
 class ContextAnswerInput(BaseModel):
@@ -57,7 +57,7 @@ class QuestionRenderModel(BaseModel):
 
     question_key: str = Field(min_length=1)
     prompt: str = Field(min_length=1)
-    answer_type: Literal["boolean", "single_choice", "multi_choice", "text", "number"]
+    answer_type: Literal["boolean", "single_choice", "multi_choice", "text", "number", "file_upload"]
     allowed_values: list[str] = Field(default_factory=list)
     options: list[dict[str, str]] = Field(default_factory=list)
     assist_tools: list[Literal["rewrite", "web_lookup"]] = Field(default_factory=list)
@@ -104,6 +104,28 @@ class QuestionBriefingEvidence(BaseModel):
     example: str = ""
 
 
+class ContextChallengeChunkEvidence(BaseModel):
+    """Document-grounded challenge evidence item for one requirement/question."""
+
+    chunk_key: str = ""
+    document_title: str = ""
+    page_no: str = ""
+    heading_path: str = ""
+    source_ref: str = ""
+    method: str = ""
+    confidence: float = 0.0
+    rationale: str = ""
+
+
+class ContextChallengeBriefing(BaseModel):
+    """Additive context-document challenge payload for the question card."""
+
+    status: str = ""
+    run_recommended: bool = False
+    note: str = ""
+    chunks: list[ContextChallengeChunkEvidence] = Field(default_factory=list)
+
+
 class QuestionBriefingImpact(BaseModel):
     """Impact metadata for one question in active scope."""
 
@@ -118,6 +140,7 @@ class QuestionBriefing(BaseModel):
     chunk: QuestionBriefingChunk = Field(default_factory=QuestionBriefingChunk)
     summary: str = ""
     evidence: list[QuestionBriefingEvidence] = Field(default_factory=list)
+    context_challenge: ContextChallengeBriefing = Field(default_factory=ContextChallengeBriefing)
     impact: QuestionBriefingImpact = Field(default_factory=QuestionBriefingImpact)
 
 

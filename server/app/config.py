@@ -79,6 +79,24 @@ class AppConfig(BaseSettings):
         default="",
         description="Qdrant API key (optional, e.g. Qdrant Cloud)",
     )
+
+    # Embeddings (used for context-document ingest/retrieval)
+    embedding_provider: str = Field(
+        default="openai",
+        description='Embedding provider ("openai", "ollama", or URL to OpenAI-compatible endpoint)',
+    )
+    embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="Embedding model name",
+    )
+    embedding_dimensions: int = Field(
+        default=1536,
+        description="Target embedding dimension used for Qdrant vectors",
+    )
+    embedding_api_key: str = Field(
+        default="",
+        description="Optional API key for embedding endpoint",
+    )
     
     # Available models per provider
     # Format: provider_slug -> list of model names (JSON string in .env)

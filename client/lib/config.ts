@@ -13,6 +13,13 @@ export const apiUrl = {
   storage: (path: string = "") => `${API_CONFIG.STORAGE_API}/api/storage/${path}`,
   chat: () => `${API_CONFIG.CHAT_API}/api/chat`,
   chatContextAssist: () => `${API_CONFIG.CHAT_API}/api/chat/context-assist`,
+  contextDocumentUpload: () => `${API_CONFIG.CHAT_API}/api/compliance-graph/context-documents/upload`,
+  contextDocumentStatus: (id: string) =>
+    `${API_CONFIG.CHAT_API}/api/compliance-graph/context-documents/${encodeURIComponent(id)}/status`,
+  contextChallengeRun: (sessionId: string) =>
+    `${API_CONFIG.CHAT_API}/api/compliance-graph/sessions/${encodeURIComponent(sessionId)}/context-challenge/run`,
+  contextChallengeStatus: (sessionId: string) =>
+    `${API_CONFIG.CHAT_API}/api/compliance-graph/sessions/${encodeURIComponent(sessionId)}/context-challenge/status`,
   providers: () => `${API_CONFIG.CHAT_API}/api/providers`,
   sources: (path: string = "") => `${API_CONFIG.STORAGE_API}/api/sources${path ? `/${path}` : ""}`,
   

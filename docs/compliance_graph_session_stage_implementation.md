@@ -489,3 +489,18 @@ This stage is done when:
 
 The resulting system now matches the concept objective:  
 **initialize from full master graph and iteratively narrow through user answers under backend-controlled orchestration.**
+
+---
+
+## 18) Context Document Challenge Addendum (implemented)
+
+This stage now includes a session-scoped context-document branch in parallel to the existing questionnaire:
+
+- New context question key before standards selection:
+  - `context.org_handbook_upload`
+  - answer type: `file_upload`
+- Upload starts asynchronous ingest and indexing.
+- Uploaded document/chunk metadata is stored in session layer (`ContextDocument`, `ContextChunk`).
+- Session challenge execution remains explicit (`manual_confirmed_full_run`) via endpoint trigger.
+- Challenge outputs materialize as auto state and merge with manual state through deterministic precedence:
+  - `not_applicable` > manual (`gap|unclear|addressed`) > auto challenge (`gap|unclear|addressed`) > `open`

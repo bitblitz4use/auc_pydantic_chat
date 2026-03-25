@@ -285,3 +285,28 @@ SESSION (per org / engagement)
 - Cluster / causal bookmarks — production deployment only.
 
 Refinements stay **backward-compatible** within one **knowledge release** ([concept §4](compliance_graph_concept.md)).
+
+---
+
+## 11. Session context-document extension (implemented)
+
+For session-scoped document challenge, the session layer now includes:
+
+- `(:ContextDocument {context_document_id, session_id, ingest_status, ...})`
+- `(:ContextChunk {context_chunk_id, session_id, context_document_id, ...})`
+- `(:SessionRequirementState {state_id, manual_state, auto_challenge_state, effective_state, ...})`
+
+Key edges:
+
+- `(:Session)-[:HAS_CONTEXT_DOCUMENT]->(:ContextDocument)`
+- `(:ContextDocument)-[:HAS_CONTEXT_CHUNK]->(:ContextChunk)`
+- `(:ContextChunk)-[:MATCHES_REQUIREMENT {session_id, method, score}]->(:RequirementUnit)`
+- `(:Session)-[:HAS_CHALLENGE_STATE]->(:RequirementUnit)`
+- `(:Session)-[:HAS_REQUIREMENT_STATE]->(:SessionRequirementState)-[:FOR_REQUIREMENT]->(:RequirementUnit)`
+
+Effective precedence (deterministic):
+
+1. `not_applicable` (manual) wins
+2. manual `gap|unclear|addressed`
+3. auto challenge `gap|unclear|addressed`
+4. fallback `open`
