@@ -32,6 +32,9 @@ export type ContextAnswerSubmission = {
   standardKeys: string[];
   questionKey: string;
   value: boolean | string | string[] | number | FileUploadAnswerValue;
+  manualRationale?: string;
+  manualEvidenceText?: string;
+  triggerAutoChallenge?: boolean;
 };
 
 export type ContextAssistSubmission = {
@@ -56,6 +59,33 @@ type ContextQuestionRuntimeValue = {
   }) => Promise<FileUploadAnswerValue | null>;
   getContextDocumentStatus: (contextDocumentId: string) => Promise<FileUploadAnswerValue | null>;
   runContextChallenge: (sessionId: string) => Promise<boolean>;
+  previewContextChallenge: (submission: {
+    sessionId: string;
+    questionKey: string;
+    draftAnswerValue?: boolean | string | string[] | number;
+    manualEvidenceText?: string;
+  }) => Promise<{
+    status: string;
+    summary: string;
+    document_title: string;
+    ru_results: Array<{
+      ru_key: string;
+      challenge_state: string;
+      auto_state: string;
+      confidence: number;
+      rationale: string;
+      citations: string[];
+      chunks: Array<{
+        chunk_key: string;
+        document_title: string;
+        page_no: string;
+        heading_path: string;
+        source_ref: string;
+        score: number;
+        method: string;
+      }>;
+    }>;
+  } | null>;
   getContextChallengeStatus: (sessionId: string) => Promise<{
     challenge_job_id: string;
     status: string;
@@ -297,9 +327,41 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [challengeBusy, setChallengeBusy] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [previewResult, setPreviewResult] = useState<{
+    status: string;
+    summary: string;
+    document_title: string;
+    ru_results: Array<{
+      ru_key: string;
+      challenge_state: string;
+      auto_state: string;
+      confidence: number;
+      rationale: string;
+      citations: string[];
+      chunks: Array<{
+        chunk_key: string;
+        document_title: string;
+        page_no: string;
+        heading_path: string;
+        source_ref: string;
+        score: number;
+        method: string;
+      }>;
+    }>;
+  } | null>(null);
+  const [previewInputKey, setPreviewInputKey] = useState("");
   const [assistNote, setAssistNote] = useState<string>(
     typeof question?.assist_note === "string" ? question.assist_note : ""
   );
+
+  useEffect(() => {
+    setPreviewBusy(false);
+    setPreviewError("");
+    setPreviewResult(null);
+    setPreviewInputKey("");
+  }, [payload?.session_id, question?.question_key]);
 
   if (!payload || !question) {
     return (
@@ -329,6 +391,16 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
     (question.answer_type === "file_upload" &&
       Boolean(uploadValue?.context_document_id) &&
       uploadValue?.ingest_status !== "failed");
+  const canPreviewAutoChallenge =
+    question.answer_type !== "file_upload" &&
+    ((question.answer_type === "boolean" && booleanValue !== null) ||
+      (question.answer_type === "single_choice" && Boolean(singleValue)) ||
+      (question.answer_type === "multi_choice" && multiValues.length > 0) ||
+      (question.answer_type === "text" && Boolean(textValue.trim())) ||
+      (question.answer_type === "number" &&
+        Boolean(numberValue.trim()) &&
+        Number.isFinite(Number(numberValue)) &&
+        Number(numberValue) >= 0));
 
   useEffect(() => {
     if (question.answer_type !== "file_upload") {
@@ -352,6 +424,19 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       window.clearInterval(interval);
     };
   }, [question.answer_type, runtime, uploadValue]);
+
+  useEffect(() => {
+    if (!previewResult) {
+      return;
+    }
+    if (!previewInputKey) {
+      return;
+    }
+    const currentKey = computePreviewInputKey();
+    if (currentKey !== previewInputKey) {
+      setPreviewResult(null);
+    }
+  }, [booleanValue, multiValues, numberValue, previewInputKey, previewResult, question.answer_type, question.question_key, singleValue, textValue]);
 
   const submit = () => {
     if (disabled) return;
@@ -383,6 +468,39 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       standardKeys: payload.standard_keys ?? [],
       questionKey: question.question_key,
       value,
+      manualRationale: previewResult?.ru_results?.[0]?.rationale || "",
+      manualEvidenceText: question.answer_type === "text" ? textValue.trim() : "",
+      triggerAutoChallenge: Boolean(previewResult),
+    });
+  };
+
+  const resolveDraftAnswerValue = (): boolean | string | string[] | number | undefined => {
+    if (question.answer_type === "boolean") {
+      return booleanValue === null ? undefined : booleanValue;
+    }
+    if (question.answer_type === "single_choice") {
+      return singleValue || undefined;
+    }
+    if (question.answer_type === "multi_choice") {
+      return multiValues.length > 0 ? multiValues : undefined;
+    }
+    if (question.answer_type === "number") {
+      if (!numberValue.trim()) return undefined;
+      const value = Number(numberValue);
+      return Number.isFinite(value) && value >= 0 ? value : undefined;
+    }
+    if (question.answer_type === "text") {
+      return textValue.trim() || undefined;
+    }
+    return undefined;
+  };
+
+  const computePreviewInputKey = () => {
+    const answer = resolveDraftAnswerValue();
+    return JSON.stringify({
+      questionKey: question.question_key,
+      draftAnswer: answer,
+      evidence: question.answer_type === "text" ? textValue.trim() : "",
     });
   };
 
@@ -414,6 +532,32 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
     void runtime
       .runContextChallenge(payload.session_id)
       .finally(() => setChallengeBusy(false));
+  };
+
+  const runPreviewChallenge = () => {
+    if (previewBusy || disabled || question.answer_type === "file_upload") return;
+    const draftAnswer = resolveDraftAnswerValue();
+    const manualEvidence = question.answer_type === "text" ? textValue.trim() : "";
+    setPreviewBusy(true);
+    setPreviewError("");
+    const inputKey = computePreviewInputKey();
+    setPreviewInputKey(inputKey);
+    void runtime
+      .previewContextChallenge({
+        sessionId: payload.session_id,
+        questionKey: question.question_key,
+        draftAnswerValue: draftAnswer,
+        manualEvidenceText: manualEvidence,
+      })
+      .then((result) => {
+        if (!result) {
+          setPreviewError("Auto-Challenge konnte nicht berechnet werden.");
+          return;
+        }
+        setPreviewResult(result);
+      })
+      .catch(() => setPreviewError("Auto-Challenge konnte nicht berechnet werden."))
+      .finally(() => setPreviewBusy(false));
   };
 
   const requestAssist = (tool: "rewrite" | "web_lookup") => {
@@ -556,7 +700,9 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
           </div>
         )}
 
-        {(briefing?.context_challenge?.note || (briefing?.context_challenge?.chunks?.length ?? 0) > 0) && (
+        {(briefing?.context_challenge?.note ||
+          (briefing?.context_challenge?.chunks?.length ?? 0) > 0 ||
+          question.answer_type !== "file_upload") && (
           <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Dokumentbasierte Challenge
@@ -578,6 +724,70 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
                     {chunk.rationale && <p className="mt-1 text-muted-foreground">{chunk.rationale}</p>}
                   </div>
                 ))}
+              </div>
+            )}
+            {question.answer_type !== "file_upload" && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={runPreviewChallenge}
+                  disabled={previewBusy || disabled || !canPreviewAutoChallenge}
+                  className={cn(
+                    "inline-flex rounded-md border border-border px-2.5 py-1 text-xs",
+                    previewBusy || disabled || !canPreviewAutoChallenge
+                      ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-70"
+                      : "bg-background hover:bg-muted/60"
+                  )}
+                >
+                  {previewBusy ? "Auto-Challenge läuft..." : "Antwort vorab auto-prüfen"}
+                </button>
+                {previewBusy && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    <Shimmer>Bewertung wird berechnet...</Shimmer>
+                  </p>
+                )}
+                {previewError && <p className="mt-2 text-xs text-destructive">{previewError}</p>}
+                {previewResult && !previewBusy && (
+                  <div className="mt-2 space-y-2">
+                    {previewResult.document_title && (
+                      <p className="text-xs text-muted-foreground">
+                        Geprüftes Dokument: {previewResult.document_title}
+                      </p>
+                    )}
+                    {previewResult.summary && (
+                      <p className="text-xs text-foreground">{previewResult.summary}</p>
+                    )}
+                    {previewResult.ru_results.slice(0, 3).map((item) => (
+                      <div
+                        key={item.ru_key}
+                        className="rounded-md border border-border bg-background/60 p-2 text-xs"
+                      >
+                        <p className="font-medium text-foreground">
+                          {item.auto_state} ({Math.round(item.confidence * 100)}%)
+                        </p>
+                        {item.rationale && <p className="mt-1 text-muted-foreground">{item.rationale}</p>}
+                        {(item.chunks?.length ?? 0) > 0 && (
+                          <div className="mt-2 space-y-1.5">
+                            {item.chunks.slice(0, 3).map((chunk, idx) => (
+                              <div
+                                key={`${chunk.chunk_key || "preview-chunk"}-${idx}`}
+                                className="rounded-md border border-border bg-muted/20 p-2"
+                              >
+                                <p className="font-medium text-foreground">
+                                  {chunk.document_title || previewResult.document_title || "Dokument"}{" "}
+                                  {chunk.page_no ? `· Seite ${chunk.page_no}` : ""}
+                                </p>
+                                <p className="text-muted-foreground">
+                                  {chunk.heading_path || chunk.source_ref || chunk.chunk_key}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {briefing?.context_challenge?.run_recommended && (
@@ -726,10 +936,10 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
         <div className="mt-4 border-t border-border pt-3">
           <button
             type="button"
-            disabled={!canSubmit || disabled || assistLoadingTool !== null}
+            disabled={!canSubmit || disabled || assistLoadingTool !== null || previewBusy}
             className={cn(
               "inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium",
-              !canSubmit || disabled || assistLoadingTool !== null
+              !canSubmit || disabled || assistLoadingTool !== null || previewBusy
                 ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-60"
                 : "bg-background hover:bg-muted/60"
             )}

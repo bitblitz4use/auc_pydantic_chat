@@ -462,7 +462,24 @@ class ComplianceContextOrchestrator:
                                 question_key=question_key,
                                 raw_value=context_input.answer.value,
                                 normalized_value=normalized,
+                                manual_rationale=context_input.answer.manual_rationale,
+                                manual_citations=context_input.answer.manual_citations,
+                                manual_evidence_text=context_input.answer.manual_evidence_text,
                             )
+                            if bool(context_input.answer.trigger_auto_challenge):
+                                challenge_service = ContextDocumentService(
+                                    neo4j_driver=self.neo4j_driver,
+                                    qdrant_client=self.qdrant_client,
+                                    model_id=self.model_id,
+                                )
+                                await challenge_service.run_question_challenge(
+                                    session_id=session_id,
+                                    question_key=question_key,
+                                    draft_answer_value=normalized,
+                                    manual_evidence_text=str(
+                                        context_input.answer.manual_evidence_text or ""
+                                    ).strip(),
+                                )
 
         context_profile = await self._load_context_profile(session_id=session_id)
         await self._refresh_context_status(session_id=session_id, context_profile=context_profile)
@@ -1484,10 +1501,14 @@ class ComplianceContextOrchestrator:
         question_key: str,
         raw_value: Any,
         normalized_value: Any,
+        manual_rationale: str | None = None,
+        manual_citations: list[dict[str, Any]] | None = None,
+        manual_evidence_text: str | None = None,
     ) -> None:
         answer_id = f"{session_id}::{question_key}"
         raw_json = json.dumps(raw_value, ensure_ascii=False)
         normalized_json = json.dumps(normalized_value, ensure_ascii=False)
+        manual_citations_json = json.dumps(manual_citations or [], ensure_ascii=False)
         async with self.neo4j_driver.session() as session:
             await session.execute_write(
                 self._tx_upsert_answer,
@@ -1496,6 +1517,9 @@ class ComplianceContextOrchestrator:
                 answer_id,
                 raw_json,
                 normalized_json,
+                str(manual_rationale or "").strip(),
+                manual_citations_json,
+                str(manual_evidence_text or "").strip(),
             )
 
     @staticmethod
@@ -1506,6 +1530,9 @@ class ComplianceContextOrchestrator:
         answer_id: str,
         raw_json: str,
         normalized_json: str,
+        manual_rationale: str,
+        manual_citations_json: str,
+        manual_evidence_text: str,
     ) -> None:
         await tx.run(
             """
@@ -1515,6 +1542,9 @@ class ComplianceContextOrchestrator:
             SET
                 a.value_json = $raw_json,
                 a.normalized_value_json = $normalized_json,
+                a.manual_rationale = $manual_rationale,
+                a.manual_citations_json = $manual_citations_json,
+                a.manual_evidence_text = $manual_evidence_text,
                 a.answered_at = datetime()
             MERGE (s)-[:SUBMITTED]->(a)
             MERGE (a)-[:FOR_QUESTION]->(q)
@@ -1524,6 +1554,9 @@ class ComplianceContextOrchestrator:
             answer_id=answer_id,
             raw_json=raw_json,
             normalized_json=normalized_json,
+            manual_rationale=manual_rationale,
+            manual_citations_json=manual_citations_json,
+            manual_evidence_text=manual_evidence_text,
         )
 
     async def _recompute_session_state(self, session_id: str) -> None:
@@ -1686,12 +1719,16 @@ class ComplianceContextOrchestrator:
             MATCH (s:Session {session_id: $session_id})
             UNWIND $rows AS row
             MATCH (ru:RequirementUnit {ru_key: row.ru_key})
+            OPTIONAL MATCH (s)-[:SUBMITTED]->(a:Answer {answer_id: $session_id + "::" + row.source_question_key})
             MERGE (rs:SessionRequirementState {state_id: $session_id + "::" + row.ru_key})
             SET
                 rs.session_id = $session_id,
                 rs.ru_key = row.ru_key,
                 rs.manual_state = row.state,
                 rs.manual_source_question_key = row.source_question_key,
+                rs.manual_rationale = coalesce(a.manual_rationale, ""),
+                rs.manual_citations_json = coalesce(a.manual_citations_json, "[]"),
+                rs.manual_evidence_text = coalesce(a.manual_evidence_text, ""),
                 rs.updated_at = datetime()
             MERGE (s)-[:HAS_REQUIREMENT_STATE]->(rs)
             MERGE (rs)-[:FOR_REQUIREMENT]->(ru)

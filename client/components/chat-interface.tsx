@@ -337,6 +337,9 @@ export function ChatInterface() {
               answer: {
                 question_key: submission.questionKey,
                 value: submission.value,
+                manual_rationale: submission.manualRationale,
+                manual_evidence_text: submission.manualEvidenceText,
+                trigger_auto_challenge: submission.triggerAutoChallenge,
               },
             },
           },
@@ -497,12 +500,96 @@ export function ChatInterface() {
     try {
       const response = await fetch(apiUrl.contextChallengeRun(sessionId), {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: modelSelection.selectedModel,
+        }),
       });
       return response.ok;
     } catch {
       return false;
     }
-  }, []);
+  }, [modelSelection.selectedModel]);
+
+  const previewContextChallenge = useCallback(
+    async (submission: {
+      sessionId: string;
+      questionKey: string;
+      draftAnswerValue?: boolean | string | string[] | number;
+      manualEvidenceText?: string;
+    }): Promise<{
+      status: string;
+      summary: string;
+      document_title: string;
+      ru_results: Array<{
+        ru_key: string;
+        challenge_state: string;
+        auto_state: string;
+        confidence: number;
+        rationale: string;
+        citations: string[];
+        chunks: Array<{
+          chunk_key: string;
+          document_title: string;
+          page_no: string;
+          heading_path: string;
+          source_ref: string;
+          score: number;
+          method: string;
+        }>;
+      }>;
+    } | null> => {
+      try {
+        const response = await fetch(apiUrl.contextChallengePreview(submission.sessionId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question_key: submission.questionKey,
+            draft_answer_value: submission.draftAnswerValue,
+            manual_evidence_text: submission.manualEvidenceText || "",
+            model_id: modelSelection.selectedModel,
+          }),
+        });
+        const data = (await response.json()) as Record<string, unknown>;
+        if (!response.ok) {
+          return null;
+        }
+        const rows = Array.isArray(data.ru_results) ? data.ru_results : [];
+        return {
+          status: String(data.status || "completed"),
+          summary: String(data.summary || ""),
+          document_title: String(data.document_title || ""),
+          ru_results: rows.map((item) => {
+            const row = item as Record<string, unknown>;
+            const chunks = Array.isArray(row.chunks) ? row.chunks : [];
+            return {
+              ru_key: String(row.ru_key || ""),
+              challenge_state: String(row.challenge_state || "insufficient_evidence"),
+              auto_state: String(row.auto_state || "unclear"),
+              confidence: Number(row.confidence || 0),
+              rationale: String(row.rationale || ""),
+              citations: Array.isArray(row.citations) ? row.citations.map((c) => String(c)) : [],
+              chunks: chunks.map((chunk) => {
+                const c = chunk as Record<string, unknown>;
+                return {
+                  chunk_key: String(c.chunk_key || ""),
+                  document_title: String(c.document_title || ""),
+                  page_no: String(c.page_no || ""),
+                  heading_path: String(c.heading_path || ""),
+                  source_ref: String(c.source_ref || ""),
+                  score: Number(c.score || 0),
+                  method: String(c.method || ""),
+                };
+              }),
+            };
+          }),
+        };
+      } catch {
+        return null;
+      }
+    },
+    [modelSelection.selectedModel]
+  );
 
   const continueContextSession = useCallback(
     (sessionId: string) => {
@@ -622,6 +709,7 @@ export function ChatInterface() {
       uploadContextDocument,
       getContextDocumentStatus,
       runContextChallenge,
+      previewContextChallenge,
       getContextChallengeStatus,
       continueContextSession,
       submitting: status === "submitted" || status === "streaming",
@@ -633,6 +721,7 @@ export function ChatInterface() {
       uploadContextDocument,
       getContextDocumentStatus,
       runContextChallenge,
+      previewContextChallenge,
       getContextChallengeStatus,
       continueContextSession,
     ]

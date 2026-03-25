@@ -168,7 +168,8 @@ class ContextDocumentService:
             system_prompt=(
                 "Du bewertest eine Compliance-Anforderung anhand bereitgestellter Kontextdokument-Chunks. "
                 "Nutze nur gelieferte Evidenz. Antworte strikt im Schema. "
-                "challenge_state muss einer von compliant|needs_improvement|insufficient_evidence sein."
+                "challenge_state muss einer von compliant|needs_improvement|insufficient_evidence sein. "
+                "Antworte ausnahmslos auf Deutsch. Die rationale muss auf Deutsch verfasst sein."
             ),
         )
 
@@ -344,12 +345,164 @@ class ContextDocumentService:
                     coalesce(s.challenge_processed, 0) AS processed,
                     coalesce(s.challenge_failed, 0) AS failed,
                     coalesce(s.challenge_duration_ms, 0) AS duration_ms,
-                    coalesce(s.challenge_baseline_confirmed_run, false) AS baseline_confirmed_run
+                    coalesce(s.context_challenge_baseline_confirmed_run, false) AS baseline_confirmed_run
                 """,
                 session_id=session_id,
             )
             row = await result.single()
         return dict(row or {})
+
+    async def preview_question_challenge(
+        self,
+        *,
+        session_id: str,
+        question_key: str,
+        draft_answer_value: bool | str | list[str] | int | float | None = None,
+        manual_evidence_text: str = "",
+    ) -> dict[str, Any]:
+        question_key = question_key.strip()
+        if not question_key:
+            return {"status": "failed", "summary": "Frageschlüssel fehlt.", "ru_results": []}
+        # Intentionally ignored in parity mode:
+        # preview must use same requirement-query logic as full challenge.
+        _ = draft_answer_value
+        _ = manual_evidence_text
+
+        _, requirements = await self._load_question_requirements(
+            session_id=session_id,
+            question_key=question_key,
+            limit=12,
+        )
+        evaluated_items = await self._compute_question_challenge_items(
+            session_id=session_id,
+            requirements=requirements,
+        )
+        ru_results = self._build_question_challenge_result_rows(evaluated_items)
+
+        if not ru_results:
+            return {"status": "completed", "summary": "Keine Ergebnisse berechnet.", "ru_results": []}
+
+        state_rank = {"gap": 0, "unclear": 1, "addressed": 2}
+        best_state = min(
+            (str(row.get("auto_state", "unclear")) for row in ru_results),
+            key=lambda state: state_rank.get(state, 1),
+        )
+        summary = (
+            f"Auto-Challenge Vorschau für {len(ru_results)} Anforderungen: "
+            f"dominanter Zustand '{best_state}'."
+        )
+        primary_document_title = ""
+        for row in ru_results:
+            for chunk in row.get("chunks", []):
+                title = str((chunk or {}).get("document_title", "")).strip()
+                if title:
+                    primary_document_title = title
+                    break
+            if primary_document_title:
+                break
+        return {
+            "status": "completed",
+            "summary": summary,
+            "document_title": primary_document_title,
+            "ru_results": ru_results,
+        }
+
+    async def run_question_challenge(
+        self,
+        *,
+        session_id: str,
+        question_key: str,
+        draft_answer_value: bool | str | list[str] | int | float | None = None,
+        manual_evidence_text: str = "",
+    ) -> dict[str, Any]:
+        question_key = question_key.strip()
+        if not question_key:
+            return {"status": "failed", "summary": "Frageschlüssel fehlt.", "ru_results": []}
+        # Intentionally ignored in parity mode:
+        # question-level run must use same requirement-query logic as full challenge.
+        _ = draft_answer_value
+        _ = manual_evidence_text
+        _, requirements = await self._load_question_requirements(
+            session_id=session_id,
+            question_key=question_key,
+            limit=12,
+        )
+        evaluated_items = await self._compute_question_challenge_items(
+            session_id=session_id,
+            requirements=requirements,
+        )
+        for requirement, chunks, evaluation in evaluated_items:
+            await self._write_requirement_challenge(
+                session_id=session_id,
+                requirement=requirement,
+                chunks=chunks,
+                evaluation=evaluation,
+            )
+        if evaluated_items:
+            await self._recompute_effective_state(session_id=session_id)
+        ru_results = self._build_question_challenge_result_rows(evaluated_items)
+        primary_document_title = ""
+        for row in ru_results:
+            for chunk in row.get("chunks", []):
+                title = str((chunk or {}).get("document_title", "")).strip()
+                if title:
+                    primary_document_title = title
+                    break
+            if primary_document_title:
+                break
+        return {
+            "status": "completed",
+            "summary": f"Frage-spezifischer Challenge-Lauf für {len(ru_results)} Anforderungen abgeschlossen.",
+            "document_title": primary_document_title,
+            "ru_results": ru_results,
+        }
+
+    async def _compute_question_challenge_items(
+        self,
+        *,
+        session_id: str,
+        requirements: list[dict[str, str]],
+    ) -> list[tuple[dict[str, str], list[RetrievedChunk], ChallengeEvaluation]]:
+        if not requirements:
+            return []
+        results: list[tuple[dict[str, str], list[RetrievedChunk], ChallengeEvaluation]] = []
+        for requirement in requirements:
+            query = self._build_requirement_query(requirement)
+            chunks = await self._retrieve_hybrid_chunks(session_id=session_id, query=query, top_k=6)
+            evaluation = await self._evaluate_requirement(requirement=requirement, chunks=chunks)
+            results.append((requirement, chunks, evaluation))
+        return results
+
+    def _build_question_challenge_result_rows(
+        self,
+        items: list[tuple[dict[str, str], list[RetrievedChunk], ChallengeEvaluation]],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for requirement, chunks, evaluation in items:
+            chunk_rows = [
+                {
+                    "chunk_key": chunk.context_chunk_id,
+                    "document_title": chunk.document_title,
+                    "page_no": chunk.page_no,
+                    "heading_path": chunk.heading_path,
+                    "source_ref": chunk.source_ref,
+                    "score": float(chunk.fused_score),
+                    "method": chunk.method,
+                }
+                for chunk in chunks[:3]
+            ]
+            rows.append(
+                {
+                    "ru_key": str(requirement.get("ru_key", "")),
+                    "challenge_state": evaluation.challenge_state,
+                    "auto_state": self._map_challenge_state(evaluation.challenge_state),
+                    "confidence": float(evaluation.confidence),
+                    "rationale": evaluation.rationale,
+                    "citations": [str(item) for item in evaluation.citations],
+                    "chunks": chunk_rows,
+                }
+            )
+        return rows
 
     async def get_context_evidence(self, session_id: str) -> list[dict[str, Any]]:
         async with self.neo4j_driver.session() as session:
@@ -1021,6 +1174,43 @@ class ContextDocumentService:
             rows = await result.data()
         return [dict(row) for row in rows if row.get("ru_key")]
 
+    async def _load_question_requirements(
+        self,
+        *,
+        session_id: str,
+        question_key: str,
+        limit: int = 12,
+    ) -> tuple[str, list[dict[str, str]]]:
+        async with self.neo4j_driver.session() as session:
+            question_result = await session.run(
+                """
+                MATCH (q:DiagnosticQuestion {question_key: $question_key})
+                RETURN coalesce(q.prompt, "") AS prompt
+                """,
+                question_key=question_key,
+            )
+            question_row = await question_result.single()
+            requirements_result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})-[:SCOPES]->(d:NormativeDocument)
+                MATCH (d)-[:HAS_CHILD*1..]->(:Clause)-[:CONTAINS_REQUIREMENT]->(ru:RequirementUnit)
+                MATCH (q:DiagnosticQuestion {question_key: $question_key})-[:INFLUENCES]->(ru)
+                WHERE NOT EXISTS { MATCH (s)-[:EXCLUDES]->(ru) }
+                RETURN DISTINCT
+                    ru.ru_key AS ru_key,
+                    coalesce(ru.title, "") AS title,
+                    coalesce(ru.statement, "") AS statement
+                ORDER BY ru.ru_key
+                LIMIT $limit
+                """,
+                session_id=session_id,
+                question_key=question_key,
+                limit=max(1, int(limit)),
+            )
+            rows = await requirements_result.data()
+        prompt = str(question_row.get("prompt", "")) if question_row else ""
+        return prompt, [dict(row) for row in rows if row.get("ru_key")]
+
     @staticmethod
     def _build_requirement_query(requirement: dict[str, str]) -> str:
         title = str(requirement.get("title", "")).strip()
@@ -1096,7 +1286,7 @@ class ContextDocumentService:
             result = await session.run(
                 """
                 MATCH (s:Session {session_id: $session_id})-[:HAS_CONTEXT_DOCUMENT]->(d:ContextDocument)-[:HAS_CONTEXT_CHUNK]->(ch:ContextChunk)
-                WHERE coalesce(d.ingest_status, "") = "completed"
+                WHERE coalesce(d.ingest_status, "") IN ["completed", "completed_with_warnings"]
                 RETURN
                     ch.context_chunk_id AS context_chunk_id,
                     coalesce(ch.text_contextualized, "") AS text_contextualized,
@@ -1235,6 +1425,11 @@ class ContextDocumentService:
                 "evidence_chunks": excerpt_rows,
             },
             ensure_ascii=False,
+        )
+        prompt = (
+            "Wichtig: Antworte ausschließlich auf Deutsch. "
+            "Die rationale muss auf Deutsch formuliert werden.\n"
+            f"{prompt}"
         )
         try:
             result = await self.challenge_agent.run(prompt)

@@ -18,6 +18,8 @@ export const apiUrl = {
     `${API_CONFIG.CHAT_API}/api/compliance-graph/context-documents/${encodeURIComponent(id)}/status`,
   contextChallengeRun: (sessionId: string) =>
     `${API_CONFIG.CHAT_API}/api/compliance-graph/sessions/${encodeURIComponent(sessionId)}/context-challenge/run`,
+  contextChallengePreview: (sessionId: string) =>
+    `${API_CONFIG.CHAT_API}/api/compliance-graph/sessions/${encodeURIComponent(sessionId)}/context-challenge/preview`,
   contextChallengeStatus: (sessionId: string) =>
     `${API_CONFIG.CHAT_API}/api/compliance-graph/sessions/${encodeURIComponent(sessionId)}/context-challenge/status`,
   providers: () => `${API_CONFIG.CHAT_API}/api/providers`,
