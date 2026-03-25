@@ -1,7 +1,9 @@
 """Chat API routes."""
 import asyncio
+import base64
 import json
 import logging
+import re
 import uuid
 
 import httpx
@@ -20,6 +22,7 @@ from app.config import HOCUSPOCUS_URL, HTTP_TIMEOUT, config
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_CTX_QUESTION_CARD_RE = re.compile(r'^<CtxQuestionCard payloadB64="([^"]+)" />$')
 
 
 def _nested_body(body_data: dict) -> dict | None:
@@ -62,6 +65,54 @@ def _messages_list(body_data: dict) -> list | None:
         if isinstance(messages, list):
             return messages
     return None
+
+
+def _split_context_payload_segments(kind: str, payload: str) -> list[str]:
+    """Build ordered stream segments for context mode.
+
+    For JSX question cards, this emits:
+    1) optional lead conversation text
+    2) card JSX
+    3) optional follow-up conversation text
+    """
+    if kind != "jsx" or not isinstance(payload, str):
+        return [payload]
+
+    match = _CTX_QUESTION_CARD_RE.match(payload.strip())
+    if not match:
+        return [payload]
+
+    encoded = match.group(1)
+    try:
+        raw = base64.b64decode(encoded.encode("ascii"))
+        card_payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return [payload]
+
+    if not isinstance(card_payload, dict):
+        return [payload]
+
+    conversation = card_payload.get("conversation")
+    lead_text = ""
+    followup_text = ""
+    if isinstance(conversation, dict):
+        lead_text = str(conversation.get("lead_text") or "").strip()
+        followup_text = str(conversation.get("followup_text") or "").strip()
+
+    # Card should only contain card content. Conversation text is streamed separately.
+    if "conversation" in card_payload:
+        card_payload["conversation"] = None
+    card_json = json.dumps(card_payload, ensure_ascii=False)
+    card_encoded = base64.b64encode(card_json.encode("utf-8")).decode("ascii")
+    card_jsx = f'<CtxQuestionCard payloadB64="{card_encoded}" />'
+
+    segments: list[str] = []
+    if lead_text:
+        segments.append(lead_text)
+    segments.append(card_jsx)
+    if followup_text:
+        segments.append(followup_text)
+    return segments
 
 
 @router.post("/chat")
@@ -120,24 +171,24 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
 
     # CONTEXT: compliance graph orchestrator (graph-backed session state) — Vercel AI data stream v6
     if task_mode == TaskMode.CONTEXT:
-        async def event_stream_content(content: str):
+        async def event_stream_content(segments: list[str]):
             def sse_line(obj: dict) -> bytes:
                 return (f"data: {json.dumps(obj, ensure_ascii=False)}\n\n").encode(
                     "utf-8"
                 )
 
-            text_id = str(uuid.uuid4())
             yield sse_line({"type": "start"})
             yield sse_line({"type": "start-step"})
-            yield sse_line({"type": "text-start", "id": text_id})
-
             chunk_size = 48
-            for i in range(0, len(content), chunk_size):
-                delta = content[i : i + chunk_size]
-                yield sse_line({"type": "text-delta", "delta": delta, "id": text_id})
-                await asyncio.sleep(0.02)
+            for segment in segments:
+                text_id = str(uuid.uuid4())
+                yield sse_line({"type": "text-start", "id": text_id})
+                for i in range(0, len(segment), chunk_size):
+                    delta = segment[i : i + chunk_size]
+                    yield sse_line({"type": "text-delta", "delta": delta, "id": text_id})
+                    await asyncio.sleep(0.02)
+                yield sse_line({"type": "text-end", "id": text_id})
 
-            yield sse_line({"type": "text-end", "id": text_id})
             yield sse_line({"type": "finish-step"})
             yield sse_line({"type": "finish", "finishReason": "stop"})
             yield b"data: [DONE]\n\n"
@@ -146,7 +197,7 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
         if neo4j_driver is None:
             return StreamingResponse(
                 event_stream_content(
-                    "Kontextmodus ist nicht verfugbar: Neo4j ist nicht konfiguriert."
+                    ["Kontextmodus ist nicht verfugbar: Neo4j ist nicht konfiguriert."]
                 ),
                 media_type="text/event-stream",
             )
@@ -156,15 +207,16 @@ async def chat(request: Request, background: BackgroundTasks) -> Response:
             model_id=model_id,
         )
         try:
-            _kind, payload = await orchestrator.handle_turn(body_data)
+            kind, payload = await orchestrator.handle_turn(body_data)
+            segments = _split_context_payload_segments(kind=kind, payload=payload)
         except Exception as error:
             logger.exception("❌ Context orchestrator failed: %s", error)
-            payload = (
+            segments = [
                 "Kontextmodus konnte den Turn nicht verarbeiten. "
                 "Bitte erneut versuchen."
-            )
+            ]
         return StreamingResponse(
-            event_stream_content(payload),
+            event_stream_content(segments),
             media_type="text/event-stream",
         )
 

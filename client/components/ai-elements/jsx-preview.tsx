@@ -124,7 +124,7 @@ const completeJsxTag = (code: string) => {
   );
 };
 
-export type JSXPreviewProps = ComponentProps<"div"> & {
+export type JSXPreviewProps = Omit<ComponentProps<"div">, "onError"> & {
   jsx: string;
   isStreaming?: boolean;
   components?: JsxParserProps["components"];

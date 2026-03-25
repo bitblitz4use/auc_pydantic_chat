@@ -69,6 +69,10 @@ export type QuestionPayload = {
     assist_note?: string;
     language?: string;
   };
+  conversation?: {
+    lead_text?: string;
+    followup_text?: string;
+  };
   question_briefing?: {
     document?: {
       standard_key?: string;
@@ -174,7 +178,7 @@ function CitationPill({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
+function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   const interactive = useCtxInteractive();
   const runtime = useContextQuestionRuntime();
   const payload = useMemo(() => decodePayload(payloadB64), [payloadB64]);
@@ -324,202 +328,202 @@ function CtxQuestionCard({ payloadB64 }: { payloadB64: string }) {
 
   return (
     <div className="w-full max-w-3xl rounded-lg border bg-card p-5 shadow-sm">
-      {(briefing?.document?.title ||
-        briefing?.document?.standard_key ||
-        briefing?.clause?.clause_path ||
-        briefing?.clause?.heading_text) && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          <CitationPill label="Standard" value={briefing?.document?.standard_key || ""} />
-          <CitationPill
-            label="Dokument"
-            value={briefing?.document?.title || ""}
-          />
-          <CitationPill
-            label="Clause"
-            value={briefing?.clause?.clause_path || briefing?.clause?.heading_text || ""}
-          />
-        </div>
-      )}
-
-      <h3 className="text-sm font-semibold text-foreground">{question.prompt}</h3>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Typ: {question.answer_type}
-        {question.language ? ` · Sprache: ${question.language}` : ""}
-      </p>
-      {(question.assist_tools?.length ?? 0) > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-          {question.assist_tools?.map((tool) => (
-            <button
-              key={tool}
-              type="button"
-              disabled={disabled || assistLoadingTool !== null}
-              onClick={(event) => {
-                event.currentTarget.blur();
-                requestAssist(tool);
-              }}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs active:scale-100",
-                assistLoadingTool === tool
-                  ? "border-border bg-muted/20 text-muted-foreground pointer-events-none"
-                  : "border-border bg-background text-muted-foreground hover:bg-muted/30"
-              )}
-              title={tool === "rewrite" ? "Text verbessern" : "Website analysieren"}
-            >
-              {assistLoadingTool === tool ? (
-                <Shimmer className="text-xs">
-                  {tool === "rewrite"
-                    ? "Text wird verbessert..."
-                    : "Website wird analysiert..."}
-                </Shimmer>
-              ) : (
-                <>
-                  {tool === "rewrite" ? <SparklesIcon size={14} /> : <GlobeIcon size={14} />}
-                  {tool === "rewrite" ? "Text verbessern" : "Website analysieren"}
-                </>
-              )}
-            </button>
-          ))}
+        {(briefing?.document?.title ||
+          briefing?.document?.standard_key ||
+          briefing?.clause?.clause_path ||
+          briefing?.clause?.heading_text) && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            <CitationPill label="Standard" value={briefing?.document?.standard_key || ""} />
+            <CitationPill
+              label="Dokument"
+              value={briefing?.document?.title || ""}
+            />
+            <CitationPill
+              label="Clause"
+              value={briefing?.clause?.clause_path || briefing?.clause?.heading_text || ""}
+            />
           </div>
-      )}
-      {(assistNote || question.assist_note) && (
-        <p className="mt-2 text-xs text-muted-foreground">{assistNote || question.assist_note}</p>
-      )}
+        )}
 
-      {briefing?.summary && (
-        <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Worum es geht
-          </p>
-          <p className="mt-1 text-sm text-foreground">{briefing.summary}</p>
-        </div>
-      )}
-
-      {(briefing?.evidence?.length ?? 0) > 0 && (
-        <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Mögliche Nachweise
-          </p>
-          <div className="mt-2 space-y-2">
-            {briefing?.evidence?.slice(0, 3).map((item, index) => (
-              <div key={`${item.title ?? "evidence"}-${index}`} className="text-sm">
-                {item.title && <p className="font-medium text-foreground">{item.title}</p>}
-                {item.hint && <p className="text-muted-foreground">{item.hint}</p>}
-                {item.example && (
-                  <p className="mt-0.5 text-xs text-muted-foreground/90">
-                    Beispiel: {item.example}
-                  </p>
+        <h3 className="text-sm font-semibold text-foreground">{question.prompt}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Typ: {question.answer_type}
+          {question.language ? ` · Sprache: ${question.language}` : ""}
+        </p>
+        {(question.assist_tools?.length ?? 0) > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+            {question.assist_tools?.map((tool) => (
+              <button
+                key={tool}
+                type="button"
+                disabled={disabled || assistLoadingTool !== null}
+                onClick={(event) => {
+                  event.currentTarget.blur();
+                  requestAssist(tool);
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs active:scale-100",
+                  assistLoadingTool === tool
+                    ? "border-border bg-muted/20 text-muted-foreground pointer-events-none"
+                    : "border-border bg-background text-muted-foreground hover:bg-muted/30"
                 )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-4">
-        {question.answer_type === "boolean" && (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={disabled}
-              className={cn(
-                "rounded-md border px-3 py-1.5 text-xs font-medium",
-                booleanValue === true ? "border-primary bg-primary/15" : "border-border bg-muted/40",
-                disabled ? "opacity-60" : "hover:bg-muted/60"
-              )}
-              onClick={() => setBooleanValue(true)}
-            >
-              Ja
-            </button>
-            <button
-              type="button"
-              disabled={disabled}
-              className={cn(
-                "rounded-md border px-3 py-1.5 text-xs font-medium",
-                booleanValue === false ? "border-primary bg-primary/15" : "border-border bg-muted/40",
-                disabled ? "opacity-60" : "hover:bg-muted/60"
-              )}
-              onClick={() => setBooleanValue(false)}
-            >
-              Nein
-            </button>
-          </div>
-        )}
-
-        {question.answer_type === "single_choice" && (
-          <select
-            disabled={disabled}
-            value={singleValue}
-            onChange={(event) => setSingleValue(event.target.value)}
-            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-          >
-            <option value="">Bitte auswahlen</option>
-            {options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {question.answer_type === "multi_choice" && (
-          <div className="flex flex-col gap-2">
-            {options.map((option) => (
-              <label
-                key={option.value}
-                className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-2 py-1.5 text-xs"
+                title={tool === "rewrite" ? "Text verbessern" : "Website analysieren"}
               >
-                <input
-                  type="checkbox"
-                  disabled={disabled}
-                  checked={multiValues.includes(option.value)}
-                  onChange={() => toggleMultiValue(option.value)}
-                />
-                <span>{option.label}</span>
-              </label>
+                {assistLoadingTool === tool ? (
+                  <Shimmer className="text-xs">
+                    {tool === "rewrite"
+                      ? "Text wird verbessert..."
+                      : "Website wird analysiert..."}
+                  </Shimmer>
+                ) : (
+                  <>
+                    {tool === "rewrite" ? <SparklesIcon size={14} /> : <GlobeIcon size={14} />}
+                    {tool === "rewrite" ? "Text verbessern" : "Website analysieren"}
+                  </>
+                )}
+              </button>
             ))}
+            </div>
+        )}
+        {(assistNote || question.assist_note) && (
+          <p className="mt-2 text-xs text-muted-foreground">{assistNote || question.assist_note}</p>
+        )}
+
+        {briefing?.summary && (
+          <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Worum es geht
+            </p>
+            <p className="mt-1 text-sm text-foreground">{briefing.summary}</p>
           </div>
         )}
 
-        {question.answer_type === "number" && (
-          <input
-            type="number"
-            min={0}
-            step="any"
-            disabled={disabled}
-            value={numberValue}
-            onChange={(event) => setNumberValue(event.target.value)}
-            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-            placeholder="Wert eingeben"
-          />
+        {(briefing?.evidence?.length ?? 0) > 0 && (
+          <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Mögliche Nachweise
+            </p>
+            <div className="mt-2 space-y-2">
+              {briefing?.evidence?.slice(0, 3).map((item, index) => (
+                <div key={`${item.title ?? "evidence"}-${index}`} className="text-sm">
+                  {item.title && <p className="font-medium text-foreground">{item.title}</p>}
+                  {item.hint && <p className="text-muted-foreground">{item.hint}</p>}
+                  {item.example && (
+                    <p className="mt-0.5 text-xs text-muted-foreground/90">
+                      Beispiel: {item.example}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
-        {question.answer_type === "text" && (
-          <textarea
-            disabled={disabled}
-            value={textValue}
-            onChange={(event) => setTextValue(event.target.value)}
-            rows={4}
-            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-            placeholder="Antwort eingeben"
-          />
-        )}
-      </div>
-
-      <div className="mt-4 border-t border-border pt-3">
-        <button
-          type="button"
-          disabled={!canSubmit || disabled || assistLoadingTool !== null}
-          className={cn(
-            "inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium",
-            !canSubmit || disabled || assistLoadingTool !== null
-              ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-60"
-              : "bg-background hover:bg-muted/60"
+        <div className="mt-4">
+          {question.answer_type === "boolean" && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={disabled}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-xs font-medium",
+                  booleanValue === true ? "border-primary bg-primary/15" : "border-border bg-muted/40",
+                  disabled ? "opacity-60" : "hover:bg-muted/60"
+                )}
+                onClick={() => setBooleanValue(true)}
+              >
+                Ja
+              </button>
+              <button
+                type="button"
+                disabled={disabled}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-xs font-medium",
+                  booleanValue === false ? "border-primary bg-primary/15" : "border-border bg-muted/40",
+                  disabled ? "opacity-60" : "hover:bg-muted/60"
+                )}
+                onClick={() => setBooleanValue(false)}
+              >
+                Nein
+              </button>
+            </div>
           )}
-          onClick={submit}
-        >
-          Antwort senden
-        </button>
-      </div>
+
+          {question.answer_type === "single_choice" && (
+            <select
+              disabled={disabled}
+              value={singleValue}
+              onChange={(event) => setSingleValue(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            >
+              <option value="">Bitte auswahlen</option>
+              {options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {question.answer_type === "multi_choice" && (
+            <div className="flex flex-col gap-2">
+              {options.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-2 py-1.5 text-xs"
+                >
+                  <input
+                    type="checkbox"
+                    disabled={disabled}
+                    checked={multiValues.includes(option.value)}
+                    onChange={() => toggleMultiValue(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {question.answer_type === "number" && (
+            <input
+              type="number"
+              min={0}
+              step="any"
+              disabled={disabled}
+              value={numberValue}
+              onChange={(event) => setNumberValue(event.target.value)}
+              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+              placeholder="Wert eingeben"
+            />
+          )}
+
+          {question.answer_type === "text" && (
+            <textarea
+              disabled={disabled}
+              value={textValue}
+              onChange={(event) => setTextValue(event.target.value)}
+              rows={4}
+              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+              placeholder="Antwort eingeben"
+            />
+          )}
+        </div>
+
+        <div className="mt-4 border-t border-border pt-3">
+          <button
+            type="button"
+            disabled={!canSubmit || disabled || assistLoadingTool !== null}
+            className={cn(
+              "inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium",
+              !canSubmit || disabled || assistLoadingTool !== null
+                ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-60"
+                : "bg-background hover:bg-muted/60"
+            )}
+            onClick={submit}
+          >
+            Antwort senden
+          </button>
+        </div>
 
       <ProgressPills progress={payload.progress} />
     </div>

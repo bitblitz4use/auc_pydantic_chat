@@ -54,6 +54,13 @@ class QuestionRenderModel(BaseModel):
     language: str = "de"
 
 
+class QuestionConversationCue(BaseModel):
+    """Optional conversational guidance rendered around a question card."""
+
+    lead_text: str = ""
+    followup_text: str = ""
+
+
 class QuestionBriefingDocument(BaseModel):
     """Compact document citation info for one question."""
 
@@ -120,6 +127,7 @@ class QuestionCardPayload(BaseModel):
     session_id: str
     standard_keys: list[str] = Field(default_factory=list)
     question: QuestionRenderModel
+    conversation: QuestionConversationCue | None = None
     question_briefing: QuestionBriefing | None = None
     progress: ProgressCounters
 

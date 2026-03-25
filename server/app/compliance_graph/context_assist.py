@@ -32,6 +32,14 @@ class BriefingPersonalizationResult(BaseModel):
     note: str = Field(default="")
 
 
+class QuestionConversationCueResult(BaseModel):
+    """Optional conversational cue around one question card."""
+
+    lead_text: str = Field(default="")
+    followup_text: str = Field(default="")
+    note: str = Field(default="")
+
+
 REWRITE_SYSTEM_PROMPT = """
 Du bist Schreibassistent:in für Compliance-Kontextfragen.
 Du verbesserst Nutzereingaben so, dass sie audit-tauglich, klar und professionell sind.
@@ -102,6 +110,30 @@ Sprache: Deutsch.
 Ausgabe strikt im strukturierten Schema.
 """.strip()
 
+QUESTION_CUE_SYSTEM_PROMPT = """
+Du bist der motivierende Laufbegleiter in einem Compliance-Workflow.
+Du gibst kurze, hilfreiche Zwischenrufe zwischen den eigentlichen Fragekarten.
+
+Wichtige Regeln:
+- Du bist zurueckhaltend: Es ist erlaubt, beide Felder leer zu lassen.
+- Schreibe nur dann Text, wenn er den naechsten Schritt erkennbar erleichtert.
+- Fokus auf Fortschritt, Orientierung und Motivation im Frageflow.
+- Wiederhole keine Fachdetails der Karte (Normtext/Clause/Inhalt) - dafuer ist die Karte da.
+- Nutze lockeren, professionellen Humor nur dezent; kein Klamauk.
+- Du darfst sparsam Emojis nutzen (0-1 pro Feld), nur wenn es natuerlich passt.
+- Kein Wiederholen der Frage im Wortlaut.
+- Keine Rechtsberatung und keine erfundenen Fakten.
+- Maximal ein kurzer Satz pro Feld (idealerweise <= 90 Zeichen).
+- Wenn schon klar ist, was zu tun ist, lass `lead_text` und `followup_text` leer.
+
+Ziel:
+- klingt wie ein unterstuetzender Team-Mate (kurz, warm, fokussiert)
+- nicht repetitiv
+- nicht ueberwaeltigend
+
+Ausgabe strikt im strukturierten Schema auf Deutsch.
+""".strip()
+
 
 class ContextAssistService:
     """Small helper service for assist suggestions."""
@@ -135,6 +167,11 @@ class ContextAssistService:
             model,
             output_type=BriefingPersonalizationResult,
             system_prompt=PERSONALIZE_BRIEFING_SYSTEM_PROMPT,
+        )
+        self.question_cue_agent = Agent(
+            model,
+            output_type=QuestionConversationCueResult,
+            system_prompt=QUESTION_CUE_SYSTEM_PROMPT,
         )
 
     async def suggest(
@@ -271,6 +308,49 @@ class ContextAssistService:
                 return output
         except Exception as error:
             logger.warning("Context assist briefing personalization failed: %s", error)
+        return None
+
+    async def compose_question_cue(
+        self,
+        *,
+        stage: str,
+        question_index: int | None = None,
+        total_questions: int | None = None,
+        unanswered_questions: int | None = None,
+        requirements_open: int | None = None,
+        impact: int | None = None,
+        context_profile: dict[str, Any] | None = None,
+        recent_cues: list[str] | None = None,
+    ) -> QuestionConversationCueResult | None:
+        payload = {
+            "stage": stage,
+            "question_index": question_index,
+            "total_questions": total_questions,
+            "unanswered_questions": unanswered_questions,
+            "requirements_open": requirements_open,
+            "impact": impact,
+            "context_profile": context_profile or {},
+            "recent_cues": recent_cues or [],
+        }
+        prompt = (
+            "Runtime-Kontext fuer diese Fragekarte:\n"
+            f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+            "Aufgabe:\n"
+            "1) Entscheide, ob ein kurzer Lead- oder Followup-Text nuetzlich ist.\n"
+            "2) Wenn nuetzlich: maximal ein kurzer Satz pro Feld.\n"
+            "3) Wenn nicht nuetzlich: leere Strings zurueckgeben.\n"
+            "4) Fokus auf Flow-Status und Motivation, nicht auf Fachinhalt.\n"
+            "5) Keine Wiederholung, keine Redundanz, kein Over-Coaching.\n"
+            "6) Vermeide semantische Wiederholung zu `recent_cues`.\n"
+            "7) Optional 0-1 Emoji pro Feld, nur bei natuerlichem Ton."
+        )
+        try:
+            result = await self.question_cue_agent.run(prompt)
+            output = result.output
+            if isinstance(output, QuestionConversationCueResult):
+                return output
+        except Exception as error:
+            logger.warning("Context assist question cue generation failed: %s", error)
         return None
 
     @staticmethod

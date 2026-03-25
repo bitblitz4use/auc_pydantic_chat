@@ -751,6 +751,34 @@ export function ChatInterface() {
     return "";
   };
 
+  const getMessageTextParts = (message: any): string[] => {
+    if (!message) return [];
+
+    if (Array.isArray(message.parts)) {
+      return message.parts
+        .map((p: any) => (p?.type === "text" && typeof p.text === "string" ? p.text : ""))
+        .filter((part: string) => part.length > 0);
+    }
+
+    if (Array.isArray(message.content)) {
+      const parts = message.content
+        .map((p: any) => {
+          if (typeof p === "string") return p;
+          if (p?.type === "text" && typeof p.text === "string") return p.text;
+          if (p?.type === "text-delta" && typeof p.delta === "string") return p.delta;
+          return "";
+        })
+        .filter((part: string) => part.length > 0);
+      if (parts.length > 0) return parts;
+    }
+
+    if (typeof message.content === "string" && message.content.length > 0) {
+      return [message.content];
+    }
+
+    return [];
+  };
+
 
   // Check if we should show loading indicator
   const isLoading = status === "submitted" || status === "streaming";
@@ -799,11 +827,12 @@ export function ChatInterface() {
     if (last?.role !== "assistant") {
       return;
     }
-    const raw = getMessageText(last).trim();
-    if (!raw.startsWith("<")) {
+    const rawParts = getMessageTextParts(last);
+    const jsxPart = rawParts.find((part) => part.trim().startsWith("<CtxQuestionCard"));
+    if (!jsxPart) {
       return;
     }
-    const payload = tryDecodeCtxQuestionPayloadFromJsx(raw);
+    const payload = tryDecodeCtxQuestionPayloadFromJsx(jsxPart.trim());
     if (!payload) {
       return;
     }
@@ -837,25 +866,40 @@ export function ChatInterface() {
                           <p>{formatUserBubbleText(message)}</p>
                         ) : isContextForMessage(message) ? (
                           (() => {
-                            const raw = getMessageText(message).trim();
-                            const isJsxCard = raw.startsWith("<");
-                            if (isJsxCard) {
-                              return (
-                                <div className="size-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                                  <ContextAssistantJsxPreview
-                                    jsxText={raw || "<div />"}
-                                    interactive={isInteractiveContextMessage(message)}
-                                    isStreaming={
-                                      (status === "submitted" || status === "streaming") &&
-                                      message.id === lastMessage?.id
-                                    }
-                                    onError={handleContextJsxError}
-                                  />
-                                </div>
-                              );
+                            const textParts = getMessageTextParts(message);
+                            if (textParts.length === 0) {
+                              return <MessageResponse>{getMessageText(message)}</MessageResponse>;
                             }
                             return (
-                              <MessageResponse>{getMessageText(message)}</MessageResponse>
+                              <div className="space-y-3">
+                                {textParts.map((part, idx) => {
+                                  const rawPart = part.trim();
+                                  const isJsxCard = rawPart.startsWith("<CtxQuestionCard");
+                                  if (isJsxCard) {
+                                    return (
+                                      <div
+                                        key={`${message.id}-ctx-part-${idx}`}
+                                        className="size-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                                      >
+                                        <ContextAssistantJsxPreview
+                                          jsxText={rawPart || "<div />"}
+                                          interactive={isInteractiveContextMessage(message)}
+                                          isStreaming={
+                                            (status === "submitted" || status === "streaming") &&
+                                            message.id === lastMessage?.id
+                                          }
+                                          onError={handleContextJsxError}
+                                        />
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <MessageResponse key={`${message.id}-ctx-part-${idx}`}>
+                                      {part}
+                                    </MessageResponse>
+                                  );
+                                })}
+                              </div>
                             );
                           })()
                         ) : (

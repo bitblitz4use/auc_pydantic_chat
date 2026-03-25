@@ -19,6 +19,7 @@ from app.compliance_graph.context_contract import (
     QuestionBriefing,
     QuestionBriefingChunk,
     QuestionBriefingClause,
+    QuestionConversationCue,
     QuestionBriefingDocument,
     QuestionBriefingEvidence,
     QuestionBriefingImpact,
@@ -348,10 +349,20 @@ class ComplianceContextOrchestrator:
                 question_prompt=render_model.prompt,
                 context_profile=context_profile,
             )
+            conversation = await self._build_question_conversation_cue(
+                session_id=session_id,
+                stage="graph",
+                question_prompt=render_model.prompt,
+                context_profile=context_profile,
+                unanswered_questions=progress.unanswered_questions,
+                requirements_open=progress.requirements_open,
+                impact=candidate.impact,
+            )
             payload = QuestionCardPayload(
                 session_id=session_id,
                 standard_keys=standard_keys,
                 question=render_model,
+                conversation=conversation,
                 question_briefing=briefing,
                 progress=progress,
             )
@@ -738,10 +749,24 @@ class ComplianceContextOrchestrator:
             requirements_unclear=0,
             unanswered_questions=len(missing_keys),
         )
+        required_total = len([item for item in CONTEXT_QUESTION_ORDER if item.required])
+        current_index = max(1, required_total - len(missing_keys) + 1)
+        conversation = await self._build_question_conversation_cue(
+            session_id=session_id,
+            stage="context",
+            question_prompt=question.prompt,
+            context_profile=context_profile,
+            question_index=current_index,
+            total_questions=required_total,
+            unanswered_questions=len(missing_keys),
+            requirements_open=0,
+            impact=0,
+        )
         return QuestionCardPayload(
             session_id=session_id,
             standard_keys=standard_keys,
             question=question,
+            conversation=conversation,
             question_briefing=None,
             progress=progress,
         )
@@ -825,9 +850,117 @@ class ComplianceContextOrchestrator:
             session_id=session_id,
             standard_keys=standard_keys,
             question=question,
+            conversation=None,
             question_briefing=None,
             progress=progress,
         )
+
+    async def _build_question_conversation_cue(
+        self,
+        *,
+        session_id: str,
+        stage: Literal["context", "graph"],
+        question_prompt: str,
+        context_profile: dict[str, Any],
+        question_index: int | None = None,
+        total_questions: int | None = None,
+        unanswered_questions: int | None = None,
+        requirements_open: int | None = None,
+        impact: int | None = None,
+    ) -> QuestionConversationCue | None:
+        if not question_prompt.strip():
+            return None
+
+        recent_cues = await self._load_recent_question_cues(session_id=session_id)
+        cue = await self.assist_service.compose_question_cue(
+            stage=stage,
+            question_index=question_index,
+            total_questions=total_questions,
+            unanswered_questions=unanswered_questions,
+            requirements_open=requirements_open,
+            impact=impact,
+            context_profile=context_profile,
+            recent_cues=recent_cues,
+        )
+        lead_text = self._compact_conversation_text(cue.lead_text if cue else "")
+        followup_text = self._compact_conversation_text(cue.followup_text if cue else "")
+
+        # Deterministic minimal fallback for key moments only.
+        if not lead_text and not followup_text:
+            if stage == "context" and question_index == 1:
+                lead_text = (
+                    "Lass uns zuerst gemeinsam mehr ueber deine Organisation herausfinden."
+                )
+            elif (unanswered_questions or 0) <= 2 and (unanswered_questions or 0) > 0:
+                followup_text = "Fast geschafft. Noch wenige Antworten, dann geht es weiter."
+
+        if not lead_text and not followup_text:
+            return None
+
+        await self._store_recent_question_cues(
+            session_id=session_id,
+            cues=[*recent_cues, lead_text, followup_text],
+        )
+        return QuestionConversationCue(
+            lead_text=lead_text,
+            followup_text=followup_text,
+        )
+
+    @staticmethod
+    def _compact_conversation_text(value: str, max_len: int = 160) -> str:
+        text = " ".join(str(value or "").split()).strip()
+        if not text:
+            return ""
+        if len(text) <= max_len:
+            return text
+        shortened = text[: max_len - 1].rstrip()
+        return f"{shortened}..."
+
+    async def _load_recent_question_cues(self, session_id: str) -> list[str]:
+        async with self.neo4j_driver.session() as session:
+            result = await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                RETURN s.context_recent_cues_json AS cues_json
+                """,
+                session_id=session_id,
+            )
+            row = await result.single()
+
+        raw_json = row.get("cues_json") if row else None
+        if not isinstance(raw_json, str) or not raw_json.strip():
+            return []
+        try:
+            parsed = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return [
+            str(item).strip()
+            for item in parsed
+            if isinstance(item, str) and str(item).strip()
+        ][:3]
+
+    async def _store_recent_question_cues(self, session_id: str, cues: list[str]) -> None:
+        compacted = [
+            cue
+            for cue in (" ".join(str(item).split()).strip() for item in cues)
+            if cue
+        ]
+        if not compacted:
+            return
+        recent = compacted[-3:]
+        cues_json = json.dumps(recent, ensure_ascii=False)
+        async with self.neo4j_driver.session() as session:
+            await session.run(
+                """
+                MATCH (s:Session {session_id: $session_id})
+                SET s.context_recent_cues_json = $cues_json
+                """,
+                session_id=session_id,
+                cues_json=cues_json,
+            )
 
     def _normalize_answer(
         self,
