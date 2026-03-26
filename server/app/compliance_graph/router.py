@@ -16,10 +16,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class ContextChallengePreviewRequest(BaseModel):
+class ContextQuestionChallengeRunRequest(BaseModel):
     question_key: str
-    draft_answer_value: bool | str | list[str] | int | float | None = None
-    manual_evidence_text: str = ""
     model_id: str | None = None
 
 
@@ -158,13 +156,13 @@ async def run_context_challenge(
         raise HTTPException(status_code=500, detail=f"Context challenge run failed: {error}") from error
 
 
-@router.post("/compliance-graph/sessions/{session_id}/context-challenge/preview")
-async def preview_context_challenge(
+@router.post("/compliance-graph/sessions/{session_id}/context-challenge/question/run")
+async def run_question_context_challenge(
     request: Request,
     session_id: str,
-    body: ContextChallengePreviewRequest,
+    body: ContextQuestionChallengeRunRequest,
 ):
-    """Run synchronous question-scoped preview challenge for immediate card feedback."""
+    """Run and persist question-scoped auto challenge."""
     neo4j_driver = getattr(request.app.state, "neo4j_driver", None)
     if neo4j_driver is None:
         raise HTTPException(status_code=503, detail="Neo4j is not configured.")
@@ -175,15 +173,13 @@ async def preview_context_challenge(
         model_id=body.model_id,
     )
     try:
-        return await service.preview_question_challenge(
+        return await service.run_question_challenge(
             session_id=session_id.strip(),
             question_key=body.question_key.strip(),
-            draft_answer_value=body.draft_answer_value,
-            manual_evidence_text=body.manual_evidence_text,
         )
     except Exception as error:
-        logger.exception("Context challenge preview failed: %s", error)
-        raise HTTPException(status_code=500, detail=f"Context challenge preview failed: {error}") from error
+        logger.exception("Question context challenge run failed: %s", error)
+        raise HTTPException(status_code=500, detail=f"Question context challenge run failed: {error}") from error
 
 
 @router.get("/compliance-graph/sessions/{session_id}/context-challenge/status")

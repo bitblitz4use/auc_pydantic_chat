@@ -339,7 +339,6 @@ export function ChatInterface() {
                 value: submission.value,
                 manual_rationale: submission.manualRationale,
                 manual_evidence_text: submission.manualEvidenceText,
-                trigger_auto_challenge: submission.triggerAutoChallenge,
               },
             },
           },
@@ -511,12 +510,10 @@ export function ChatInterface() {
     }
   }, [modelSelection.selectedModel]);
 
-  const previewContextChallenge = useCallback(
+  const runQuestionChallenge = useCallback(
     async (submission: {
       sessionId: string;
       questionKey: string;
-      draftAnswerValue?: boolean | string | string[] | number;
-      manualEvidenceText?: string;
     }): Promise<{
       status: string;
       summary: string;
@@ -525,6 +522,7 @@ export function ChatInterface() {
         ru_key: string;
         challenge_state: string;
         auto_state: string;
+        result_state?: string;
         confidence: number;
         rationale: string;
         citations: string[];
@@ -540,13 +538,11 @@ export function ChatInterface() {
       }>;
     } | null> => {
       try {
-        const response = await fetch(apiUrl.contextChallengePreview(submission.sessionId), {
+        const response = await fetch(apiUrl.contextQuestionChallengeRun(submission.sessionId), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question_key: submission.questionKey,
-            draft_answer_value: submission.draftAnswerValue,
-            manual_evidence_text: submission.manualEvidenceText || "",
             model_id: modelSelection.selectedModel,
           }),
         });
@@ -566,6 +562,7 @@ export function ChatInterface() {
               ru_key: String(row.ru_key || ""),
               challenge_state: String(row.challenge_state || "insufficient_evidence"),
               auto_state: String(row.auto_state || "unclear"),
+              result_state: String(row.result_state || row.auto_state || "unclear"),
               confidence: Number(row.confidence || 0),
               rationale: String(row.rationale || ""),
               citations: Array.isArray(row.citations) ? row.citations.map((c) => String(c)) : [],
@@ -709,7 +706,7 @@ export function ChatInterface() {
       uploadContextDocument,
       getContextDocumentStatus,
       runContextChallenge,
-      previewContextChallenge,
+      runQuestionChallenge,
       getContextChallengeStatus,
       continueContextSession,
       submitting: status === "submitted" || status === "streaming",
@@ -721,7 +718,7 @@ export function ChatInterface() {
       uploadContextDocument,
       getContextDocumentStatus,
       runContextChallenge,
-      previewContextChallenge,
+      runQuestionChallenge,
       getContextChallengeStatus,
       continueContextSession,
     ]

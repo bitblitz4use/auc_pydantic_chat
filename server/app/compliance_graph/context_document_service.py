@@ -352,76 +352,21 @@ class ContextDocumentService:
             row = await result.single()
         return dict(row or {})
 
-    async def preview_question_challenge(
-        self,
-        *,
-        session_id: str,
-        question_key: str,
-        draft_answer_value: bool | str | list[str] | int | float | None = None,
-        manual_evidence_text: str = "",
-    ) -> dict[str, Any]:
-        question_key = question_key.strip()
-        if not question_key:
-            return {"status": "failed", "summary": "Frageschlüssel fehlt.", "ru_results": []}
-        # Intentionally ignored in parity mode:
-        # preview must use same requirement-query logic as full challenge.
-        _ = draft_answer_value
-        _ = manual_evidence_text
-
-        _, requirements = await self._load_question_requirements(
-            session_id=session_id,
-            question_key=question_key,
-            limit=12,
-        )
-        evaluated_items = await self._compute_question_challenge_items(
-            session_id=session_id,
-            requirements=requirements,
-        )
-        ru_results = self._build_question_challenge_result_rows(evaluated_items)
-
-        if not ru_results:
-            return {"status": "completed", "summary": "Keine Ergebnisse berechnet.", "ru_results": []}
-
-        state_rank = {"gap": 0, "unclear": 1, "addressed": 2}
-        best_state = min(
-            (str(row.get("auto_state", "unclear")) for row in ru_results),
-            key=lambda state: state_rank.get(state, 1),
-        )
-        summary = (
-            f"Auto-Challenge Vorschau für {len(ru_results)} Anforderungen: "
-            f"dominanter Zustand '{best_state}'."
-        )
-        primary_document_title = ""
-        for row in ru_results:
-            for chunk in row.get("chunks", []):
-                title = str((chunk or {}).get("document_title", "")).strip()
-                if title:
-                    primary_document_title = title
-                    break
-            if primary_document_title:
-                break
-        return {
-            "status": "completed",
-            "summary": summary,
-            "document_title": primary_document_title,
-            "ru_results": ru_results,
-        }
-
     async def run_question_challenge(
         self,
         *,
         session_id: str,
         question_key: str,
-        draft_answer_value: bool | str | list[str] | int | float | None = None,
-        manual_evidence_text: str = "",
     ) -> dict[str, Any]:
         question_key = question_key.strip()
         if not question_key:
             return {"status": "failed", "summary": "Frageschlüssel fehlt.", "ru_results": []}
-        # Intentionally ignored in parity mode:
-        # question-level run must use same requirement-query logic as full challenge.
-        _ = draft_answer_value
-        _ = manual_evidence_text
+        if question_key.startswith("context."):
+            return {
+                "status": "failed",
+                "summary": "Challenge-Lauf ist nur fuer Anforderungsfragen verfuegbar.",
+                "ru_results": [],
+            }
         _, requirements = await self._load_question_requirements(
             session_id=session_id,
             question_key=question_key,
@@ -452,7 +397,7 @@ class ContextDocumentService:
                 break
         return {
             "status": "completed",
-            "summary": f"Frage-spezifischer Challenge-Lauf für {len(ru_results)} Anforderungen abgeschlossen.",
+            "summary": f"Auto-Challenge für {len(ru_results)} Anforderungen abgeschlossen.",
             "document_title": primary_document_title,
             "ru_results": ru_results,
         }
@@ -479,6 +424,7 @@ class ContextDocumentService:
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for requirement, chunks, evaluation in items:
+            mapped_state = self._map_challenge_state(evaluation.challenge_state)
             chunk_rows = [
                 {
                     "chunk_key": chunk.context_chunk_id,
@@ -495,7 +441,8 @@ class ContextDocumentService:
                 {
                     "ru_key": str(requirement.get("ru_key", "")),
                     "challenge_state": evaluation.challenge_state,
-                    "auto_state": self._map_challenge_state(evaluation.challenge_state),
+                    "auto_state": mapped_state,
+                    "result_state": mapped_state,
                     "confidence": float(evaluation.confidence),
                     "rationale": evaluation.rationale,
                     "citations": [str(item) for item in evaluation.citations],
@@ -1438,6 +1385,7 @@ class ContextDocumentService:
                 isinstance(output, ChallengeEvaluation)
                 and output.challenge_state in CHALLENGE_STATES
             ):
+                output.rationale = self._normalize_rationale_state_terms(output.rationale)
                 if not output.citations:
                     output.citations = [chunk.context_chunk_id for chunk in chunks[:2]]
                 return output
@@ -1449,7 +1397,9 @@ class ContextDocumentService:
         return ChallengeEvaluation(
             challenge_state=fallback_state,
             confidence=0.45 if fallback_state == "compliant" else 0.3,
-            rationale="Heuristische Bewertung mangels strukturierter LLM-Ausgabe.",
+            rationale=self._normalize_rationale_state_terms(
+                "Heuristische Bewertung mangels strukturierter LLM-Ausgabe."
+            ),
             citations=[top.context_chunk_id],
         )
 
@@ -1525,6 +1475,22 @@ class ContextDocumentService:
         if challenge_state == "needs_improvement":
             return "gap"
         return "unclear"
+
+    @staticmethod
+    def _normalize_rationale_state_terms(text: str) -> str:
+        """Prevent mixed state vocabulary in user-facing rationale text."""
+        value = str(text or "").strip()
+        if not value:
+            return value
+        replacements = {
+            r"\bneeds_improvement\b": "gap",
+            r"\binsufficient_evidence\b": "unclear",
+            r"\bcompliant\b": "addressed",
+        }
+        normalized = value
+        for pattern, replacement in replacements.items():
+            normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+        return normalized
 
     async def _recompute_effective_state(self, *, session_id: str) -> None:
         async with self.neo4j_driver.session() as session:

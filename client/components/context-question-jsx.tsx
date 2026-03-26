@@ -34,7 +34,6 @@ export type ContextAnswerSubmission = {
   value: boolean | string | string[] | number | FileUploadAnswerValue;
   manualRationale?: string;
   manualEvidenceText?: string;
-  triggerAutoChallenge?: boolean;
 };
 
 export type ContextAssistSubmission = {
@@ -59,11 +58,9 @@ type ContextQuestionRuntimeValue = {
   }) => Promise<FileUploadAnswerValue | null>;
   getContextDocumentStatus: (contextDocumentId: string) => Promise<FileUploadAnswerValue | null>;
   runContextChallenge: (sessionId: string) => Promise<boolean>;
-  previewContextChallenge: (submission: {
+  runQuestionChallenge: (submission: {
     sessionId: string;
     questionKey: string;
-    draftAnswerValue?: boolean | string | string[] | number;
-    manualEvidenceText?: string;
   }) => Promise<{
     status: string;
     summary: string;
@@ -72,6 +69,7 @@ type ContextQuestionRuntimeValue = {
       ru_key: string;
       challenge_state: string;
       auto_state: string;
+      result_state?: string;
       confidence: number;
       rationale: string;
       citations: string[];
@@ -327,9 +325,9 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [challengeBusy, setChallengeBusy] = useState(false);
-  const [previewBusy, setPreviewBusy] = useState(false);
-  const [previewError, setPreviewError] = useState("");
-  const [previewResult, setPreviewResult] = useState<{
+  const [questionChallengeBusy, setQuestionChallengeBusy] = useState(false);
+  const [questionChallengeError, setQuestionChallengeError] = useState("");
+  const [questionChallengeResult, setQuestionChallengeResult] = useState<{
     status: string;
     summary: string;
     document_title: string;
@@ -337,6 +335,7 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       ru_key: string;
       challenge_state: string;
       auto_state: string;
+      result_state?: string;
       confidence: number;
       rationale: string;
       citations: string[];
@@ -351,16 +350,14 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       }>;
     }>;
   } | null>(null);
-  const [previewInputKey, setPreviewInputKey] = useState("");
   const [assistNote, setAssistNote] = useState<string>(
     typeof question?.assist_note === "string" ? question.assist_note : ""
   );
 
   useEffect(() => {
-    setPreviewBusy(false);
-    setPreviewError("");
-    setPreviewResult(null);
-    setPreviewInputKey("");
+    setQuestionChallengeBusy(false);
+    setQuestionChallengeError("");
+    setQuestionChallengeResult(null);
   }, [payload?.session_id, question?.question_key]);
 
   if (!payload || !question) {
@@ -372,6 +369,26 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   }
 
   const disabled = !interactive || runtime.submitting;
+  const isContextFactQuestion = question.question_key.startsWith("context.");
+  const showDocumentChallenge = !isContextFactQuestion;
+  const formatChallengeStateLabel = (state: string): string => {
+    if (state === "compliant") return "Compliant";
+    if (state === "needs_improvement") return "Needs Improvement";
+    if (state === "insufficient_evidence") return "Insufficient Evidence";
+    return state || "Unknown";
+  };
+  const challengeStateChipClass = (state: string): string => {
+    if (state === "compliant") {
+      return "border-emerald-300 bg-emerald-100 text-emerald-800";
+    }
+    if (state === "needs_improvement") {
+      return "border-amber-300 bg-amber-100 text-amber-800";
+    }
+    if (state === "insufficient_evidence") {
+      return "border-rose-300 bg-rose-100 text-rose-800";
+    }
+    return "border-border bg-muted text-muted-foreground";
+  };
 
   const toggleMultiValue = (value: string) => {
     setMultiValues((current) =>
@@ -391,16 +408,8 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
     (question.answer_type === "file_upload" &&
       Boolean(uploadValue?.context_document_id) &&
       uploadValue?.ingest_status !== "failed");
-  const canPreviewAutoChallenge =
-    question.answer_type !== "file_upload" &&
-    ((question.answer_type === "boolean" && booleanValue !== null) ||
-      (question.answer_type === "single_choice" && Boolean(singleValue)) ||
-      (question.answer_type === "multi_choice" && multiValues.length > 0) ||
-      (question.answer_type === "text" && Boolean(textValue.trim())) ||
-      (question.answer_type === "number" &&
-        Boolean(numberValue.trim()) &&
-        Number.isFinite(Number(numberValue)) &&
-        Number(numberValue) >= 0));
+  const canRunQuestionChallenge =
+    showDocumentChallenge && question.answer_type !== "file_upload";
 
   useEffect(() => {
     if (question.answer_type !== "file_upload") {
@@ -424,19 +433,6 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       window.clearInterval(interval);
     };
   }, [question.answer_type, runtime, uploadValue]);
-
-  useEffect(() => {
-    if (!previewResult) {
-      return;
-    }
-    if (!previewInputKey) {
-      return;
-    }
-    const currentKey = computePreviewInputKey();
-    if (currentKey !== previewInputKey) {
-      setPreviewResult(null);
-    }
-  }, [booleanValue, multiValues, numberValue, previewInputKey, previewResult, question.answer_type, question.question_key, singleValue, textValue]);
 
   const submit = () => {
     if (disabled) return;
@@ -468,39 +464,7 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       standardKeys: payload.standard_keys ?? [],
       questionKey: question.question_key,
       value,
-      manualRationale: previewResult?.ru_results?.[0]?.rationale || "",
       manualEvidenceText: question.answer_type === "text" ? textValue.trim() : "",
-      triggerAutoChallenge: Boolean(previewResult),
-    });
-  };
-
-  const resolveDraftAnswerValue = (): boolean | string | string[] | number | undefined => {
-    if (question.answer_type === "boolean") {
-      return booleanValue === null ? undefined : booleanValue;
-    }
-    if (question.answer_type === "single_choice") {
-      return singleValue || undefined;
-    }
-    if (question.answer_type === "multi_choice") {
-      return multiValues.length > 0 ? multiValues : undefined;
-    }
-    if (question.answer_type === "number") {
-      if (!numberValue.trim()) return undefined;
-      const value = Number(numberValue);
-      return Number.isFinite(value) && value >= 0 ? value : undefined;
-    }
-    if (question.answer_type === "text") {
-      return textValue.trim() || undefined;
-    }
-    return undefined;
-  };
-
-  const computePreviewInputKey = () => {
-    const answer = resolveDraftAnswerValue();
-    return JSON.stringify({
-      questionKey: question.question_key,
-      draftAnswer: answer,
-      evidence: question.answer_type === "text" ? textValue.trim() : "",
     });
   };
 
@@ -534,30 +498,24 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
       .finally(() => setChallengeBusy(false));
   };
 
-  const runPreviewChallenge = () => {
-    if (previewBusy || disabled || question.answer_type === "file_upload") return;
-    const draftAnswer = resolveDraftAnswerValue();
-    const manualEvidence = question.answer_type === "text" ? textValue.trim() : "";
-    setPreviewBusy(true);
-    setPreviewError("");
-    const inputKey = computePreviewInputKey();
-    setPreviewInputKey(inputKey);
+  const runQuestionChallenge = () => {
+    if (questionChallengeBusy || disabled || !showDocumentChallenge || question.answer_type === "file_upload") return;
+    setQuestionChallengeBusy(true);
+    setQuestionChallengeError("");
     void runtime
-      .previewContextChallenge({
+      .runQuestionChallenge({
         sessionId: payload.session_id,
         questionKey: question.question_key,
-        draftAnswerValue: draftAnswer,
-        manualEvidenceText: manualEvidence,
       })
       .then((result) => {
         if (!result) {
-          setPreviewError("Auto-Challenge konnte nicht berechnet werden.");
+          setQuestionChallengeError("Auto-Challenge konnte nicht ausgeführt werden.");
           return;
         }
-        setPreviewResult(result);
+        setQuestionChallengeResult(result);
       })
-      .catch(() => setPreviewError("Auto-Challenge konnte nicht berechnet werden."))
-      .finally(() => setPreviewBusy(false));
+      .catch(() => setQuestionChallengeError("Auto-Challenge konnte nicht ausgeführt werden."))
+      .finally(() => setQuestionChallengeBusy(false));
   };
 
   const requestAssist = (tool: "rewrite" | "web_lookup") => {
@@ -700,9 +658,10 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
           </div>
         )}
 
-        {(briefing?.context_challenge?.note ||
-          (briefing?.context_challenge?.chunks?.length ?? 0) > 0 ||
-          question.answer_type !== "file_upload") && (
+        {showDocumentChallenge &&
+          (briefing?.context_challenge?.note ||
+            (briefing?.context_challenge?.chunks?.length ?? 0) > 0 ||
+            question.answer_type !== "file_upload") && (
           <div className="mt-3 rounded-md border border-border bg-muted/20 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Dokumentbasierte Challenge
@@ -730,41 +689,50 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
               <div className="mt-2">
                 <button
                   type="button"
-                  onClick={runPreviewChallenge}
-                  disabled={previewBusy || disabled || !canPreviewAutoChallenge}
+                  onClick={runQuestionChallenge}
+                  disabled={questionChallengeBusy || disabled || !canRunQuestionChallenge}
                   className={cn(
                     "inline-flex rounded-md border border-border px-2.5 py-1 text-xs",
-                    previewBusy || disabled || !canPreviewAutoChallenge
+                    questionChallengeBusy || disabled || !canRunQuestionChallenge
                       ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-70"
                       : "bg-background hover:bg-muted/60"
                   )}
                 >
-                  {previewBusy ? "Auto-Challenge läuft..." : "Antwort vorab auto-prüfen"}
+                  {questionChallengeBusy ? (
+                    <Shimmer className="text-xs">Auto-Challenge läuft...</Shimmer>
+                  ) : (
+                    "Auto-Challenge ausführen"
+                  )}
                 </button>
-                {previewBusy && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    <Shimmer>Bewertung wird berechnet...</Shimmer>
-                  </p>
-                )}
-                {previewError && <p className="mt-2 text-xs text-destructive">{previewError}</p>}
-                {previewResult && !previewBusy && (
+                {questionChallengeError && <p className="mt-2 text-xs text-destructive">{questionChallengeError}</p>}
+                {questionChallengeResult && !questionChallengeBusy && (
                   <div className="mt-2 space-y-2">
-                    {previewResult.document_title && (
+                    {questionChallengeResult.document_title && (
                       <p className="text-xs text-muted-foreground">
-                        Geprüftes Dokument: {previewResult.document_title}
+                        Geprüftes Dokument: {questionChallengeResult.document_title}
                       </p>
                     )}
-                    {previewResult.summary && (
-                      <p className="text-xs text-foreground">{previewResult.summary}</p>
+                    {questionChallengeResult.summary && (
+                      <p className="text-xs text-foreground">{questionChallengeResult.summary}</p>
                     )}
-                    {previewResult.ru_results.slice(0, 3).map((item) => (
+                    {questionChallengeResult.ru_results.slice(0, 3).map((item) => (
                       <div
                         key={item.ru_key}
                         className="rounded-md border border-border bg-background/60 p-2 text-xs"
                       >
-                        <p className="font-medium text-foreground">
-                          {item.auto_state} ({Math.round(item.confidence * 100)}%)
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                              challengeStateChipClass(item.challenge_state)
+                            )}
+                          >
+                            {formatChallengeStateLabel(item.challenge_state)}
+                          </span>
+                          <span className="font-medium text-foreground">
+                            {Math.round(item.confidence * 100)}%
+                          </span>
+                        </div>
                         {item.rationale && <p className="mt-1 text-muted-foreground">{item.rationale}</p>}
                         {(item.chunks?.length ?? 0) > 0 && (
                           <div className="mt-2 space-y-1.5">
@@ -774,7 +742,7 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
                                 className="rounded-md border border-border bg-muted/20 p-2"
                               >
                                 <p className="font-medium text-foreground">
-                                  {chunk.document_title || previewResult.document_title || "Dokument"}{" "}
+                                  {chunk.document_title || questionChallengeResult.document_title || "Dokument"}{" "}
                                   {chunk.page_no ? `· Seite ${chunk.page_no}` : ""}
                                 </p>
                                 <p className="text-muted-foreground">
@@ -936,10 +904,10 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
         <div className="mt-4 border-t border-border pt-3">
           <button
             type="button"
-            disabled={!canSubmit || disabled || assistLoadingTool !== null || previewBusy}
+            disabled={!canSubmit || disabled || assistLoadingTool !== null || questionChallengeBusy}
             className={cn(
               "inline-flex rounded-md border border-border px-3 py-1.5 text-xs font-medium",
-              !canSubmit || disabled || assistLoadingTool !== null || previewBusy
+              !canSubmit || disabled || assistLoadingTool !== null || questionChallengeBusy
                 ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-60"
                 : "bg-background hover:bg-muted/60"
             )}

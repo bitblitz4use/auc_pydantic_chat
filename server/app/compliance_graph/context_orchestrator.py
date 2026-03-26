@@ -466,20 +466,6 @@ class ComplianceContextOrchestrator:
                                 manual_citations=context_input.answer.manual_citations,
                                 manual_evidence_text=context_input.answer.manual_evidence_text,
                             )
-                            if bool(context_input.answer.trigger_auto_challenge):
-                                challenge_service = ContextDocumentService(
-                                    neo4j_driver=self.neo4j_driver,
-                                    qdrant_client=self.qdrant_client,
-                                    model_id=self.model_id,
-                                )
-                                await challenge_service.run_question_challenge(
-                                    session_id=session_id,
-                                    question_key=question_key,
-                                    draft_answer_value=normalized,
-                                    manual_evidence_text=str(
-                                        context_input.answer.manual_evidence_text or ""
-                                    ).strip(),
-                                )
 
         context_profile = await self._load_context_profile(session_id=session_id)
         await self._refresh_context_status(session_id=session_id, context_profile=context_profile)

@@ -18,7 +18,6 @@ class ContextAnswerInput(BaseModel):
     manual_rationale: str | None = None
     manual_citations: list[dict[str, Any]] | None = None
     manual_evidence_text: str | None = None
-    trigger_auto_challenge: bool | None = None
 
     model_config = ConfigDict(extra="ignore")
 
