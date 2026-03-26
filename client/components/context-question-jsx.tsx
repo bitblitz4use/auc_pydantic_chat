@@ -153,6 +153,24 @@ export type QuestionPayload = {
       status?: string;
       run_recommended?: boolean;
       note?: string;
+      summary?: string;
+      document_title?: string;
+      results?: Array<{
+        ru_key?: string;
+        challenge_state?: string;
+        result_state?: string;
+        confidence?: number;
+        rationale?: string;
+        chunks?: Array<{
+          chunk_key?: string;
+          document_title?: string;
+          page_no?: string;
+          heading_path?: string;
+          source_ref?: string;
+          score?: number;
+          method?: string;
+        }>;
+      }>;
       chunks?: Array<{
         chunk_key?: string;
         document_title?: string;
@@ -324,7 +342,6 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   const [uploadValue, setUploadValue] = useState<FileUploadAnswerValue | null>(initialUploadValue);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const [challengeBusy, setChallengeBusy] = useState(false);
   const [questionChallengeBusy, setQuestionChallengeBusy] = useState(false);
   const [questionChallengeError, setQuestionChallengeError] = useState("");
   const [questionChallengeResult, setQuestionChallengeResult] = useState<{
@@ -353,6 +370,36 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   const [assistNote, setAssistNote] = useState<string>(
     typeof question?.assist_note === "string" ? question.assist_note : ""
   );
+  const persistedChallengeResult = useMemo(() => {
+    const challenge = briefing?.context_challenge;
+    const rows = Array.isArray(challenge?.results) ? challenge.results : [];
+    if (rows.length === 0) {
+      return null;
+    }
+    return {
+      status: String(challenge?.status || "completed"),
+      summary: String(challenge?.summary || ""),
+      document_title: String(challenge?.document_title || ""),
+      ru_results: rows.map((row) => ({
+        ru_key: String(row?.ru_key || ""),
+        challenge_state: String(row?.challenge_state || "insufficient_evidence"),
+        auto_state: String(row?.result_state || "unclear"),
+        result_state: String(row?.result_state || "unclear"),
+        confidence: Number(row?.confidence || 0),
+        rationale: String(row?.rationale || ""),
+        citations: [],
+        chunks: (Array.isArray(row?.chunks) ? row.chunks : []).map((chunk) => ({
+          chunk_key: String(chunk?.chunk_key || ""),
+          document_title: String(chunk?.document_title || ""),
+          page_no: String(chunk?.page_no || ""),
+          heading_path: String(chunk?.heading_path || ""),
+          source_ref: String(chunk?.source_ref || ""),
+          score: Number(chunk?.score || 0),
+          method: String(chunk?.method || ""),
+        })),
+      })),
+    };
+  }, [briefing?.context_challenge]);
 
   useEffect(() => {
     setQuestionChallengeBusy(false);
@@ -371,6 +418,8 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
   const disabled = !interactive || runtime.submitting;
   const isContextFactQuestion = question.question_key.startsWith("context.");
   const showDocumentChallenge = !isContextFactQuestion;
+  const displayChallengeResult = questionChallengeResult ?? persistedChallengeResult;
+  const hasDisplayChallengeResult = (displayChallengeResult?.ru_results?.length ?? 0) > 0;
   const formatChallengeStateLabel = (state: string): string => {
     if (state === "compliant") return "Compliant";
     if (state === "needs_improvement") return "Needs Improvement";
@@ -488,14 +537,6 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
         setUploadError("Upload fehlgeschlagen.");
       })
       .finally(() => setUploadBusy(false));
-  };
-
-  const triggerChallengeRun = () => {
-    if (challengeBusy) return;
-    setChallengeBusy(true);
-    void runtime
-      .runContextChallenge(payload.session_id)
-      .finally(() => setChallengeBusy(false));
   };
 
   const runQuestionChallenge = () => {
@@ -669,7 +710,7 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
             {briefing?.context_challenge?.note && (
               <p className="mt-1 text-sm text-foreground">{briefing.context_challenge.note}</p>
             )}
-            {(briefing?.context_challenge?.chunks?.length ?? 0) > 0 && (
+            {!hasDisplayChallengeResult && (briefing?.context_challenge?.chunks?.length ?? 0) > 0 && (
               <div className="mt-2 space-y-2">
                 {briefing?.context_challenge?.chunks?.slice(0, 3).map((chunk, idx) => (
                   <div
@@ -705,17 +746,17 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
                   )}
                 </button>
                 {questionChallengeError && <p className="mt-2 text-xs text-destructive">{questionChallengeError}</p>}
-                {questionChallengeResult && !questionChallengeBusy && (
+                {displayChallengeResult && !questionChallengeBusy && (
                   <div className="mt-2 space-y-2">
-                    {questionChallengeResult.document_title && (
+                    {displayChallengeResult.document_title && (
                       <p className="text-xs text-muted-foreground">
-                        Geprüftes Dokument: {questionChallengeResult.document_title}
+                        Geprüftes Dokument: {displayChallengeResult.document_title}
                       </p>
                     )}
-                    {questionChallengeResult.summary && (
-                      <p className="text-xs text-foreground">{questionChallengeResult.summary}</p>
+                    {displayChallengeResult.summary && (
+                      <p className="text-xs text-foreground">{displayChallengeResult.summary}</p>
                     )}
-                    {questionChallengeResult.ru_results.slice(0, 3).map((item) => (
+                    {displayChallengeResult.ru_results.slice(0, 3).map((item) => (
                       <div
                         key={item.ru_key}
                         className="rounded-md border border-border bg-background/60 p-2 text-xs"
@@ -723,7 +764,7 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
                         <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={cn(
-                              "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                              "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium",
                               challengeStateChipClass(item.challenge_state)
                             )}
                           >
@@ -742,7 +783,7 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
                                 className="rounded-md border border-border bg-muted/20 p-2"
                               >
                                 <p className="font-medium text-foreground">
-                                  {chunk.document_title || questionChallengeResult.document_title || "Dokument"}{" "}
+                                  {chunk.document_title || displayChallengeResult.document_title || "Dokument"}{" "}
                                   {chunk.page_no ? `· Seite ${chunk.page_no}` : ""}
                                 </p>
                                 <p className="text-muted-foreground">
@@ -757,21 +798,6 @@ function CtxQuestionCard({ payloadB64 = "" }: { payloadB64?: string }) {
                   </div>
                 )}
               </div>
-            )}
-            {briefing?.context_challenge?.run_recommended && (
-              <button
-                type="button"
-                onClick={triggerChallengeRun}
-                disabled={challengeBusy || disabled}
-                className={cn(
-                  "mt-2 inline-flex rounded-md border border-border px-2.5 py-1 text-xs",
-                  challengeBusy || disabled
-                    ? "cursor-not-allowed bg-muted/40 text-muted-foreground opacity-70"
-                    : "bg-background hover:bg-muted/60"
-                )}
-              >
-                {challengeBusy ? "Challenge startet..." : "Vollständigen Challenge-Lauf starten"}
-              </button>
             )}
           </div>
         )}

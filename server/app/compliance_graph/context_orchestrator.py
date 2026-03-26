@@ -17,6 +17,8 @@ from app.compliance_graph.context_assist import ContextAssistService
 from app.compliance_graph.context_contract import (
     ContextChallengeBriefing,
     ContextChallengeChunkEvidence,
+    ContextChallengeResultChunk,
+    ContextChallengeResultRow,
     ProgressCounters,
     QuestionBriefing,
     QuestionBriefingChunk,
@@ -2042,6 +2044,47 @@ class ComplianceContextOrchestrator:
             )
             evidence_rows = await evidence_result.data()
 
+            persisted_results_query = await session.run(
+                """
+                MATCH (q:DiagnosticQuestion {question_key: $question_key})-[:INFLUENCES]->(ru:RequirementUnit)
+                OPTIONAL MATCH (s:Session {session_id: $session_id})-[hs:HAS_CHALLENGE_STATE]->(ru)
+                OPTIONAL MATCH (ch:ContextChunk)-[m:MATCHES_REQUIREMENT {session_id: $session_id}]->(ru)
+                OPTIONAL MATCH (d:ContextDocument {context_document_id: ch.context_document_id})
+                WITH
+                    ru,
+                    hs,
+                    ch,
+                    m,
+                    d
+                ORDER BY ru.ru_key, coalesce(m.score, 0.0) DESC, coalesce(ch.context_chunk_id, "")
+                WITH
+                    ru,
+                    hs,
+                    collect({
+                        chunk_key: coalesce(ch.context_chunk_id, ""),
+                        document_title: coalesce(d.filename, ""),
+                        page_no: coalesce(ch.page_no, ""),
+                        heading_path: coalesce(ch.heading_path, ""),
+                        source_ref: coalesce(ch.source_ref, ""),
+                        score: coalesce(m.score, 0.0),
+                        method: coalesce(m.method, "hybrid")
+                    })[0..3] AS chunks
+                WHERE hs IS NOT NULL
+                RETURN
+                    ru.ru_key AS ru_key,
+                    coalesce(hs.challenge_state, "") AS challenge_state,
+                    coalesce(hs.auto_state, "") AS auto_state,
+                    coalesce(hs.confidence, 0.0) AS confidence,
+                    coalesce(hs.rationale, "") AS rationale,
+                    chunks AS chunks
+                ORDER BY ru_key
+                LIMIT 12
+                """,
+                session_id=session_id,
+                question_key=question_key,
+            )
+            persisted_result_rows = await persisted_results_query.data()
+
         ready = bool(status_row.get("challenge_ready")) if status_row else False
         baseline_run = bool(status_row.get("baseline_run")) if status_row else False
         challenge_status = str(status_row.get("challenge_status") or "") if status_row else ""
@@ -2055,7 +2098,7 @@ class ComplianceContextOrchestrator:
         elif completed_docs <= 0:
             note = "Dokument-Indexierung läuft noch."
         elif not baseline_run and ready:
-            note = "Dokumente sind indexiert. Starte den vollständigen Challenge-Lauf für Baseline-Ergebnisse."
+            note = "Dokumente sind indexiert. Auto-Challenge bewertet diese Frage."
             run_recommended = True
         elif challenge_status in {"queued", "running"}:
             note = "Challenge-Lauf wird aktuell berechnet."
@@ -2074,12 +2117,62 @@ class ComplianceContextOrchestrator:
             for row in evidence_rows
             if str(row.get("chunk_key", "")).strip()
         ]
+        persisted_results: list[ContextChallengeResultRow] = []
+        persisted_document_title = ""
+        for row in persisted_result_rows:
+            challenge_state = str(row.get("challenge_state", "")).strip()
+            if not challenge_state:
+                continue
+            chunk_models: list[ContextChallengeResultChunk] = []
+            for chunk in row.get("chunks") or []:
+                if not isinstance(chunk, dict):
+                    continue
+                chunk_models.append(
+                    ContextChallengeResultChunk(
+                        chunk_key=str(chunk.get("chunk_key", "")),
+                        document_title=str(chunk.get("document_title", "")),
+                        page_no=str(chunk.get("page_no", "")),
+                        heading_path=str(chunk.get("heading_path", "")),
+                        source_ref=str(chunk.get("source_ref", "")),
+                        score=float(chunk.get("score") or 0.0),
+                        method=str(chunk.get("method", "")),
+                    )
+                )
+                if not persisted_document_title and str(chunk.get("document_title", "")).strip():
+                    persisted_document_title = str(chunk.get("document_title", "")).strip()
+            persisted_results.append(
+                ContextChallengeResultRow(
+                    ru_key=str(row.get("ru_key", "")),
+                    challenge_state=challenge_state,
+                    result_state=self._map_challenge_state_to_result_state(challenge_state),
+                    confidence=float(row.get("confidence") or 0.0),
+                    rationale=str(row.get("rationale", "")),
+                    chunks=chunk_models,
+                )
+            )
+        summary = ""
+        if persisted_results:
+            summary = (
+                f"Persistierte Auto-Challenge-Ergebnisse für {len(persisted_results)} Anforderungen verfügbar."
+            )
+            run_recommended = False
         return ContextChallengeBriefing(
             status=challenge_status,
             run_recommended=run_recommended,
             note=note,
+            summary=summary,
+            document_title=persisted_document_title,
+            results=persisted_results,
             chunks=chunks,
         )
+
+    @staticmethod
+    def _map_challenge_state_to_result_state(challenge_state: str) -> str:
+        if challenge_state == "compliant":
+            return "addressed"
+        if challenge_state == "needs_improvement":
+            return "gap"
+        return "unclear"
 
     @staticmethod
     def _select_anchor_clause_candidate(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -2253,6 +2346,7 @@ class ComplianceContextOrchestrator:
             chunk=briefing.chunk,
             summary=personalized_summary,
             evidence=evidence_models,
+            context_challenge=briefing.context_challenge,
             impact=briefing.impact,
         )
 

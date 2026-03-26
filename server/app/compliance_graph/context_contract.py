@@ -120,12 +120,38 @@ class ContextChallengeChunkEvidence(BaseModel):
     rationale: str = ""
 
 
+class ContextChallengeResultChunk(BaseModel):
+    """Chunk citation attached to one persisted challenge result row."""
+
+    chunk_key: str = ""
+    document_title: str = ""
+    page_no: str = ""
+    heading_path: str = ""
+    source_ref: str = ""
+    score: float = 0.0
+    method: str = ""
+
+
+class ContextChallengeResultRow(BaseModel):
+    """Persisted per-requirement challenge result for one question card."""
+
+    ru_key: str = ""
+    challenge_state: str = ""
+    result_state: str = ""
+    confidence: float = 0.0
+    rationale: str = ""
+    chunks: list[ContextChallengeResultChunk] = Field(default_factory=list)
+
+
 class ContextChallengeBriefing(BaseModel):
     """Additive context-document challenge payload for the question card."""
 
     status: str = ""
     run_recommended: bool = False
     note: str = ""
+    summary: str = ""
+    document_title: str = ""
+    results: list[ContextChallengeResultRow] = Field(default_factory=list)
     chunks: list[ContextChallengeChunkEvidence] = Field(default_factory=list)
 
 
